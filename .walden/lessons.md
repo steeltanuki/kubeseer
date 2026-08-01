@@ -13,3 +13,7 @@ Review this file before non-trivial work when the current request matches past m
 - Trigger: Initial task 1.1 proof exposed non-semantic test assumptions
 - Lesson: A JSON round-trip test compared metav1.Time locations and a pointer to an empty result struct by identity, causing false failures despite semantic preservation
 - Guardrail: Compare Kubernetes time values by instant and test deep-copy isolation only through mutable fields; do not use pointer identity for zero-size structs
+### 2026-08-01T09:45:48Z | kubeseer-api-foundation | execute
+- Trigger: Initial task 1.3 generation proof could not resolve the pinned controller tool in the sandbox
+- Lesson: Read-only generation verification depends on Go module resolution and a writable build/module cache even though it writes no repository artifacts
+- Guardrail: Run generation proofs with a writable cache and preserve the controller-gen version in the canonical Makefile used by both generation and verification
