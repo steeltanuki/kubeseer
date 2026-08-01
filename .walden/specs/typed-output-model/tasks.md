@@ -1,0 +1,18 @@
+---
+walden_schema_version: v1alpha1
+status: draft
+approved_at:
+last_modified: 2026-08-01T08:22:36Z
+approved_fingerprint:
+source_design_approved_at:
+source_design_fingerprint:
+---
+
+# Implementation Plan
+
+- [ ] 1. [Top-level implementation objective]
+  - [ ] 1.1 [Concrete coding step]
+    - Requirements: `R1.AC1`, `NFR1`
+    - Design: [Relevant section]
+    - Verification:
+      - command: ["go", "test", "-run", "TestExample", "./pkg/example"]
