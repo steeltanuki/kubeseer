@@ -1,0 +1,53 @@
+# Copyright 2026 Alessandro Rontani
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: API compatibility
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  kubernetes:
+    name: Kubernetes ${{ matrix.kubernetes-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        kubernetes-version: [1.35.6, 1.36.2]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cache envtest assets
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/kubeseer/envtest
+            ~/.local/share/kubebuilder-envtest
+          key: envtest-v0.24.1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.kubernetes-version }}-${{ hashFiles('go.mod', 'go.sum') }}
+
+      - name: Run API contract
+        run: make test-api KUBERNETES_VERSION=${{ matrix.kubernetes-version }}

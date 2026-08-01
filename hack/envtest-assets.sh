@@ -24,6 +24,10 @@ case "${version}:${goos}/${goarch}" in
 	# Kubernetes v1.35.6 embeds the etcd v3.6.5 client/server family.
 	etcd_version="3.6.5"
 	;;
+1.36.2:linux/amd64)
+	# Kubernetes v1.36.2 embeds the etcd v3.6.8 client/server family.
+	etcd_version="3.6.8"
+	;;
 *)
 	echo "no direct envtest asset mapping for Kubernetes ${version} on ${goos}/${goarch}" >&2
 	exit 1
