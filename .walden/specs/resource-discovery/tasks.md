@@ -2,7 +2,7 @@
 walden_schema_version: v1alpha1
 status: approved
 approved_at: 2026-08-01T11:52:07Z
-last_modified: 2026-08-01T11:55:41Z
+last_modified: 2026-08-01T12:01:35Z
 approved_fingerprint: sha256:68f192b1c29b8d1f70f322837a1111a14850cc8f482012f34562e839d6bae188
 source_design_approved_at: 2026-08-01T11:47:16Z
 source_design_fingerprint: sha256:3758e9ed57d131cec58d72b1d2e659fabdf35d9552eb5f1f4c482f606ab5ea68
@@ -19,7 +19,7 @@ source_design_fingerprint: sha256:3758e9ed57d131cec58d72b1d2e659fabdf35d9552eb5f
         expect_output: "--- PASS: TestDiscoveryContracts"
         covers: ["R1.AC2", "R3.AC1", "R3.AC2", "R4.AC1", "R4.AC2", "R4.AC4", "R6.AC4", "NFR2", "NFR3"]
 
-  - [ ] 1.2 Implement single-source API identity resolution through the Kubernetes discovery client
+  - [x] 1.2 Implement single-source API identity resolution through the Kubernetes discovery client
     - Requirements: `R1.AC1`, `R2.AC1`, `R2.AC2`, `R3.AC3`, `R6.AC1`, `R6.AC2`, `R6.AC3`, `R6.AC4`, `NFR1`, `NFR2`, `NFR3`
     - Design: Discovery client adapter; Discovery resolver; Resolution and error values; Error Handling; Security Considerations
     - Verification:

@@ -25,3 +25,8 @@ Review this file before non-trivial work when the current request matches past m
 - Trigger: Initial task 1.1 contract proof exposed Kubernetes schema parsing and core GVR formatting assumptions
 - Lesson: schema.ParseGroupVersion accepts a group with an empty version, and core GroupVersionResource.String includes an empty group prefix.
 - Guardrail: Validate both parse success and a non-empty version, and assert core GVRs from the Kubernetes type rather than hand-written display strings.
+### 2026-08-01T12:01:26Z | resource-discovery | execute
+- Trigger: The initial scope test reused the discovery error variable after a short declaration
+- Lesson: A test assertion can accidentally inspect the outer nil error instead of the guard error, causing a panic rather than validating the contract.
+- Guardrail: Name guard errors explicitly before asserting their reason and message; never reuse an outer error variable in follow-up assertions.
+
