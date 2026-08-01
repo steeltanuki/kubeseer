@@ -2,7 +2,7 @@
 walden_schema_version: v1alpha1
 status: approved
 approved_at: 2026-08-01T09:15:53Z
-last_modified: 2026-08-01T09:46:06Z
+last_modified: 2026-08-01T10:21:09Z
 approved_fingerprint: sha256:6e771137beb72e4bfbe3c714c46f04b4ca6d9a348baaf280156fddf26aeebcbe
 source_design_approved_at: 2026-08-01T09:10:17Z
 source_design_fingerprint: sha256:9d7a86cb0435c9e87face9b1879020937311f8ad72543ac974be4a86bad87657
@@ -38,7 +38,7 @@ source_design_fingerprint: sha256:9d7a86cb0435c9e87face9b1879020937311f8ad72543a
         covers: ["R6.AC4", "R6.AC5"]
 
 - [ ] 2. Prove the API contract against supported Kubernetes API servers
-  - [ ] 2.1 Implement the parameterized envtest contract suite and a `make test-api` entry point, then prove CRD establishment, valid persistence, structural rejection, unserved-version handling, and status isolation on Kubernetes 1.35.6
+  - [x] 2.1 Implement the parameterized envtest contract suite and a `make test-api` entry point, then prove CRD establishment, valid persistence, structural rejection, unserved-version handling, and status isolation on Kubernetes 1.35.6
     - Requirements: `R1.AC4`, `R1.AC5`, `R1.AC6`, `R2.AC4`, `R2.AC5`, `R3.AC1`, `R3.AC3`, `R3.AC5`, `R4.AC1`, `R4.AC3`, `R4.AC6`, `R4.AC7`, `R7.AC1`, `R7.AC3`, `R7.AC4`, `R7.AC5`, `NFR1`, `NFR5`
     - Design: API Contract Test Harness; Error Handling; Envtest Compatibility Tests; Compatibility proof
     - Verification:

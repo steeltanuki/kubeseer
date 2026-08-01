@@ -17,3 +17,7 @@ Review this file before non-trivial work when the current request matches past m
 - Trigger: Initial task 1.3 generation proof could not resolve the pinned controller tool in the sandbox
 - Lesson: Read-only generation verification depends on Go module resolution and a writable build/module cache even though it writes no repository artifacts
 - Guardrail: Run generation proofs with a writable cache and preserve the controller-gen version in the canonical Makefile used by both generation and verification
+### 2026-08-01T10:21:39Z | kubeseer-api-foundation | execute
+- Trigger: setup-envtest did not publish the approved Kubernetes 1.35.6 patch archive
+- Lesson: Treat controller-tools envtest archive availability as separate from Kubernetes release availability; an exact API-server patch can exist without a matching bundled archive.
+- Guardrail: Keep a versioned direct-asset resolver fallback that pins the Kubernetes API binaries and the etcd family when the setup-envtest index has no exact patch.
