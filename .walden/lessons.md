@@ -30,3 +30,8 @@ Review this file before non-trivial work when the current request matches past m
 - Lesson: A test assertion can accidentally inspect the outer nil error instead of the guard error, causing a panic rather than validating the contract.
 - Guardrail: Name guard errors explicitly before asserting their reason and message; never reuse an outer error variable in follow-up assertions.
 
+### 2026-08-01T13:47:19Z | resource-discovery | execute
+- Trigger: The envtest discovery proof could not start its local control plane inside the sandbox
+- Lesson: The Kubernetes API-server smoke test requires local sockets that the restricted sandbox denies even when all assets are available.
+- Guardrail: Run envtest proofs with the required local-process permission and distinguish socket policy failures from discovery implementation failures.
+
