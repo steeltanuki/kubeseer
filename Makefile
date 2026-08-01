@@ -14,11 +14,14 @@
 
 CONTROLLER_GEN_VERSION := v0.20.1
 CONTROLLER_GEN := go run sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION)
+SETUP_ENVTEST_VERSION := v0.24.1
+SETUP_ENVTEST := go run sigs.k8s.io/controller-runtime/tools/setup-envtest@$(SETUP_ENVTEST_VERSION)
 API_PACKAGE := ./api/v1alpha1
 CRD_OUTPUT := config/crd/bases
 DEEP_COPY_HEADER := hack/boilerplate.go.txt
+KUBERNETES_VERSION ?= 1.35.6
 
-.PHONY: generate manifests verify
+.PHONY: generate manifests verify test-api
 
 generate:
 	$(CONTROLLER_GEN) object:headerFile=$(DEEP_COPY_HEADER) paths=$(API_PACKAGE)
@@ -28,3 +31,13 @@ manifests:
 
 verify:
 	./hack/verify-generated.sh
+
+test-api:
+	@set -eu; \
+	if [ -n "$${KUBEBUILDER_ASSETS:-}" ]; then \
+		assets="$$KUBEBUILDER_ASSETS"; \
+	else \
+		assets="$$( $(SETUP_ENVTEST) use -p path $(KUBERNETES_VERSION)! 2>/dev/null || ./hack/envtest-assets.sh $(KUBERNETES_VERSION) )"; \
+	fi; \
+	test -n "$$assets"; \
+	KUBEBUILDER_ASSETS="$$assets" go test -v $(API_PACKAGE) -run '^TestAPIContract$$'
