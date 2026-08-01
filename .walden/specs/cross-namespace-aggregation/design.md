@@ -1,0 +1,81 @@
+---
+walden_schema_version: v1alpha1
+status: draft
+approved_at:
+last_modified: 2026-08-01T08:22:36Z
+approved_fingerprint:
+source_requirements_approved_at:
+source_requirements_fingerprint:
+---
+
+# Feature Design
+
+## Overview
+
+[High-level approach and key design choices]
+
+## Architecture
+
+[Components, boundaries, and data flow]
+
+## Options Considered
+
+### Option A
+
+- Summary: [Preferred approach]
+- Why chosen: [Why it is the best fit]
+
+### Option B
+
+- Summary: [Viable alternative]
+- Why rejected: [Why it is less suitable]
+
+## Simplicity And Elegance Review
+
+- Simplest viable shape: [How the design minimizes moving parts]
+- Coupling check: [How boundaries stay clean]
+- Future-proofing: [What is intentionally deferred]
+
+## Components And Interfaces
+
+### [Component name]
+
+- Purpose: [What it does]
+- Inputs/Outputs: [Interface contract]
+- Dependencies: [What it relies on]
+- Requirements: `R1`
+
+## Data Models
+
+[Entities, schemas, state, or storage decisions]
+
+## Error Handling
+
+[Validation, retries, failure modes, logging]
+
+## Security Considerations
+
+[Only when relevant]
+
+## Failure Modes And Tradeoffs
+
+- Failure mode: [What can go wrong]
+- Mitigation: [How the system contains it]
+- Tradeoff: [What was accepted and why]
+
+## Testing Strategy
+
+[Unit, integration, and end-to-end scope]
+
+## Verification Plan
+
+- Requirement proof: [How each critical requirement will be demonstrated]
+- Test evidence: [Which tests or checks prove the design]
+- Operational evidence: [Logs, metrics, alerts, or dashboards if relevant]
+
+## Requirement Coverage
+
+| Requirement | Covered By |
+| --- | --- |
+| `R1` | [Component/flow] |
+| `NFR1` | [Control/test/monitoring] |
