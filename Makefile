@@ -20,8 +20,9 @@ API_PACKAGE := ./api/v1alpha1
 CRD_OUTPUT := config/crd/bases
 DEEP_COPY_HEADER := hack/boilerplate.go.txt
 KUBERNETES_VERSION ?= 1.35.6
+KUBERNETES_COMPATIBILITY_VERSIONS := 1.35.6 1.36.2
 
-.PHONY: generate manifests verify test-api
+.PHONY: generate manifests verify test-api test-compatibility
 
 generate:
 	$(CONTROLLER_GEN) object:headerFile=$(DEEP_COPY_HEADER) paths=$(API_PACKAGE)
@@ -41,3 +42,11 @@ test-api:
 	fi; \
 	test -n "$$assets"; \
 	KUBEBUILDER_ASSETS="$$assets" go test -v $(API_PACKAGE) -run '^TestAPIContract$$'
+
+test-compatibility:
+	@set -eu; \
+	for version in $(KUBERNETES_COMPATIBILITY_VERSIONS); do \
+		printf 'Running API contract against Kubernetes %s\n' "$$version"; \
+		KUBEBUILDER_ASSETS= $(MAKE) --no-print-directory test-api KUBERNETES_VERSION="$$version"; \
+	done; \
+	printf '%s\n' 'API compatibility matrix passed'
