@@ -2,7 +2,7 @@
 walden_schema_version: v1alpha1
 status: approved
 approved_at: 2026-08-01T09:15:53Z
-last_modified: 2026-08-01T09:31:16Z
+last_modified: 2026-08-01T09:40:29Z
 approved_fingerprint: sha256:6e771137beb72e4bfbe3c714c46f04b4ca6d9a348baaf280156fddf26aeebcbe
 source_design_approved_at: 2026-08-01T09:10:17Z
 source_design_fingerprint: sha256:9d7a86cb0435c9e87face9b1879020937311f8ad72543ac974be4a86bad87657
@@ -21,7 +21,7 @@ source_design_fingerprint: sha256:9d7a86cb0435c9e87face9b1879020937311f8ad72543a
         expect_output: "--- PASS: TestSchemeRegistration"
         covers: ["R1.AC1", "R2.AC2", "R2.AC3", "R3.AC2", "R3.AC3", "R3.AC4", "R4.AC2", "R4.AC4", "R4.AC5", "R5.AC1", "R5.AC3", "R5.AC6", "R6.AC1", "R6.AC2", "R6.AC3"]
 
-  - [ ] 1.2 Generate and commit the structural CRD, then add typed static contract tests for identity, scope, served/storage flags, requiredness, source validation, status schema, security boundaries, and API-evolution guards
+  - [x] 1.2 Generate and commit the structural CRD, then add typed static contract tests for identity, scope, served/storage flags, requiredness, source validation, status schema, security boundaries, and API-evolution guards
     - Requirements: `R1.AC2`, `R1.AC3`, `R1.AC5`, `R2.AC1`, `R2.AC2`, `R2.AC3`, `R2.AC4`, `R2.AC6`, `R2.AC7`, `R3.AC1`, `R3.AC2`, `R3.AC4`, `R4.AC1`, `R4.AC2`, `R4.AC3`, `R4.AC4`, `R4.AC5`, `R5.AC1`, `R5.AC2`, `R5.AC3`, `R5.AC4`, `R5.AC5`, `NFR2`, `NFR4`, `NFR5`
     - Design: Generated CRD; Schema And Serialization Rules; API Evolution Strategy; Security Considerations; Generated Contract Tests
     - Verification:
