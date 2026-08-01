@@ -38,6 +38,13 @@ The first certified vertical slice reads one typed field from one authorized Kub
 
 No feature may claim compatibility with an unrecorded version. Version changes that alter generated APIs, supported Kubernetes releases, or controller behavior require an approved specification update.
 
+## Licensing And Copyright
+
+- Kubeseer-authored source code and generated code SHALL be distributed under the Apache License 2.0.
+- Unless a file or an approved specification explicitly states another applicable copyright holder or licensing obligation, copyright notices for Kubeseer-authored code SHALL identify Alessandro Rontani.
+- New source files and generated artifacts SHALL carry the Apache 2.0 notice where a copyright header or license metadata is customary.
+- Third-party dependencies and copied material SHALL retain their upstream copyright notices and licenses; this constitution does not relicense them.
+
 ## Architecture Rules
 
 - Features are externally verifiable capabilities, not individual functions and not the whole product.
