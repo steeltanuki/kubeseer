@@ -1,0 +1,155 @@
+{
+  "schema_version": "v1alpha1",
+  "feature": "kubeseer-api-foundation",
+  "tasks": {
+    "1.1": {
+      "task_fingerprint": "sha256:ad91d1c66f272c44221282167d59f5bf53154c611f62564293d96bc473edfc85",
+      "requirements_fingerprint": "sha256:8674f24413fb506b85abe9bebb31125b9f993b8fcead42824ed9b83add21b42a",
+      "design_fingerprint": "sha256:9d7a86cb0435c9e87face9b1879020937311f8ad72543ac974be4a86bad87657",
+      "tasks_fingerprint": "sha256:6e771137beb72e4bfbe3c714c46f04b4ca6d9a348baaf280156fddf26aeebcbe",
+      "code_identity": "sha256:6adac14cb53bc6c059545eb3c1b20380acd2da2215577a79918fc6a83e8c64b1",
+      "profile": {
+        "go": "go version go1.26.5-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "go",
+            "test",
+            "-v",
+            "./api/v1alpha1",
+            "-run",
+            "Test(SchemeRegistration|JSONRoundTrip|DeepCopyIsolation)$"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:7a3e7e3140d8a32253bf7272604687de7c74472630d7b02b2215be01dcd455e0"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-01T11:22:01Z"
+    },
+    "1.2": {
+      "task_fingerprint": "sha256:8ccb99ce19ebd41f3fba706c2b3b5971a2916dd1b34e81671140af20267189b0",
+      "requirements_fingerprint": "sha256:8674f24413fb506b85abe9bebb31125b9f993b8fcead42824ed9b83add21b42a",
+      "design_fingerprint": "sha256:9d7a86cb0435c9e87face9b1879020937311f8ad72543ac974be4a86bad87657",
+      "tasks_fingerprint": "sha256:6e771137beb72e4bfbe3c714c46f04b4ca6d9a348baaf280156fddf26aeebcbe",
+      "code_identity": "sha256:6adac14cb53bc6c059545eb3c1b20380acd2da2215577a79918fc6a83e8c64b1",
+      "profile": {
+        "go": "go version go1.26.5-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "go",
+            "test",
+            "-v",
+            "./api/v1alpha1",
+            "-run",
+            "TestGeneratedCRDContract$"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:04094fca2be8bb88e9cf81a231d5e0a47e748fc6b0a1831dd1790da7de1f0b9b"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-01T11:22:01Z"
+    },
+    "1.3": {
+      "task_fingerprint": "sha256:5f1471a6b54d875b290c0302af926bf0ce50db3103e8e46069a1c8f71eb2d474",
+      "requirements_fingerprint": "sha256:8674f24413fb506b85abe9bebb31125b9f993b8fcead42824ed9b83add21b42a",
+      "design_fingerprint": "sha256:9d7a86cb0435c9e87face9b1879020937311f8ad72543ac974be4a86bad87657",
+      "tasks_fingerprint": "sha256:6e771137beb72e4bfbe3c714c46f04b4ca6d9a348baaf280156fddf26aeebcbe",
+      "code_identity": "sha256:6adac14cb53bc6c059545eb3c1b20380acd2da2215577a79918fc6a83e8c64b1",
+      "profile": {
+        "go": "go version go1.26.5-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "make",
+            "verify"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:dfa949b91391357cd436b9791250a38e80e0f4540526162eb3e8174cb4904c6a"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-01T11:22:01Z"
+    },
+    "2.1": {
+      "task_fingerprint": "sha256:720a04ff7ab5ba3dbadf73a66d98fe39f2b71a8c31fcf39d51b86b12e62f63de",
+      "requirements_fingerprint": "sha256:8674f24413fb506b85abe9bebb31125b9f993b8fcead42824ed9b83add21b42a",
+      "design_fingerprint": "sha256:9d7a86cb0435c9e87face9b1879020937311f8ad72543ac974be4a86bad87657",
+      "tasks_fingerprint": "sha256:6e771137beb72e4bfbe3c714c46f04b4ca6d9a348baaf280156fddf26aeebcbe",
+      "code_identity": "sha256:6adac14cb53bc6c059545eb3c1b20380acd2da2215577a79918fc6a83e8c64b1",
+      "profile": {
+        "go": "go version go1.26.5-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "make",
+            "test-api",
+            "KUBERNETES_VERSION=1.35.6"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:d31001c8aa4d8abdbf719b78722600b83b8b5321e784bf374a23408677c126b4"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-01T11:22:01Z"
+    },
+    "2.2": {
+      "task_fingerprint": "sha256:f68061e6d237b7eb4336025bb2811b580e5f820a9720e79fb73a7a12c26eb8bd",
+      "requirements_fingerprint": "sha256:8674f24413fb506b85abe9bebb31125b9f993b8fcead42824ed9b83add21b42a",
+      "design_fingerprint": "sha256:9d7a86cb0435c9e87face9b1879020937311f8ad72543ac974be4a86bad87657",
+      "tasks_fingerprint": "sha256:6e771137beb72e4bfbe3c714c46f04b4ca6d9a348baaf280156fddf26aeebcbe",
+      "code_identity": "sha256:6adac14cb53bc6c059545eb3c1b20380acd2da2215577a79918fc6a83e8c64b1",
+      "profile": {
+        "go": "go version go1.26.5-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "make",
+            "test-compatibility"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:3380e8d18438aabc53b4f239ad94febed00ac63b33e20f3d33d45b8b4b6c0ad5"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-01T11:21:49Z"
+    }
+  }
+}

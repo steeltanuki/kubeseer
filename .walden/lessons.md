@@ -1,0 +1,32 @@
+# Walden Lessons
+
+Review this file before non-trivial work when the current request matches past mistakes, rejections, or validation failures.
+
+## Lessons
+
+<!-- Append entries with: walden lesson log --feature <name> --phase <phase> --trigger "..." --lesson "..." --guardrail "..." -->
+### 2026-08-01T09:14:17Z | kubeseer-api-foundation | tasks
+- Trigger: Initial task validation after requirements and design approval reported missing coverage from the placeholder scaffold
+- Lesson: A valid scaffold becomes incomplete as soon as approved upstream documents introduce the real requirement set
+- Guardrail: Before opening task review, require both task_reference_coverage and proof_reference_coverage to be complete in walden validate --json
+### 2026-08-01T09:31:49Z | kubeseer-api-foundation | execute
+- Trigger: Initial task 1.1 proof exposed non-semantic test assumptions
+- Lesson: A JSON round-trip test compared metav1.Time locations and a pointer to an empty result struct by identity, causing false failures despite semantic preservation
+- Guardrail: Compare Kubernetes time values by instant and test deep-copy isolation only through mutable fields; do not use pointer identity for zero-size structs
+### 2026-08-01T09:45:48Z | kubeseer-api-foundation | execute
+- Trigger: Initial task 1.3 generation proof could not resolve the pinned controller tool in the sandbox
+- Lesson: Read-only generation verification depends on Go module resolution and a writable build/module cache even though it writes no repository artifacts
+- Guardrail: Run generation proofs with a writable cache and preserve the controller-gen version in the canonical Makefile used by both generation and verification
+### 2026-08-01T10:21:39Z | kubeseer-api-foundation | execute
+- Trigger: setup-envtest did not publish the approved Kubernetes 1.35.6 patch archive
+- Lesson: Treat controller-tools envtest archive availability as separate from Kubernetes release availability; an exact API-server patch can exist without a matching bundled archive.
+- Guardrail: Keep a versioned direct-asset resolver fallback that pins the Kubernetes API binaries and the etcd family when the setup-envtest index has no exact patch.
+### 2026-08-01T11:55:20Z | resource-discovery | execute
+- Trigger: Initial task 1.1 contract proof exposed Kubernetes schema parsing and core GVR formatting assumptions
+- Lesson: schema.ParseGroupVersion accepts a group with an empty version, and core GroupVersionResource.String includes an empty group prefix.
+- Guardrail: Validate both parse success and a non-empty version, and assert core GVRs from the Kubernetes type rather than hand-written display strings.
+### 2026-08-01T12:01:26Z | resource-discovery | execute
+- Trigger: The initial scope test reused the discovery error variable after a short declaration
+- Lesson: A test assertion can accidentally inspect the outer nil error instead of the guard error, causing a panic rather than validating the contract.
+- Guardrail: Name guard errors explicitly before asserting their reason and message; never reuse an outer error variable in follow-up assertions.
+
