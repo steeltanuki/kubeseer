@@ -190,6 +190,59 @@ func TestResolveErrors(t *testing.T) {
 	}
 }
 
+func TestResolveBatch(t *testing.T) {
+	discoveryFailure := errors.New("connection refused")
+	client := &scriptedDiscovery{
+		resources: map[string]*metav1.APIResourceList{
+			"v1": {
+				GroupVersion: "v1",
+				APIResources: []metav1.APIResource{{Name: "pods", Kind: "Pod", Namespaced: true}},
+			},
+		},
+		errors: map[string]error{"apps/v1": discoveryFailure},
+	}
+	resolver := NewResolver(client)
+
+	outcomes := resolver.ResolveBatch(context.Background(), []SourceDescriptor{
+		{SourceID: "pod-source", APIVersion: "v1", Kind: "Pod"},
+		{SourceID: "deployment-source", APIVersion: "apps/v1", Kind: "Deployment"},
+	})
+	if len(outcomes) != 2 {
+		t.Fatalf("unexpected outcome count: got %d, want 2", len(outcomes))
+	}
+	if outcomes[0].SourceID != "pod-source" || outcomes[0].Resolution == nil || outcomes[0].Err != nil {
+		t.Fatalf("successful outcome was not preserved: %#v", outcomes[0])
+	}
+	if outcomes[0].Resolution.Resource != (schema.GroupVersionResource{Version: "v1", Resource: "pods"}) {
+		t.Fatalf("unexpected successful resolution: %#v", outcomes[0].Resolution)
+	}
+	if outcomes[1].SourceID != "deployment-source" || outcomes[1].Resolution != nil || !HasReason(outcomes[1].Err, ReasonDiscoveryUnavailable) {
+		t.Fatalf("failed outcome was not source-scoped: %#v", outcomes[1])
+	}
+	if !errors.Is(outcomes[1].Err, discoveryFailure) {
+		t.Fatalf("failed outcome did not preserve its cause: %v", outcomes[1].Err)
+	}
+	if len(client.calls) != 2 || client.calls[0] != "v1" || client.calls[1] != "apps/v1" {
+		t.Fatalf("batch did not resolve each source independently: %#v", client.calls)
+	}
+
+	canceledContext, cancel := context.WithCancel(context.Background())
+	cancel()
+	canceled := resolver.ResolveBatch(canceledContext, []SourceDescriptor{
+		{SourceID: "first-source", APIVersion: "v1", Kind: "Pod"},
+		{SourceID: "second-source", APIVersion: "v1", Kind: "Pod"},
+	})
+	if len(canceled) != 2 || !HasReason(canceled[0].Err, ReasonDiscoveryUnavailable) || !HasReason(canceled[1].Err, ReasonDiscoveryUnavailable) {
+		t.Fatalf("canceled batch did not return source-scoped outcomes: %#v", canceled)
+	}
+	if !errors.Is(canceled[0].Err, context.Canceled) || !errors.Is(canceled[1].Err, context.Canceled) {
+		t.Fatalf("canceled batch did not preserve context cause: %#v", canceled)
+	}
+	if len(client.calls) != 2 {
+		t.Fatalf("canceled batch issued new discovery requests: %#v", client.calls)
+	}
+}
+
 func discoveryWith(groupVersion string, resources ...metav1.APIResource) *scriptedDiscovery {
 	return &scriptedDiscovery{
 		resources: map[string]*metav1.APIResourceList{

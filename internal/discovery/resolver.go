@@ -16,6 +16,7 @@ package discovery
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -38,6 +39,51 @@ type Resolver struct {
 // NewResolver creates a resolver backed by the supplied discovery client.
 func NewResolver(client DiscoveryClient) *Resolver {
 	return &Resolver{client: client}
+}
+
+// ResolveBatch resolves each descriptor independently and preserves one
+// source-scoped outcome for every input descriptor. A canceled context stops
+// new discovery requests while still returning an outcome for every input.
+func (r *Resolver) ResolveBatch(ctx context.Context, descriptors []SourceDescriptor) []Outcome {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	outcomes := make([]Outcome, len(descriptors))
+	for i, descriptor := range descriptors {
+		outcomes[i].SourceID = descriptor.SourceID
+		if cause := ctx.Err(); cause != nil {
+			outcomes[i].Err = &ResolutionError{
+				SourceID: descriptor.SourceID,
+				Reason:   ReasonDiscoveryUnavailable,
+				Message:  "batch resolution context is unavailable",
+				Cause:    cause,
+			}
+			continue
+		}
+
+		resolution, err := r.Resolve(ctx, descriptor)
+		if err != nil {
+			outcomes[i].Err = batchResolutionError(descriptor.SourceID, err)
+			continue
+		}
+		outcomes[i].Resolution = &resolution
+	}
+
+	return outcomes
+}
+
+func batchResolutionError(sourceID string, err error) *ResolutionError {
+	var resolutionErr *ResolutionError
+	if errors.As(err, &resolutionErr) {
+		return resolutionErr
+	}
+	return &ResolutionError{
+		SourceID: sourceID,
+		Reason:   ReasonDiscoveryUnavailable,
+		Message:  "batch resolution failed",
+		Cause:    err,
+	}
 }
 
 // Resolve returns one resource identity and its discovery-reported scope.
