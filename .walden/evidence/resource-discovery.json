@@ -7,13 +7,13 @@
       "requirements_fingerprint": "sha256:3d227198f729edbadbff52f8885f0c9af6d35f19a2b2c761565dacc6ff3109c6",
       "design_fingerprint": "sha256:3758e9ed57d131cec58d72b1d2e659fabdf35d9552eb5f1f4c482f606ab5ea68",
       "tasks_fingerprint": "sha256:68f192b1c29b8d1f70f322837a1111a14850cc8f482012f34562e839d6bae188",
-      "code_identity": "sha256:b219d9a42e7f9e9b9580aa5d291f1da75d6169f4b2621c71dfef4dc8f2ca7564",
+      "code_identity": "sha256:63d3db610b0b9e644362553e903fa9656b24e95a1ff6b1915f79ca11d80e932e",
       "profile": {
         "go": "go version go1.26.5-X:nodwarf5 linux/amd64",
         "kind": "kind v0.27.0 go1.23.6 linux/amd64",
         "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
         "platform": "linux/amd64",
-        "podman": "podman version 5.8.4",
+        "podman": "probe failed: exit 1",
         "walden": "v0.10.1"
       },
       "steps": [
@@ -28,11 +28,43 @@
           ],
           "expected_exit": 0,
           "actual_exit": 0,
-          "output_digest": "sha256:ba7b84fa12b45ee3a8674541469f4b2d757dc532993c90c23becdf0d915565ad"
+          "output_digest": "sha256:658a0c3f3bd75c2ca8162e6d5830b0c8842d0a98f718425c2e47c31d0bd91e86"
         }
       ],
       "result": "passed",
-      "verified_at": "2026-08-01T11:55:41Z"
+      "verified_at": "2026-08-01T12:01:39Z"
+    },
+    "1.2": {
+      "task_fingerprint": "sha256:93c29d3a350bcb4d643ec07e6ef9c425e177d386f84247572ca18749472b0e33",
+      "requirements_fingerprint": "sha256:3d227198f729edbadbff52f8885f0c9af6d35f19a2b2c761565dacc6ff3109c6",
+      "design_fingerprint": "sha256:3758e9ed57d131cec58d72b1d2e659fabdf35d9552eb5f1f4c482f606ab5ea68",
+      "tasks_fingerprint": "sha256:68f192b1c29b8d1f70f322837a1111a14850cc8f482012f34562e839d6bae188",
+      "code_identity": "sha256:63d3db610b0b9e644362553e903fa9656b24e95a1ff6b1915f79ca11d80e932e",
+      "profile": {
+        "go": "go version go1.26.5-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "probe failed: exit 1",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "go",
+            "test",
+            "-v",
+            "./internal/discovery/...",
+            "-run",
+            "^TestResolve(Single|Core|Grouped|CRD|Scope|Ambiguous)$"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:6f18c45ddf7d7de8b68936a138b821a566f47f8fe18cf8f4aacec6bd99a55836"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-01T12:01:35Z"
     }
   }
 }
