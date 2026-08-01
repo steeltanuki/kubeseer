@@ -25,7 +25,8 @@ Kubeseer is a Kubernetes operator that can:
 - convert extracted values into typed outputs;
 - filter and aggregate results;
 - publish the computed result in the status of a `Kubeseer` Custom Resource;
-- restrict observable namespaces and resource types through an administrator-defined installation policy.
+- restrict observable namespaces and resource types through an administrator-defined installation policy;
+- provide a reproducible local environment for experimentation and examples without requiring an existing Kubernetes cluster.
 
 A single `Kubeseer` resource may narrow the access scope granted by the installation, but it must never broaden it.
 
@@ -40,6 +41,8 @@ A single `Kubeseer` resource may narrow the access scope granted by the installa
 - Users creating `Kubeseer` resources do not need direct read permissions on observed resources.
 - The operator must never read outside the scope allowed by the installation policy.
 - Status updates must occur only when the computed result changes semantically.
+- The supported local experimentation environment uses kind with Podman.
+- Examples must be executable and suitable for both manual exploration and automated local verification.
 
 ## 4. Stable Walden project context
 
@@ -80,6 +83,7 @@ The constitution should include at least:
     performance-and-limits/
     packaging-and-installation/
     end-to-end-scenarios/
+    local-development-environment/
 ```
 
 ---
@@ -799,6 +803,85 @@ go test ./test/e2e/...
 
 ---
 
+## 6.17 `local-development-environment`
+
+### Objective
+
+Provide a reproducible local environment that allows contributors and users to install, explore, demonstrate, and test Kubeseer without access to an existing Kubernetes cluster.
+
+The initial supported environment uses kind as the Kubernetes provider and Podman as the container engine.
+
+### Includes
+
+- a version-controlled kind cluster configuration;
+- explicit configuration of kind to use Podman rather than Docker;
+- prerequisite checks for Podman, kind, kubectl, and the project build tools;
+- creation and safe deletion of a project-owned local cluster;
+- local building of the Kubeseer controller image with Podman;
+- loading the locally built image into the kind nodes without requiring an external registry;
+- installation of CRDs, the controller, RBAC resources, and a development access policy;
+- readiness checks and bounded waits;
+- commands for setup, deployment, testing, diagnostics, and cleanup;
+- local smoke and end-to-end tests;
+- reusable test entry points suitable for continuous integration;
+- clear documentation of supported host platforms and known Podman or kind limitations.
+
+### Examples directory
+
+The project must provide a top-level `examples/` directory containing executable, documented scenarios.
+
+Each example must include:
+
+- a concise purpose statement;
+- all required Kubernetes workload manifests;
+- one or more `Kubeseer` manifests;
+- the expected result or status conditions;
+- commands to apply, inspect, verify, and remove the example;
+- an automated assertion or verification command where practical.
+
+The initial example set should cover at least:
+
+1. observation of a built-in Kubernetes resource;
+2. typed JSONPath field extraction;
+3. filtering or value-operator behavior;
+4. aggregation across two namespaces;
+5. observation of a lightweight example Custom Resource;
+6. rejection of a source outside the installation access policy;
+7. degraded or partial-result behavior caused by an invalid or unavailable source.
+
+### Core rules
+
+- the local workflow must not require the user to already have a Kubernetes cluster;
+- the local environment must exercise the normal Kubeseer authorization and policy-enforcement paths rather than bypassing them;
+- repeated setup and cleanup operations must be idempotent or produce actionable state messages;
+- tests must inspect structured Kubernetes API output and must return a non-zero status when verification fails;
+- synchronization must use readiness checks and bounded waits rather than relying primarily on arbitrary sleep durations;
+- cleanup must target only the Kubeseer kind cluster and project-generated resources;
+- cleanup must never remove unrelated Podman containers, images, networks, volumes, or Kubernetes clusters;
+- diagnostics must avoid collecting Secrets or sensitive values by default;
+- versions of environment-critical dependencies, including the kind node image, must be pinned or centrally defined.
+
+### Verifiable outcome
+
+A user on a supported host can follow one documented workflow to:
+
+1. validate prerequisites;
+2. create a kind cluster using Podman;
+3. build and load Kubeseer locally;
+4. install the operator and its development access policy;
+5. deploy and verify one or more bundled examples;
+6. run local smoke and end-to-end tests;
+7. collect actionable diagnostics after a failure;
+8. delete the environment safely.
+
+### Dependencies
+
+- `packaging-and-installation`;
+- `end-to-end-scenarios`;
+- all Kubeseer capabilities exercised by the bundled examples.
+
+---
+
 # 7. Recommended implementation order
 
 ## Phase 1 — Minimum vertical slice
@@ -827,16 +910,17 @@ Expected result: Kubeseer can read a typed field from an authorized Kubernetes r
 
 Expected result: Kubeseer can filter, group, and aggregate typed values across multiple namespaces.
 
-## Phase 3 — Production readiness
+## Phase 3 — Production readiness and experimentation
 
 ```text
 13. observability
 14. performance-and-limits
 15. packaging-and-installation
 16. end-to-end-scenarios
+17. local-development-environment
 ```
 
-Expected result: Kubeseer is deployable, measurable, bounded, and certifiable.
+Expected result: Kubeseer is deployable, measurable, bounded, certifiable, and easy to explore locally without an existing Kubernetes cluster.
 
 ---
 
@@ -864,6 +948,11 @@ kubeseer-api-foundation
 
 end-to-end-scenarios
 └── depends on every feature in the certified release scope
+
+local-development-environment
+├── packaging-and-installation
+├── end-to-end-scenarios
+└── depends on the capabilities demonstrated by its examples
 ```
 
 # 9. Feature granularity rule
