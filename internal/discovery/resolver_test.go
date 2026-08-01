@@ -18,7 +18,9 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -241,6 +243,166 @@ func TestResolveBatch(t *testing.T) {
 	if len(client.calls) != 2 {
 		t.Fatalf("canceled batch issued new discovery requests: %#v", client.calls)
 	}
+}
+
+func TestCacheFreshHit(t *testing.T) {
+	now := time.Unix(100, 0)
+	client := discoveryWith("v1", metav1.APIResource{Name: "pods", Kind: "Pod", Namespaced: true})
+	resolver := NewResolver(client,
+		WithCacheTTL(time.Minute),
+		WithClock(func() time.Time { return now }),
+	)
+
+	first, err := resolver.Resolve(context.Background(), SourceDescriptor{
+		SourceID:   "first-source",
+		APIVersion: "v1",
+		Kind:       "Pod",
+	})
+	if err != nil {
+		t.Fatalf("resolve first source: %v", err)
+	}
+	second, err := resolver.Resolve(context.Background(), SourceDescriptor{
+		SourceID:   "second-source",
+		APIVersion: "v1",
+		Kind:       "Pod",
+	})
+	if err != nil {
+		t.Fatalf("resolve second source: %v", err)
+	}
+	if len(client.calls) != 1 {
+		t.Fatalf("fresh cache hit issued discovery requests: %v", client.calls)
+	}
+	if second.SourceID != "second-source" || second.Resource != first.Resource || second.Scope != first.Scope {
+		t.Fatalf("cached resolution did not preserve caller identity and metadata: first=%#v second=%#v", first, second)
+	}
+}
+
+func TestCacheExpiryRefresh(t *testing.T) {
+	now := time.Unix(200, 0)
+	client := discoveryWith("v1", metav1.APIResource{Name: "pods", Kind: "Pod", Namespaced: true})
+	resolver := NewResolver(client,
+		WithCacheTTL(time.Minute),
+		WithClock(func() time.Time { return now }),
+	)
+
+	first, err := resolver.Resolve(context.Background(), SourceDescriptor{SourceID: "source", APIVersion: "v1", Kind: "Pod"})
+	if err != nil {
+		t.Fatalf("resolve before expiry: %v", err)
+	}
+	now = now.Add(time.Minute)
+	client.resources["v1"] = &metav1.APIResourceList{
+		GroupVersion: "v1",
+		APIResources: []metav1.APIResource{{Name: "pods-v2", Kind: "Pod", Namespaced: true}},
+	}
+
+	refreshed, err := resolver.Resolve(context.Background(), SourceDescriptor{SourceID: "source", APIVersion: "v1", Kind: "Pod"})
+	if err != nil {
+		t.Fatalf("resolve after expiry: %v", err)
+	}
+	if len(client.calls) != 2 {
+		t.Fatalf("expired cache did not refresh exactly once: %v", client.calls)
+	}
+	if first.Resource == refreshed.Resource || refreshed.Resource.Resource != "pods-v2" {
+		t.Fatalf("expired cache returned stale resource: first=%#v refreshed=%#v", first, refreshed)
+	}
+}
+
+func TestCacheConcurrentRefresh(t *testing.T) {
+	client := newBlockingDiscovery(&metav1.APIResourceList{
+		GroupVersion: "v1",
+		APIResources: []metav1.APIResource{{Name: "pods", Kind: "Pod", Namespaced: true}},
+	})
+	resolver := NewResolver(client,
+		WithCacheTTL(time.Minute),
+		WithClock(func() time.Time { return time.Unix(300, 0) }),
+	)
+	const workers = 8
+	start := make(chan struct{})
+	results := make(chan Resolution, workers)
+	errorsSeen := make(chan error, workers)
+	var waitGroup sync.WaitGroup
+	waitGroup.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func(index int) {
+			defer waitGroup.Done()
+			<-start
+			resolution, err := resolver.Resolve(context.Background(), SourceDescriptor{
+				SourceID:   "source-" + string(rune('a'+index)),
+				APIVersion: "v1",
+				Kind:       "Pod",
+			})
+			if err != nil {
+				errorsSeen <- err
+				return
+			}
+			results <- resolution
+		}(i)
+	}
+	close(start)
+	select {
+	case <-client.started:
+	case <-time.After(2 * time.Second):
+		close(client.release)
+		t.Fatal("concurrent refresh did not reach discovery")
+	}
+	close(client.release)
+	done := make(chan struct{})
+	go func() {
+		waitGroup.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("concurrent refresh did not complete")
+	}
+	if client.callCount() != 1 {
+		t.Fatalf("concurrent refresh stampeded discovery: %d calls", client.callCount())
+	}
+	for i := 0; i < workers; i++ {
+		select {
+		case err := <-errorsSeen:
+			t.Fatalf("concurrent refresh failed: %v", err)
+		case resolution := <-results:
+			if resolution.Resource.Resource != "pods" {
+				t.Fatalf("unexpected concurrent resolution: %#v", resolution)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("missing concurrent resolution outcome")
+		}
+	}
+}
+
+type blockingDiscovery struct {
+	resources *metav1.APIResourceList
+	started   chan struct{}
+	release   chan struct{}
+	startOnce sync.Once
+	mu        sync.Mutex
+	calls     int
+}
+
+func newBlockingDiscovery(resources *metav1.APIResourceList) *blockingDiscovery {
+	return &blockingDiscovery{
+		resources: resources,
+		started:   make(chan struct{}),
+		release:   make(chan struct{}),
+	}
+}
+
+func (d *blockingDiscovery) ServerResourcesForGroupVersion(string) (*metav1.APIResourceList, error) {
+	d.mu.Lock()
+	d.calls++
+	d.mu.Unlock()
+	d.startOnce.Do(func() { close(d.started) })
+	<-d.release
+	return d.resources, nil
+}
+
+func (d *blockingDiscovery) callCount() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.calls
 }
 
 func discoveryWith(groupVersion string, resources ...metav1.APIResource) *scriptedDiscovery {

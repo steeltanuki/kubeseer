@@ -2,7 +2,7 @@
 walden_schema_version: v1alpha1
 status: approved
 approved_at: 2026-08-01T11:52:07Z
-last_modified: 2026-08-01T13:15:18Z
+last_modified: 2026-08-01T13:22:12Z
 approved_fingerprint: sha256:68f192b1c29b8d1f70f322837a1111a14850cc8f482012f34562e839d6bae188
 source_design_approved_at: 2026-08-01T11:47:16Z
 source_design_fingerprint: sha256:3758e9ed57d131cec58d72b1d2e659fabdf35d9552eb5f1f4c482f606ab5ea68
@@ -36,7 +36,7 @@ source_design_fingerprint: sha256:3758e9ed57d131cec58d72b1d2e659fabdf35d9552eb5f
         covers: ["R4.AC3", "R4.AC4", "NFR2", "NFR3"]
 
 - [ ] 2. Implement the resolver-owned TTL cache and invalidation lifecycle
-  - [ ] 2.1 Add a concurrency-safe TTL cache with an injectable clock and per-key refresh coordination
+  - [x] 2.1 Add a concurrency-safe TTL cache with an injectable clock and per-key refresh coordination
     - Requirements: `R5.AC1`, `R5.AC2`, `NFR1`, `NFR2`, `NFR3`
     - Design: TTL cache; Discovery resolver; Data Models; Failure Modes And Tradeoffs; Unit tests
     - Verification:
