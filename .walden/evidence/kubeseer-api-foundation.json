@@ -1,0 +1,38 @@
+{
+  "schema_version": "v1alpha1",
+  "feature": "kubeseer-api-foundation",
+  "tasks": {
+    "1.1": {
+      "task_fingerprint": "sha256:ad91d1c66f272c44221282167d59f5bf53154c611f62564293d96bc473edfc85",
+      "requirements_fingerprint": "sha256:8674f24413fb506b85abe9bebb31125b9f993b8fcead42824ed9b83add21b42a",
+      "design_fingerprint": "sha256:9d7a86cb0435c9e87face9b1879020937311f8ad72543ac974be4a86bad87657",
+      "tasks_fingerprint": "sha256:6e771137beb72e4bfbe3c714c46f04b4ca6d9a348baaf280156fddf26aeebcbe",
+      "code_identity": "sha256:44a11172cafcf39a17d2e9aacf1a75e0cff99cab44f83ddab511e48f3c32e70e",
+      "profile": {
+        "go": "go version go1.26.5-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "probe failed: exit 1",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "go",
+            "test",
+            "-v",
+            "./api/v1alpha1",
+            "-run",
+            "Test(SchemeRegistration|JSONRoundTrip|DeepCopyIsolation)$"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:7a3e7e3140d8a32253bf7272604687de7c74472630d7b02b2215be01dcd455e0"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-01T09:31:16Z"
+    }
+  }
+}
