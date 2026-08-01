@@ -1,10 +1,10 @@
-# Kubeseer — Specifiche funzionali e suddivisione Walden
+# Kubeseer — Functional Specifications and Walden Feature Breakdown
 
-## 1. Scopo del documento
+## 1. Purpose
 
-Questo documento descrive l'architettura funzionale di Kubeseer e suddivide il prodotto in feature indipendenti, verificabili e approvabili tramite Walden.
+This document describes Kubeseer's functional architecture and divides the product into independent, verifiable, and approvable Walden features.
 
-Ogni feature elencata deve essere implementata come una directory Walden separata:
+Each feature listed below must be implemented as a separate Walden directory:
 
 ```text
 .walden/specs/<feature>/
@@ -13,51 +13,51 @@ Ogni feature elencata deve essere implementata come una directory Walden separat
   tasks.md
 ```
 
-Le feature devono usare criteri di accettazione EARS con identificatori stabili, copertura completa nel design e prove eseguibili nei task.
+Every feature must use EARS acceptance criteria with stable identifiers, complete design coverage, and executable verification proofs attached to implementation tasks.
 
-## 2. Visione generale
+## 2. Product vision
 
-Kubeseer è un operatore Kubernetes che consente di:
+Kubeseer is a Kubernetes operator that can:
 
-- osservare risorse Kubernetes built-in e custom;
-- selezionare risorse provenienti da uno o più namespace;
-- estrarre valori tramite JSONPath;
-- convertire i valori in output tipizzati;
-- filtrare e aggregare i risultati;
-- pubblicare il risultato nello status della Custom Resource Kubeseer;
-- limitare le risorse e i namespace osservabili attraverso una policy definita dall'amministratore durante l'installazione.
+- observe built-in and custom Kubernetes resources;
+- select resources from one or more namespaces;
+- extract values through JSONPath;
+- convert extracted values into typed outputs;
+- filter and aggregate results;
+- publish the computed result in the status of a `Kubeseer` Custom Resource;
+- restrict observable namespaces and resource types through an administrator-defined installation policy.
 
-La configurazione di una singola risorsa Kubeseer può restringere il perimetro consentito dall'installazione, ma non può ampliarlo.
+A single `Kubeseer` resource may narrow the access scope granted by the installation, but it must never broaden it.
 
-## 3. Decisioni architetturali iniziali
+## 3. Initial architectural decisions
 
-- Il meccanismo iniziale di estrazione è JSONPath.
-- CEL è esplicitamente fuori scope per la prima versione e potrà essere aggiunto in seguito.
-- Gli operatori disponibili formano un insieme controllato e validato.
-- I risultati mantengono il tipo logico del dato.
-- Kubeseer supporta l'aggregazione di informazioni provenienti da namespace diversi.
-- L'amministratore definisce durante l'installazione namespace e tipi di risorse osservabili.
-- Gli utenti che creano risorse Kubeseer non devono possedere direttamente permessi di lettura sulle risorse osservate.
-- L'operatore non deve effettuare letture al di fuori del perimetro definito dalla policy di installazione.
-- Gli aggiornamenti dello status devono avvenire soltanto quando il risultato cambia semanticamente.
+- JSONPath is the initial extraction mechanism.
+- CEL is explicitly out of scope for the first version and may be introduced later.
+- Available operators form a controlled and validated set.
+- Results preserve the logical type of each value.
+- Kubeseer supports aggregation across multiple namespaces.
+- Administrators define observable namespaces and resource types during installation.
+- Users creating `Kubeseer` resources do not need direct read permissions on observed resources.
+- The operator must never read outside the scope allowed by the installation policy.
+- Status updates must occur only when the computed result changes semantically.
 
-## 4. Contesto stabile Walden
+## 4. Stable Walden project context
 
-Le informazioni trasversali e stabili del progetto devono essere riportate in `.walden/constitution.md`.
+Cross-cutting and stable project information belongs in `.walden/constitution.md`.
 
-Il file dovrebbe includere almeno:
+The constitution should include at least:
 
-- scopo di Kubeseer;
-- glossario dei termini;
-- stack tecnologico;
-- versione minima di Kubernetes;
-- convenzioni Go e controller-runtime;
-- convenzioni delle API Kubernetes;
-- comandi standard di build, test e lint;
-- decisioni architetturali riportate nella sezione precedente;
-- regole di sicurezza non derogabili.
+- Kubeseer's purpose;
+- project terminology;
+- technology stack;
+- minimum supported Kubernetes version;
+- Go and controller-runtime conventions;
+- Kubernetes API conventions;
+- standard build, test, lint, and validation commands;
+- the architectural decisions listed above;
+- non-negotiable security rules.
 
-## 5. Struttura delle feature Walden
+## 5. Walden feature structure
 
 ```text
 .walden/
@@ -84,74 +84,74 @@ Il file dovrebbe includere almeno:
 
 ---
 
-# 6. Specifiche separate
+# 6. Independent feature specifications
 
 ## 6.1 `kubeseer-api-foundation`
 
-### Obiettivo
+### Objective
 
-Definire il contratto fondamentale della Custom Resource Kubeseer senza introdurre ancora la logica di osservazione o aggregazione.
+Define the fundamental contract of the `Kubeseer` Custom Resource without introducing resource observation or aggregation logic.
 
-### Include
+### Includes
 
-- API group, version e kind;
-- struttura generale di `spec`;
-- struttura generale di `status`;
-- naming e identificatori;
-- strategia di versionamento dell'API;
-- campi obbligatori e opzionali;
-- defaulting;
-- compatibilità futura;
+- API group, version, and kind;
+- high-level `spec` structure;
+- high-level `status` structure;
+- naming rules and identifiers;
+- API versioning strategy;
+- required and optional fields;
+- defaulting rules;
+- future compatibility rules;
 - `observedGeneration`;
-- eventuali riferimenti ad altre risorse di configurazione.
+- references to other configuration resources, where required.
 
-### Non include
+### Excludes
 
-- discovery delle risorse;
-- JSONPath;
-- autorizzazioni;
-- operatori;
-- aggregazioni;
-- comportamento del reconciler.
+- resource discovery;
+- JSONPath evaluation;
+- authorization;
+- operators;
+- aggregation;
+- reconciler behavior.
 
-### Risultato verificabile
+### Verifiable outcome
 
-- la CRD viene installata correttamente;
-- Kubernetes accetta manifest Kubeseer validi;
-- Kubernetes rifiuta manifest strutturalmente invalidi;
-- le API Go generate compilano e superano i test.
+- the CRD can be installed successfully;
+- Kubernetes accepts valid `Kubeseer` manifests;
+- Kubernetes rejects structurally invalid manifests;
+- generated Go APIs compile and pass their tests.
 
-### Dipendenze
+### Dependencies
 
-Nessuna.
+None.
 
 ---
 
 ## 6.2 `resource-discovery`
 
-### Obiettivo
+### Objective
 
-Risolvere dinamicamente i tipi di risorsa Kubernetes richiesti dalle sorgenti Kubeseer.
+Dynamically resolve the Kubernetes resource types requested by Kubeseer sources.
 
-### Include
+### Includes
 
-- risoluzione di `apiVersion` e `kind` nel relativo `GroupVersionResource`;
-- utilizzo del discovery client Kubernetes;
-- supporto a risorse built-in;
-- supporto a Custom Resource Definition;
-- distinzione tra risorse namespaced e cluster-scoped;
-- gestione delle API non disponibili;
-- invalidazione o aggiornamento della discovery cache;
-- gestione della rimozione o modifica di una CRD.
+- resolution of `apiVersion` and `kind` into a `GroupVersionResource`;
+- use of the Kubernetes discovery client;
+- support for built-in resources;
+- support for Custom Resource Definitions;
+- distinction between namespaced and cluster-scoped resources;
+- handling unavailable APIs;
+- discovery cache refresh and invalidation;
+- handling removal or modification of a CRD.
 
-### Comportamenti di errore
+### Error behavior
 
-- un tipo inesistente deve produrre un errore associato alla singola sorgente;
-- il fallimento di una sorgente non deve interrompere necessariamente le altre sorgenti;
-- una risorsa cluster-scoped non deve essere trattata come namespaced;
-- gli errori di discovery devono essere esposti nello status in forma comprensibile.
+- an unknown type must produce an error associated with the affected source;
+- failure of one source must not necessarily interrupt processing of other sources;
+- a cluster-scoped resource must never be treated as namespaced;
+- discovery errors must be exposed clearly in status.
 
-### Dipendenze
+### Dependencies
 
 - `kubeseer-api-foundation`.
 
@@ -159,26 +159,26 @@ Risolvere dinamicamente i tipi di risorsa Kubernetes richiesti dalle sorgenti Ku
 
 ## 6.3 `installation-access-policy`
 
-### Obiettivo
+### Objective
 
-Permettere all'amministratore di definire, durante l'installazione, il perimetro massimo di osservazione dell'operatore.
+Allow an administrator to define the maximum observation scope available to the operator at installation time.
 
-### Include
+### Includes
 
-- namespace accessibili;
-- lista esplicita di namespace;
-- modalità tutti i namespace;
-- modalità tutti i namespace non di sistema;
-- inclusioni ed esclusioni esplicite;
-- identificazione configurabile dei namespace di sistema;
-- API group e kind consentiti;
-- risorse built-in e custom consentite;
-- accesso opzionale alle risorse cluster-scoped;
-- validazione della policy;
-- comportamento in caso di policy assente o invalida;
-- rapporto tra policy logica e RBAC Kubernetes effettivi.
+- allowed namespaces;
+- explicit namespace lists;
+- all-namespaces mode;
+- all-non-system-namespaces mode;
+- explicit inclusions and exclusions;
+- configurable identification of system namespaces;
+- allowed API groups and kinds;
+- allowed built-in and custom resources;
+- optional access to cluster-scoped resources;
+- policy validation;
+- behavior when the policy is missing or invalid;
+- relationship between the logical policy and effective Kubernetes RBAC.
 
-### Modello indicativo
+### Example model
 
 ```yaml
 apiVersion: kubeseer.io/v1alpha1
@@ -202,14 +202,14 @@ spec:
       kinds: ["MyCustomResource"]
 ```
 
-### Regole fondamentali
+### Core rules
 
-- la policy costituisce il limite massimo dell'installazione;
-- una Kubeseer può restringere il perimetro, ma non ampliarlo;
-- una richiesta fuori policy deve essere respinta prima di leggere la risorsa;
-- la configurazione amministrativa deve essere distinta dalla configurazione delle singole Kubeseer.
+- the policy defines the maximum installation scope;
+- a `Kubeseer` resource may narrow this scope but must not broaden it;
+- an out-of-policy request must be rejected before reading the resource;
+- administrative configuration must remain separate from individual `Kubeseer` configurations.
 
-### Dipendenze
+### Dependencies
 
 - `kubeseer-api-foundation`;
 - `resource-discovery`.
@@ -218,24 +218,24 @@ spec:
 
 ## 6.4 `resource-selection`
 
-### Obiettivo
+### Objective
 
-Definire come una sorgente Kubeseer seleziona le istanze concrete delle risorse da osservare.
+Define how a Kubeseer source selects concrete Kubernetes resource instances.
 
-### Include
+### Includes
 
-- selezione per nome;
-- selezione per namespace singolo;
-- selezione mediante lista di namespace;
-- selezione mediante label selector;
-- eventuale field selector;
-- selezione di tutte le risorse corrispondenti;
-- combinazione delle regole di selezione;
-- ordinamento deterministico dei risultati;
-- comportamento quando nessuna risorsa corrisponde;
-- identificatore stabile della sorgente.
+- selection by resource name;
+- selection from a single namespace;
+- selection from a namespace list;
+- label selectors;
+- optional field selectors;
+- selection of all matching resources;
+- combination rules for selection mechanisms;
+- deterministic result ordering;
+- behavior when no resource matches;
+- stable source identifiers.
 
-### Modello indicativo
+### Example model
 
 ```yaml
 sources:
@@ -252,14 +252,14 @@ sources:
         app: frontend
 ```
 
-### Non include
+### Excludes
 
-- estrazione JSONPath;
-- conversione tipizzata;
-- aggregazione;
-- enforcement della policy amministrativa.
+- JSONPath extraction;
+- typed conversion;
+- aggregation;
+- installation-policy enforcement.
 
-### Dipendenze
+### Dependencies
 
 - `resource-discovery`;
 - `installation-access-policy`.
@@ -268,26 +268,26 @@ sources:
 
 ## 6.5 `field-extraction`
 
-### Obiettivo
+### Objective
 
-Estrarre valori dalle risorse selezionate tramite un sottoinsieme dichiarato e validato di JSONPath.
+Extract values from selected resources through a declared and validated JSONPath subset.
 
-### Include
+### Includes
 
-- sintassi JSONPath supportata;
-- compilazione e validazione delle espressioni;
-- estrazione di valori scalari;
-- estrazione di liste;
-- accesso ad array e mappe;
-- risultati multipli;
-- campo mancante;
-- valore nullo;
-- errore di sintassi;
-- errore di valutazione;
-- eventuale caching delle espressioni compilate;
-- limiti intenzionali rispetto all'implementazione completa di JSONPath.
+- supported JSONPath syntax;
+- expression parsing and validation;
+- scalar extraction;
+- list extraction;
+- array and map access;
+- multiple results;
+- missing fields;
+- null values;
+- syntax errors;
+- evaluation errors;
+- optional caching of compiled expressions;
+- intentional limitations compared with a complete JSONPath implementation.
 
-### Modello indicativo
+### Example model
 
 ```yaml
 fields:
@@ -297,14 +297,14 @@ fields:
     path: "{.spec.nodeName}"
 ```
 
-### Regole fondamentali
+### Core rules
 
-- il valore Kubernetes nativo deve essere preservato fino alla conversione tipizzata;
-- un JSONPath invalido deve essere rilevato prima dell'elaborazione delle risorse;
-- un errore su un campo deve essere attribuito al campo e alla risorsa corretti;
-- deve essere definita esplicitamente la semantica dei risultati multipli.
+- the native Kubernetes value must be preserved until typed conversion;
+- invalid JSONPath expressions must be detected before processing resources;
+- errors must identify the affected field and resource;
+- the semantics of multiple results must be defined explicitly.
 
-### Dipendenze
+### Dependencies
 
 - `resource-selection`.
 
@@ -312,11 +312,11 @@ fields:
 
 ## 6.6 `typed-output-model`
 
-### Obiettivo
+### Objective
 
-Definire un modello di output esplicitamente tipizzato e serializzabile nello status Kubernetes.
+Define an explicitly typed output model that can be serialized safely into Kubernetes status.
 
-### Tipi iniziali
+### Initial types
 
 - `string`;
 - `integer`;
@@ -328,20 +328,20 @@ Definire un modello di output esplicitamente tipizzato e serializzabile nello st
 - `object`;
 - `list`.
 
-### Include
+### Includes
 
-- rappresentazione interna dei tipi;
-- rappresentazione YAML e JSON;
-- conversioni ammesse;
-- conversioni vietate;
-- gestione degli overflow;
-- gestione degli errori di conversione;
-- conservazione opzionale del valore originale;
-- normalizzazione di duration e quantity;
-- distinzione tra valore assente, nullo, vuoto e non convertibile;
-- rappresentazione degli errori per singolo campo.
+- internal type representation;
+- YAML and JSON representation;
+- allowed conversions;
+- forbidden conversions;
+- overflow handling;
+- conversion error handling;
+- optional preservation of the original value;
+- duration and quantity normalization;
+- distinction between absent, null, empty, and non-convertible values;
+- per-field error representation.
 
-### Modello indicativo
+### Example model
 
 ```yaml
 fields:
@@ -366,7 +366,7 @@ status:
         normalizedValue: 536870912
 ```
 
-### Dipendenze
+### Dependencies
 
 - `field-extraction`.
 
@@ -374,13 +374,13 @@ status:
 
 ## 6.7 `value-operators`
 
-### Obiettivo
+### Objective
 
-Definire un insieme controllato di operatori applicabili ai valori estratti e tipizzati.
+Define a controlled set of operators applicable to extracted and typed values.
 
-### Operatori iniziali suggeriti
+### Suggested initial operators
 
-#### Confronto
+#### Comparison
 
 - `eq`;
 - `ne`;
@@ -389,47 +389,47 @@ Definire un insieme controllato di operatori applicabili ai valori estratti e ti
 - `lt`;
 - `lte`.
 
-#### Stringa
+#### String
 
 - `contains`;
 - `startsWith`;
 - `endsWith`;
 - `matches`.
 
-#### Presenza
+#### Presence
 
 - `exists`;
 - `notExists`.
 
-#### Collezioni
+#### Collections
 
 - `in`;
 - `notIn`.
 
-#### Trasformazioni semplici
+#### Simple transformations
 
 - `default`;
 - `coalesce`.
 
-### Include
+### Includes
 
-- matrice di compatibilità operatore-tipo;
-- semantica dei confronti;
-- confronto di quantity e duration;
-- comportamento con valori nulli o assenti;
-- coercizioni ammesse o vietate;
-- ordine di applicazione;
-- messaggi di errore deterministici;
-- validazione anticipata delle combinazioni non valide.
+- operator-to-type compatibility matrix;
+- comparison semantics;
+- quantity and duration comparisons;
+- behavior for null or absent values;
+- allowed and forbidden coercions;
+- operator application order;
+- deterministic error messages;
+- early validation of invalid combinations.
 
-### Non include
+### Excludes
 
-- funzioni di aggregazione;
-- linguaggio CEL;
-- trasformazioni arbitrarie;
+- aggregation functions;
+- CEL;
+- arbitrary transformations;
 - scripting.
 
-### Dipendenze
+### Dependencies
 
 - `field-extraction`;
 - `typed-output-model`.
@@ -438,25 +438,25 @@ Definire un insieme controllato di operatori applicabili ai valori estratti e ti
 
 ## 6.8 `cross-namespace-aggregation`
 
-### Obiettivo
+### Objective
 
-Raggruppare e aggregare valori provenienti da più risorse e namespace mantenendone la provenienza.
+Group and aggregate values from multiple resources and namespaces while retaining their provenance.
 
-### Include
+### Includes
 
-- raccolta cross-namespace;
-- metadati di provenienza;
-- raggruppamento per uno o più campi;
-- aggregazioni tipizzate;
-- risultati parziali;
-- deduplicazione;
-- collisioni tra nomi uguali in namespace diversi;
-- ordine deterministico;
-- cardinalità massima;
-- gestione di namespace temporaneamente non disponibili;
-- comportamento in presenza di sorgenti degradate.
+- cross-namespace collection;
+- provenance metadata;
+- grouping by one or more fields;
+- typed aggregations;
+- partial results;
+- deduplication;
+- collisions between equal names in different namespaces;
+- deterministic ordering;
+- maximum cardinality;
+- temporarily unavailable namespaces;
+- degraded source behavior.
 
-### Provenienza minima del valore
+### Minimum value provenance
 
 ```yaml
 source:
@@ -467,7 +467,7 @@ source:
   uid: 9d8...
 ```
 
-### Aggregazioni iniziali suggerite
+### Suggested initial aggregations
 
 - `collect`;
 - `count`;
@@ -479,14 +479,14 @@ source:
 - `last`;
 - `distinct`.
 
-### Regole fondamentali
+### Core rules
 
-- le aggregazioni numeriche devono accettare soltanto tipi compatibili;
-- l'ordine di elaborazione non deve rendere il risultato non deterministico;
-- deve essere sempre possibile risalire alle risorse che hanno contribuito al risultato, almeno quando richiesto dalla configurazione;
-- il fallimento di una sorgente deve produrre uno stato degradato o un errore secondo una policy esplicita.
+- numeric aggregations must accept only compatible types;
+- processing order must not produce non-deterministic output;
+- contributing resources must remain traceable when requested by configuration;
+- source failure must produce either a degraded result or an error according to an explicit policy.
 
-### Dipendenze
+### Dependencies
 
 - `resource-selection`;
 - `field-extraction`;
@@ -497,60 +497,60 @@ source:
 
 ## 6.9 `reconciliation-runtime`
 
-### Obiettivo
+### Objective
 
-Definire quando e come il controller riconcilia una risorsa Kubeseer.
+Define when and how the controller reconciles a `Kubeseer` resource.
 
-### Include
+### Includes
 
-- watch delle Custom Resource Kubeseer;
-- watch delle risorse sorgente;
-- mapping tra risorsa modificata e Kubeseer interessate;
-- riconciliazione periodica di sicurezza;
-- idempotenza;
-- retry e backoff;
-- debounce o coalescenza degli eventi;
-- gestione degli aggiornamenti concorrenti;
-- cancellazione;
-- finalizer soltanto se necessario;
-- cache e informer;
-- invalidazione del risultato;
-- confronto semantico prima dell'aggiornamento dello status.
+- watches on `Kubeseer` Custom Resources;
+- watches on source resources;
+- mapping changed resources to affected `Kubeseer` instances;
+- periodic safety reconciliation;
+- idempotency;
+- retry and backoff;
+- event debounce or coalescing;
+- concurrent update handling;
+- deletion behavior;
+- finalizers only where necessary;
+- caches and informers;
+- result invalidation;
+- semantic comparison before status updates.
 
-### Regole fondamentali
+### Core rules
 
-- una modifica a una risorsa osservata deve riconciliare le Kubeseer interessate;
-- una modifica che non cambia il risultato non deve causare un aggiornamento inutile dello status;
-- il controller non deve entrare in loop a causa dei propri aggiornamenti di status;
-- la riconciliazione deve essere ripetibile e idempotente;
-- il fallimento di una Kubeseer non deve bloccare la riconciliazione delle altre.
+- a change to an observed resource must reconcile affected `Kubeseer` instances;
+- a change that does not alter the computed result must not trigger an unnecessary status update;
+- the controller must not loop because of its own status updates;
+- reconciliation must be repeatable and idempotent;
+- failure of one `Kubeseer` instance must not block others.
 
-### Dipendenze
+### Dependencies
 
-- tutte le feature funzionali necessarie alla prima slice verticale.
+- all functional features required by the first implemented vertical slice.
 
 ---
 
 ## 6.10 `status-and-conditions`
 
-### Obiettivo
+### Objective
 
-Definire il contratto osservabile dello status di Kubeseer.
+Define the public and observable status contract of a `Kubeseer` resource.
 
-### Include
+### Includes
 
 - `observedGeneration`;
-- condizioni Kubernetes;
-- risultato tipizzato;
-- riepilogo delle sorgenti;
-- errori parziali;
-- timestamp rilevanti;
-- hash o fingerprint del risultato;
-- numero di risorse elaborate;
-- stato complessivo;
-- ragioni e messaggi stabili.
+- Kubernetes-style conditions;
+- overall state;
+- computed result;
+- processed-source summary;
+- partial errors;
+- timestamps;
+- semantic result hash;
+- ready, degraded, invalid, unauthorized, and unavailable states;
+- stable reason codes and human-readable messages.
 
-### Condizioni suggerite
+### Suggested conditions
 
 - `Accepted`;
 - `Authorized`;
@@ -558,17 +558,7 @@ Definire il contratto osservabile dello status di Kubeseer.
 - `Ready`;
 - `Degraded`.
 
-### Stati da distinguere
-
-- configurazione accettata;
-- pronta;
-- degradata;
-- invalida;
-- non autorizzata;
-- sorgente non disponibile;
-- limite superato.
-
-### Modello indicativo
+### Example model
 
 ```yaml
 status:
@@ -585,41 +575,40 @@ status:
   result: {}
 ```
 
-### Dipendenze
+### Dependencies
 
 - `typed-output-model`;
-- `cross-namespace-aggregation`;
+- `cross-namespace-aggregation` where aggregation is enabled;
 - `reconciliation-runtime`.
 
 ---
 
 ## 6.11 `authorization-enforcement`
 
-### Obiettivo
+### Objective
 
-Applicare a runtime la policy amministrativa e impedire che una Kubeseer ampli il perimetro autorizzato.
+Enforce the administrator-defined installation policy at runtime.
 
-### Include
+### Includes
 
-- verifica preventiva dei namespace;
-- verifica preventiva di API group e kind;
-- controllo delle risorse cluster-scoped;
-- prevenzione della privilege escalation;
-- comportamento quando la policy viene ristretta;
-- invalidazione o rimozione dei risultati precedentemente autorizzati;
-- gestione di policy aggiornate durante il runtime;
-- audit delle decisioni;
-- errori che non espongano dati non autorizzati.
+- validation of every requested namespace;
+- validation of every requested API group and kind;
+- prevention of privilege escalation;
+- behavior when the installation policy is restricted;
+- invalidation or removal of previously authorized results;
+- prevention of data exposure through error messages;
+- auditable authorization decisions;
+- separation between user permissions and operator permissions.
 
-### Regole fondamentali
+### Core rule
 
-- una sorgente non autorizzata non deve essere letta;
-- l'errore deve essere visibile senza rivelare il contenuto della risorsa vietata;
-- una policy più restrittiva deve avere effetto anche sulle Kubeseer esistenti;
-- il risultato precedente non deve rimanere esposto come se fosse ancora valido;
-- l'identità dell'utente che crea la CR non deve ampliare i privilegi dell'operatore.
+```text
+IF a Kubeseer source requests a namespace or resource type that is not allowed
+by the installation policy, THEN the system SHALL reject that source without
+attempting to read the requested resource.
+```
 
-### Dipendenze
+### Dependencies
 
 - `installation-access-policy`;
 - `resource-selection`.
@@ -628,67 +617,62 @@ Applicare a runtime la policy amministrativa e impedire che una Kubeseer ampli i
 
 ## 6.12 `admission-validation`
 
-### Obiettivo
+### Objective
 
-Rilevare il prima possibile configurazioni Kubeseer invalide o non autorizzabili.
+Reject invalid Kubeseer configurations as early and clearly as possible.
 
-### Include
+### Includes
 
-- schema OpenAPI della CRD;
-- eventuale validating admission webhook;
-- validazione dei nomi e degli identificatori;
-- unicità degli ID delle sorgenti e dei campi;
-- validazione JSONPath;
-- validazione delle combinazioni tipo-operatore;
-- validazione delle funzioni di aggregazione;
-- validazione dei riferimenti;
-- validazione rispetto alla policy amministrativa;
-- limiti di cardinalità e dimensione;
-- messaggi di errore utili.
+- CRD OpenAPI validation;
+- validating admission webhook where dynamic checks are required;
+- JSONPath validation;
+- type-and-operator compatibility validation;
+- unique source and field identifiers;
+- valid references;
+- installation-policy compliance checks;
+- cardinality and size limits;
+- actionable validation messages.
 
-### Livelli di validazione
+### Validation layers
 
-1. CRD/OpenAPI per gli errori strutturali e locali.
-2. Webhook o controller per discovery, JSONPath avanzato, autorizzazioni e condizioni dipendenti dal cluster.
+1. CRD/OpenAPI validation for structural constraints.
+2. Admission webhook or controller validation for discovery-dependent, JSONPath, and authorization checks.
 
-### Dipendenze
+### Dependencies
 
-- tutte le feature che definiscono il modello dichiarativo.
+- all declarative model features.
 
 ---
 
 ## 6.13 `observability`
 
-### Obiettivo
+### Objective
 
-Rendere il comportamento dell'operatore diagnosticabile e misurabile.
+Make Kubeseer's runtime behavior measurable, diagnosable, and auditable.
 
-### Include
+### Includes
 
-- log strutturati;
-- riferimenti a namespace, nome e UID della Kubeseer;
-- metriche Prometheus;
+- structured logs;
+- correlation with the relevant `Kubeseer` resource;
+- Prometheus metrics;
 - Kubernetes Events;
-- livelli di log coerenti;
-- protezione dei dati sensibili;
-- tracciamento delle cause di riconciliazione;
-- eventuale tracing, inizialmente opzionale.
+- optional tracing;
+- protection of sensitive values in logs;
+- stable error and reason codes.
 
-### Metriche iniziali suggerite
+### Suggested metrics
 
-- riconciliazioni totali;
-- riconciliazioni fallite;
-- durata della riconciliazione;
-- durata della valutazione;
-- risorse lette;
-- sorgenti fallite;
-- risultati prodotti;
-- aggiornamenti status evitati;
-- errori di autorizzazione;
-- errori JSONPath;
-- limiti superati.
+- total reconciliations;
+- failed reconciliations;
+- reconciliation duration;
+- resources read;
+- failed sources;
+- results produced;
+- skipped status updates;
+- authorization failures;
+- JSONPath failures.
 
-### Dipendenze
+### Dependencies
 
 - `reconciliation-runtime`;
 - `status-and-conditions`.
@@ -697,34 +681,34 @@ Rendere il comportamento dell'operatore diagnosticabile e misurabile.
 
 ## 6.14 `performance-and-limits`
 
-### Obiettivo
+### Objective
 
-Definire limiti operativi espliciti e un comportamento sicuro su cluster grandi o configurazioni costose.
+Define operational limits and predictable behavior on large clusters or expensive configurations.
 
-### Include
+### Includes
 
-- numero massimo di sorgenti per Kubeseer;
-- numero massimo di namespace;
-- numero massimo di risorse elaborate;
-- dimensione massima dell'output;
-- limiti per liste e aggregazioni;
-- timeout;
-- concorrenza;
-- caching;
-- memoria massima ragionevole;
-- comportamento su cluster grandi;
-- protezione da configurazioni patologiche;
-- eventuale paginazione delle list Kubernetes.
+- maximum sources per `Kubeseer`;
+- maximum namespaces per source;
+- maximum matched resources;
+- maximum status output size;
+- caching strategy;
+- controller concurrency;
+- evaluation timeout;
+- memory constraints;
+- behavior on large clusters;
+- protection against excessively expensive configurations.
 
-### Regole fondamentali
+### Core rules
 
-- il superamento di un limite deve produrre un risultato deterministico;
-- non devono essere pubblicati status che superino limiti sicuri per l'API server;
-- i timeout devono essere espliciti e osservabili;
-- il caching non deve compromettere correttezza o isolamento;
-- più Kubeseer che condividono sorgenti possono riutilizzare dati soltanto quando semanticamente sicuro.
+```text
+IF the number of matching resources exceeds the configured limit,
+THEN the system SHALL stop evaluation deterministically and report the limit.
 
-### Dipendenze
+WHILE multiple Kubeseer instances share the same source, the system SHALL avoid
+duplicate operations where caching does not affect correctness or isolation.
+```
+
+### Dependencies
 
 - `reconciliation-runtime`;
 - `cross-namespace-aggregation`.
@@ -733,58 +717,36 @@ Definire limiti operativi espliciti e un comportamento sicuro su cluster grandi 
 
 ## 6.15 `packaging-and-installation`
 
-### Obiettivo
+### Objective
 
-Distribuire Kubeseer in modo ripetibile e configurabile.
+Define how Kubeseer is packaged, installed, upgraded, configured, and removed.
 
-### Include
+### Includes
 
-- immagini container;
-- manifest dell'operatore;
-- Helm chart o Kustomize;
-- CRD;
+- operator manifests;
+- Helm or Kustomize packaging;
+- CRDs;
 - ServiceAccount;
-- ClusterRole e Role;
-- ClusterRoleBinding e RoleBinding;
-- policy iniziale;
-- configurazione dei namespace consentiti;
-- configurazione dei tipi consentiti;
-- installazione e aggiornamento;
-- disinstallazione;
-- eventuale webhook e certificati;
-- compatibilità delle versioni.
+- ClusterRoles and Roles;
+- RoleBindings and ClusterRoleBindings;
+- initial access-policy configuration;
+- installation for selected namespaces;
+- upgrade strategy;
+- uninstall behavior;
+- container images;
+- webhook certificates and cert-manager integration where applicable.
 
-### Ruoli da distinguere
+### Required permission model
 
-#### Amministratore del cluster
+The specification must distinguish clearly between:
 
-- installa l'operatore;
-- configura il ServiceAccount;
-- definisce il perimetro massimo;
-- applica la policy di accesso;
-- installa o aggiorna CRD e webhook.
+- permissions granted to the operator ServiceAccount;
+- resources allowed by `KubeseerAccessPolicy`;
+- permissions required by users who create `Kubeseer` resources.
 
-#### Amministratore di namespace o team applicativo
+Effective RBAC and the logical access policy should be aligned as closely as practical. The logical policy remains mandatory even when the ServiceAccount has broader permissions for operational reasons.
 
-- crea e modifica Kubeseer nei namespace autorizzati;
-- seleziona soltanto namespace e tipi consentiti;
-- non modifica la policy globale;
-- non necessita necessariamente di accesso diretto alle risorse osservate.
-
-#### ServiceAccount dell'operatore
-
-- legge le risorse autorizzate;
-- legge le Kubeseer e la policy;
-- aggiorna status ed eventi;
-- non modifica le risorse osservate.
-
-### Regole fondamentali
-
-- RBAC effettivo e policy logica devono essere il più possibile allineati;
-- la policy logica deve essere applicata anche se il ServiceAccount possiede tecnicamente permessi più ampi;
-- l'installazione deve permettere la modalità lista esplicita, tutti i namespace e tutti i namespace non di sistema.
-
-### Dipendenze
+### Dependencies
 
 - `installation-access-policy`;
 - `authorization-enforcement`;
@@ -794,42 +756,34 @@ Distribuire Kubeseer in modo ripetibile e configurabile.
 
 ## 6.16 `end-to-end-scenarios`
 
-### Obiettivo
+### Objective
 
-Certificare l'integrazione completa delle feature senza introdurre nuova logica applicativa.
+Certify the integration of all implemented features through executable cluster-level scenarios.
 
-### Scenari minimi
+### Minimum scenarios
 
-1. Lettura di un Deployment nello stesso namespace.
-2. Lettura di Pod da più namespace.
-3. Lettura di una Custom Resource.
-4. Selezione tramite nome.
-5. Selezione tramite label.
-6. Estrazione JSONPath scalare.
-7. Estrazione JSONPath multipla.
-8. Campo mancante.
-9. Conversione tipizzata riuscita.
-10. Conversione tipizzata fallita.
-11. Filtro mediante operatore.
-12. Aggregazione numerica.
-13. Raccolta distinct.
-14. Risultato parzialmente degradato.
-15. Namespace vietato.
-16. Kind vietato.
-17. Risorsa o CRD assente.
-18. Modifica di una risorsa sorgente.
-19. Modifica che non cambia il risultato.
-20. Rimozione di una risorsa sorgente.
-21. Restrizione della access policy.
-22. Restart dell'operatore.
-23. Output troppo grande.
-24. Superamento del numero massimo di risorse.
-25. Cancellazione della Kubeseer.
-26. Più Kubeseer con sorgenti sovrapposte.
-27. Risorsa cluster-scoped autorizzata.
-28. Risorsa cluster-scoped vietata.
+1. read a Deployment in the same namespace;
+2. read Pods from multiple namespaces;
+3. read a Custom Resource;
+4. select resources through labels;
+5. extract a scalar JSONPath value;
+6. extract a list;
+7. convert values into declared types;
+8. perform a numeric aggregation;
+9. produce a partially degraded result;
+10. reject a forbidden namespace;
+11. reject a forbidden kind;
+12. handle a missing resource type or CRD;
+13. react to a source-resource update;
+14. avoid a status update when the semantic result is unchanged;
+15. handle source-resource deletion;
+16. react to a restriction of the access policy;
+17. recover after an operator restart;
+18. reject or truncate oversized output according to policy;
+19. delete a `Kubeseer` resource cleanly;
+20. process overlapping `Kubeseer` instances correctly.
 
-### Strategia di verifica suggerita
+### Suggested verification environment
 
 ```text
 kind create cluster
@@ -839,54 +793,54 @@ kubectl apply -f test/e2e/fixtures
 go test ./test/e2e/...
 ```
 
-### Dipendenze
+### Dependencies
 
-Tutte le feature precedenti.
-
----
-
-# 7. Ordine di implementazione
-
-## 7.1 Fase 1 — MVP verticale
-
-1. `kubeseer-api-foundation`;
-2. `resource-discovery`;
-3. `installation-access-policy`;
-4. `resource-selection`;
-5. `field-extraction`;
-6. `typed-output-model`;
-7. `reconciliation-runtime`;
-8. `status-and-conditions`;
-9. `authorization-enforcement`.
-
-### Risultato della fase
-
-Kubeseer può leggere un campo tipizzato da una risorsa autorizzata e pubblicarlo in uno status stabile.
-
-## 7.2 Fase 2 — Filtri e aggregazione
-
-10. `value-operators`;
-11. `cross-namespace-aggregation`;
-12. `admission-validation`.
-
-### Risultato della fase
-
-Kubeseer può filtrare, raggruppare e aggregare dati provenienti da namespace diversi.
-
-## 7.3 Fase 3 — Produzione
-
-13. `observability`;
-14. `performance-and-limits`;
-15. `packaging-and-installation`;
-16. `end-to-end-scenarios`.
-
-### Risultato della fase
-
-Kubeseer è distribuibile, diagnosticabile, protetto da limiti e verificabile end-to-end.
+- every feature included in the certified release scope.
 
 ---
 
-# 8. Grafo delle dipendenze
+# 7. Recommended implementation order
+
+## Phase 1 — Minimum vertical slice
+
+```text
+1. kubeseer-api-foundation
+2. resource-discovery
+3. installation-access-policy
+4. resource-selection
+5. field-extraction
+6. typed-output-model
+7. reconciliation-runtime
+8. status-and-conditions
+9. authorization-enforcement
+```
+
+Expected result: Kubeseer can read a typed field from an authorized Kubernetes resource and publish a stable result in status.
+
+## Phase 2 — Filtering and aggregation
+
+```text
+10. value-operators
+11. cross-namespace-aggregation
+12. admission-validation
+```
+
+Expected result: Kubeseer can filter, group, and aggregate typed values across multiple namespaces.
+
+## Phase 3 — Production readiness
+
+```text
+13. observability
+14. performance-and-limits
+15. packaging-and-installation
+16. end-to-end-scenarios
+```
+
+Expected result: Kubeseer is deployable, measurable, bounded, and certifiable.
+
+---
+
+# 8. Dependency overview
 
 ```text
 kubeseer-api-foundation
@@ -909,42 +863,45 @@ kubeseer-api-foundation
 └── packaging-and-installation
 
 end-to-end-scenarios
-└── dipende da tutte le feature precedenti
+└── depends on every feature in the certified release scope
 ```
 
----
+# 9. Feature granularity rule
 
-# 9. Regola di granularità Walden
+A Walden feature should represent an externally verifiable capability.
 
-Una feature Walden deve rappresentare una capacità osservabile, approvabile e verificabile dall'esterno.
+Good feature examples:
 
-Sono troppo piccole feature come:
+- `field-extraction`;
+- `typed-output-model`;
+- `authorization-enforcement`.
 
-- implementare una singola funzione Go;
-- aggiungere una singola struct;
-- creare un singolo test.
+Too small:
 
-Questi elementi devono essere task interni a una feature.
+- `implement-jsonpath-parser-function`;
+- `add-status-struct-field`.
 
-Sono troppo grandi feature come:
+These belong in `tasks.md` as implementation tasks.
 
-- implementare Kubeseer;
-- completare l'operatore;
-- realizzare tutto il sistema di aggregazione e sicurezza in un'unica specifica.
+Too large:
 
-La granularità adottata in questo documento permette di modificare requisiti, design e task di una capacità senza invalidare inutilmente l'intero progetto.
+- `implement-kubeseer`;
+- `build-the-operator`.
 
-# 10. Prima slice consigliata
+These prevent focused requirements, design review, traceability, and reliable proof coverage.
 
-La prima implementazione dovrebbe attraversare verticalmente il sistema con il minor numero possibile di capacità:
+# 10. Recommended first certified slice
 
-1. una Kubeseer seleziona una singola risorsa per nome;
-2. la risorsa appartiene a un namespace autorizzato;
-3. il tipo è consentito dalla policy;
-4. un JSONPath estrae un singolo valore;
-5. il valore viene convertito in un tipo esplicito;
-6. il risultato viene scritto nello status;
-7. una modifica della risorsa provoca la riconciliazione;
-8. lo status non viene aggiornato quando il risultato non cambia.
+The first implementation milestone should prove the following end-to-end behavior:
 
-Soltanto dopo la certificazione di questa slice devono essere introdotti selettori multipli, operatori e aggregazioni avanzate.
+1. an administrator installs Kubeseer with one allowed namespace and one allowed resource type;
+2. a user creates a `Kubeseer` resource without direct access to the observed resource;
+3. the operator validates the request against the installation policy;
+4. the operator resolves the requested Kubernetes type;
+5. the operator reads one matching resource;
+6. the operator extracts one JSONPath field;
+7. the operator converts the value to the declared type;
+8. the operator publishes the typed value in status;
+9. the operator does not update status when the semantic result is unchanged.
+
+Selectors spanning many resources, advanced operators, and advanced aggregations should be introduced only after this slice has been certified.
