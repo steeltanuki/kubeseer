@@ -121,15 +121,18 @@ func (r *Resolver) freshCacheEntry(key cacheKey) (cacheEntry, bool) {
 	return entry, ok && now.Before(entry.expiresAt)
 }
 
-func (r *Resolver) beginRefresh(key cacheKey) (*refreshState, bool) {
+func (r *Resolver) beginRefresh(key cacheKey) (*refreshState, bool, cacheEntry, bool) {
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
+	if entry, ok := r.cache[key]; ok && r.clock().Before(entry.expiresAt) {
+		return nil, false, entry, true
+	}
 	if state, ok := r.refreshing[key]; ok {
-		return state, false
+		return state, false, cacheEntry{}, false
 	}
 	state := &refreshState{done: make(chan struct{})}
 	r.refreshing[key] = state
-	return state, true
+	return state, true, cacheEntry{}, false
 }
 
 func (r *Resolver) finishRefresh(key cacheKey, state *refreshState, entry cacheEntry, err error) {
@@ -285,7 +288,10 @@ func (r *Resolver) Resolve(ctx context.Context, descriptor SourceDescriptor) (Re
 }
 
 func (r *Resolver) resolveWithRefresh(ctx context.Context, descriptor SourceDescriptor, groupVersion schema.GroupVersion, key cacheKey) (Resolution, error) {
-	state, owner := r.beginRefresh(key)
+	state, owner, entry, cached := r.beginRefresh(key)
+	if cached {
+		return entry.resolution(descriptor.SourceID), nil
+	}
 	if !owner {
 		select {
 		case <-state.done:
@@ -308,12 +314,12 @@ func (r *Resolver) resolveWithRefresh(ctx context.Context, descriptor SourceDesc
 		r.finishRefresh(key, state, cacheEntry{}, err)
 		return Resolution{}, err
 	}
-	entry := cacheEntry{
+	refreshedEntry := cacheEntry{
 		resource:  resolution.Resource,
 		scope:     resolution.Scope,
 		expiresAt: r.clock().Add(r.cacheTTL),
 	}
-	r.finishRefresh(key, state, entry, nil)
+	r.finishRefresh(key, state, refreshedEntry, nil)
 	return resolution, nil
 }
 

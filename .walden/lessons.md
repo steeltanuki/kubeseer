@@ -35,3 +35,13 @@ Review this file before non-trivial work when the current request matches past m
 - Lesson: The Kubernetes API-server smoke test requires local sockets that the restricted sandbox denies even when all assets are available.
 - Guardrail: Run envtest proofs with the required local-process permission and distinguish socket policy failures from discovery implementation failures.
 
+### 2026-08-01T13:49:48Z | resource-discovery | execute
+- Trigger: The task 3.2 race proof ran the package without envtest assets and exposed a refresh handoff race
+- Lesson: Integration tests must skip explicitly when their required assets are absent, and refresh ownership must re-check a cache populated between the initial miss and lock acquisition to prevent a second discovery.
+- Guardrail: Gate envtest tests on KUBEBUILDER_ASSETS and perform an atomic fresh-entry check while acquiring each per-key refresh slot.
+
+### 2026-08-01T13:50:07Z | resource-discovery | execute
+- Trigger: Walden task completion inherited a read-only default Go build cache
+- Lesson: A proof can pass with explicit writable caches while the same command fails when Walden launches Go with the sandbox default cache.
+- Guardrail: Use writable GOCACHE and GOMODCACHE paths for every Go-backed Walden completion or verification in restricted environments.
+

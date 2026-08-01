@@ -2,7 +2,7 @@
 walden_schema_version: v1alpha1
 status: approved
 approved_at: 2026-08-01T11:52:07Z
-last_modified: 2026-08-01T13:47:35Z
+last_modified: 2026-08-01T13:50:12Z
 approved_fingerprint: sha256:68f192b1c29b8d1f70f322837a1111a14850cc8f482012f34562e839d6bae188
 source_design_approved_at: 2026-08-01T11:47:16Z
 source_design_fingerprint: sha256:3758e9ed57d131cec58d72b1d2e659fabdf35d9552eb5f1f4c482f606ab5ea68
@@ -52,7 +52,7 @@ source_design_fingerprint: sha256:3758e9ed57d131cec58d72b1d2e659fabdf35d9552eb5f
         expect_output: "--- PASS: TestCacheInvalidation"
         covers: ["R5.AC3", "R5.AC4", "R5.AC5", "NFR1", "NFR2", "NFR3"]
 
-- [ ] 3. Prove live Kubernetes discovery compatibility and quality boundaries
+- [x] 3. Prove live Kubernetes discovery compatibility and quality boundaries
   - [x] 3.1 Add an envtest discovery smoke test for built-in, cluster-scoped, and CRD-backed resources
     - Requirements: `R2.AC1`, `R2.AC2`, `R3.AC1`, `R3.AC2`, `R6.AC1`, `R6.AC2`, `NFR1`, `NFR3`
     - Design: Testing Strategy — Integration tests; Verification Plan — Compatibility proof; Security Considerations
@@ -62,7 +62,7 @@ source_design_fingerprint: sha256:3758e9ed57d131cec58d72b1d2e659fabdf35d9552eb5f
         timeout: 20m
         covers: ["R2.AC1", "R2.AC2", "R3.AC1", "R3.AC2", "R6.AC1", "R6.AC2", "NFR1", "NFR3"]
 
-  - [ ] 3.2 Add deterministic race and static verification for the discovery package
+  - [x] 3.2 Add deterministic race and static verification for the discovery package
     - Requirements: `R5.AC1`, `R5.AC2`, `R5.AC3`, `R5.AC4`, `R5.AC5`, `R6.AC3`, `R6.AC4`, `NFR1`, `NFR2`, `NFR3`
     - Design: Simplicity And Elegance Review; Testing Strategy — Static and quality checks; Verification Plan — Requirement proof and Security proof
     - Verification:

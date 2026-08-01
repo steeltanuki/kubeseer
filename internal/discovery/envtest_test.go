@@ -38,7 +38,7 @@ const (
 func TestEnvtestDiscovery(t *testing.T) {
 	assets := os.Getenv("KUBEBUILDER_ASSETS")
 	if assets == "" {
-		t.Fatal("KUBEBUILDER_ASSETS is required; run this test through the Walden envtest proof")
+		t.Skip("KUBEBUILDER_ASSETS is not set; run this test through the Walden envtest proof")
 	}
 
 	environment := &envtest.Environment{}
