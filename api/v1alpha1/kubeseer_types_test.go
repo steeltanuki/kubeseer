@@ -16,12 +16,17 @@ package v1alpha1
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
+	"sort"
 	"testing"
 	"time"
 
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 )
 
 func TestSchemeRegistration(t *testing.T) {
@@ -161,5 +166,143 @@ func TestDeepCopyIsolation(t *testing.T) {
 	}
 	if original.Status.Conditions[0].Reason != "Available" {
 		t.Fatalf("status conditions alias original: %#v", original.Status.Conditions)
+	}
+}
+
+func TestGeneratedCRDContract(t *testing.T) {
+	crdPath := filepath.Join("..", "..", "config", "crd", "bases", "kubeseer.io_kubeseers.yaml")
+	file, err := os.Open(crdPath)
+	if err != nil {
+		t.Fatalf("open generated CRD %q: %v", crdPath, err)
+	}
+	defer file.Close()
+
+	var crd apiextensionsv1.CustomResourceDefinition
+	if err := utilyaml.NewYAMLOrJSONDecoder(file, 4096).Decode(&crd); err != nil {
+		t.Fatalf("decode generated CRD: %v", err)
+	}
+
+	if crd.Name != "kubeseers.kubeseer.io" {
+		t.Fatalf("unexpected CRD name: %q", crd.Name)
+	}
+	if crd.Spec.Group != GroupVersion.Group {
+		t.Fatalf("unexpected CRD group: %q", crd.Spec.Group)
+	}
+	if crd.Spec.Scope != apiextensionsv1.NamespaceScoped {
+		t.Fatalf("unexpected CRD scope: %q", crd.Spec.Scope)
+	}
+	if crd.Spec.Names.Kind != "Kubeseer" || crd.Spec.Names.ListKind != "KubeseerList" ||
+		crd.Spec.Names.Plural != "kubeseers" || crd.Spec.Names.Singular != "kubeseer" {
+		t.Fatalf("unexpected CRD names: %#v", crd.Spec.Names)
+	}
+	if len(crd.Spec.Versions) != 1 {
+		t.Fatalf("expected exactly one served API version, got %d", len(crd.Spec.Versions))
+	}
+
+	version := crd.Spec.Versions[0]
+	if version.Name != GroupVersion.Version || !version.Served || !version.Storage {
+		t.Fatalf("unexpected version contract: %#v", version)
+	}
+	if version.Subresources == nil || version.Subresources.Status == nil {
+		t.Fatal("status subresource is not generated")
+	}
+	if version.Schema == nil || version.Schema.OpenAPIV3Schema == nil {
+		t.Fatal("generated CRD has no OpenAPI schema")
+	}
+
+	schema := version.Schema.OpenAPIV3Schema
+	if schema.Type != "object" {
+		t.Fatalf("root schema is not structural object: %q", schema.Type)
+	}
+	for _, required := range []string{"apiVersion", "kind", "metadata", "spec"} {
+		if !contains(schema.Required, required) && required == "spec" {
+			t.Fatalf("root schema does not require %q: %v", required, schema.Required)
+		}
+		if _, ok := schema.Properties[required]; !ok {
+			t.Fatalf("root schema does not expose %q", required)
+		}
+	}
+
+	spec, ok := schema.Properties["spec"]
+	if !ok || spec.Type != "object" {
+		t.Fatalf("spec schema is missing or not an object: %#v", spec)
+	}
+	if len(spec.Properties) != 1 {
+		t.Fatalf("spec exposes fields outside the API foundation: %v", sortedSchemaKeys(spec.Properties))
+	}
+	sources, ok := spec.Properties["sources"]
+	if !ok || sources.Type != "array" || sources.Items == nil || sources.Items.Schema == nil {
+		t.Fatalf("sources schema is missing or not an array of objects: %#v", sources)
+	}
+	if sources.XListType == nil || *sources.XListType != "map" || len(sources.XListMapKeys) != 1 || sources.XListMapKeys[0] != "id" {
+		t.Fatalf("sources list-map contract is incorrect: %#v", sources)
+	}
+	source := sources.Items.Schema
+	if source.Type != "object" || len(source.Properties) != 1 || !contains(source.Required, "id") {
+		t.Fatalf("source envelope contract is incorrect: %#v", source)
+	}
+	idSchema, ok := source.Properties["id"]
+	if !ok || idSchema.Type != "string" || idSchema.MaxLength == nil || *idSchema.MaxLength != 63 ||
+		idSchema.Pattern != `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$` {
+		t.Fatalf("source ID validation contract is incorrect: %#v", idSchema)
+	}
+
+	status, ok := schema.Properties["status"]
+	if !ok || status.Type != "object" {
+		t.Fatalf("status schema is missing or not an object: %#v", status)
+	}
+	observedGeneration, ok := status.Properties["observedGeneration"]
+	if !ok || observedGeneration.Type != "integer" || observedGeneration.Format != "int64" ||
+		observedGeneration.Minimum == nil || *observedGeneration.Minimum != 0 {
+		t.Fatalf("observedGeneration validation contract is incorrect: %#v", observedGeneration)
+	}
+	conditions, ok := status.Properties["conditions"]
+	if !ok || conditions.Type != "array" || conditions.Items == nil || conditions.Items.Schema == nil ||
+		conditions.XListType == nil || *conditions.XListType != "map" || len(conditions.XListMapKeys) != 1 || conditions.XListMapKeys[0] != "type" {
+		t.Fatalf("conditions schema is incorrect: %#v", conditions)
+	}
+	result, ok := status.Properties["result"]
+	if !ok || result.Type != "object" {
+		t.Fatalf("result schema is missing or not a typed object: %#v", result)
+	}
+
+	if status.XPreserveUnknownFields != nil || spec.XPreserveUnknownFields != nil || result.XPreserveUnknownFields != nil {
+		t.Fatal("API foundation permits preserved unknown fields")
+	}
+	if len(result.Properties) != 0 || result.AdditionalProperties != nil {
+		t.Fatalf("result exposes an unreviewed payload surface: %#v", result)
+	}
+	assertNoDefaults(t, schema)
+}
+
+func contains(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func sortedSchemaKeys(values map[string]apiextensionsv1.JSONSchemaProps) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func assertNoDefaults(t *testing.T, schema *apiextensionsv1.JSONSchemaProps) {
+	t.Helper()
+	if schema.Default != nil {
+		t.Fatalf("generated schema contains an implicit default: %#v", schema.Default)
+	}
+	for _, property := range schema.Properties {
+		property := property
+		assertNoDefaults(t, &property)
+	}
+	if schema.Items != nil && schema.Items.Schema != nil {
+		assertNoDefaults(t, schema.Items.Schema)
 	}
 }
