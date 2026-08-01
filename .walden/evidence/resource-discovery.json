@@ -1,0 +1,38 @@
+{
+  "schema_version": "v1alpha1",
+  "feature": "resource-discovery",
+  "tasks": {
+    "1.1": {
+      "task_fingerprint": "sha256:82d822cbf6a28ec41c051809f19b087f3e351bfa3891426bc83f30b93a240f23",
+      "requirements_fingerprint": "sha256:3d227198f729edbadbff52f8885f0c9af6d35f19a2b2c761565dacc6ff3109c6",
+      "design_fingerprint": "sha256:3758e9ed57d131cec58d72b1d2e659fabdf35d9552eb5f1f4c482f606ab5ea68",
+      "tasks_fingerprint": "sha256:68f192b1c29b8d1f70f322837a1111a14850cc8f482012f34562e839d6bae188",
+      "code_identity": "sha256:b219d9a42e7f9e9b9580aa5d291f1da75d6169f4b2621c71dfef4dc8f2ca7564",
+      "profile": {
+        "go": "go version go1.26.5-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "go",
+            "test",
+            "-v",
+            "./internal/discovery/...",
+            "-run",
+            "^TestDiscoveryContracts$"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:ba7b84fa12b45ee3a8674541469f4b2d757dc532993c90c23becdf0d915565ad"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-01T11:55:41Z"
+    }
+  }
+}
