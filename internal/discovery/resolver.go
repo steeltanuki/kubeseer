@@ -144,6 +144,58 @@ func (r *Resolver) finishRefresh(key cacheKey, state *refreshState, entry cacheE
 	r.cacheMu.Unlock()
 }
 
+// InvalidateGroupVersion removes every cached kind under a canonical API
+// group/version. Invalid input is ignored because there is no cache key to
+// invalidate.
+func (r *Resolver) InvalidateGroupVersion(groupVersion string) {
+	canonical, ok := canonicalGroupVersion(groupVersion)
+	if r == nil || !ok {
+		return
+	}
+	r.ensureCache()
+	r.cacheMu.Lock()
+	for key := range r.cache {
+		if key.groupVersion == canonical {
+			delete(r.cache, key)
+		}
+	}
+	r.cacheMu.Unlock()
+}
+
+// InvalidateResource removes one cached kind under a canonical API
+// group/version. The next resolution performs one bounded discovery request.
+func (r *Resolver) InvalidateResource(groupVersion, kind string) {
+	canonical, ok := canonicalGroupVersion(groupVersion)
+	if r == nil || !ok || kind == "" {
+		return
+	}
+	r.ensureCache()
+	r.cacheMu.Lock()
+	delete(r.cache, cacheKey{groupVersion: canonical, kind: kind})
+	r.cacheMu.Unlock()
+}
+
+// InvalidateAll removes every cached resolution without starting discovery.
+func (r *Resolver) InvalidateAll() {
+	if r == nil {
+		return
+	}
+	r.ensureCache()
+	r.cacheMu.Lock()
+	for key := range r.cache {
+		delete(r.cache, key)
+	}
+	r.cacheMu.Unlock()
+}
+
+func canonicalGroupVersion(value string) (string, bool) {
+	groupVersion, err := schema.ParseGroupVersion(strings.TrimSpace(value))
+	if err != nil || groupVersion.Version == "" {
+		return "", false
+	}
+	return groupVersion.String(), true
+}
+
 // NewResolver creates a resolver backed by the supplied discovery client.
 // Options are intentionally variadic so existing callers retain the original
 // constructor while tests and deployments can configure cache behavior.

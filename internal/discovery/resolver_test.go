@@ -373,6 +373,70 @@ func TestCacheConcurrentRefresh(t *testing.T) {
 	}
 }
 
+func TestCacheInvalidation(t *testing.T) {
+	now := time.Unix(400, 0)
+	client := discoveryWith(
+		"v1",
+		metav1.APIResource{Name: "pods", Kind: "Pod", Namespaced: true},
+		metav1.APIResource{Name: "nodes", Kind: "Node", Namespaced: false},
+	)
+	resolver := NewResolver(client,
+		WithCacheTTL(time.Hour),
+		WithClock(func() time.Time { return now }),
+	)
+
+	if _, err := resolver.Resolve(context.Background(), SourceDescriptor{SourceID: "pod-source", APIVersion: "v1", Kind: "Pod"}); err != nil {
+		t.Fatalf("seed pod cache: %v", err)
+	}
+	if _, err := resolver.Resolve(context.Background(), SourceDescriptor{SourceID: "node-source", APIVersion: "v1", Kind: "Node"}); err != nil {
+		t.Fatalf("seed node cache: %v", err)
+	}
+	if len(client.calls) != 2 {
+		t.Fatalf("unexpected seed discovery count: %v", client.calls)
+	}
+
+	client.resources["v1"] = &metav1.APIResourceList{
+		GroupVersion: "v1",
+		APIResources: []metav1.APIResource{
+			{Name: "pods-v2", Kind: "Pod", Namespaced: true},
+			{Name: "nodes-v2", Kind: "Node", Namespaced: false},
+		},
+	}
+	resolver.InvalidateResource("/v1", "Pod")
+	refreshedPod, err := resolver.Resolve(context.Background(), SourceDescriptor{SourceID: "pod-source", APIVersion: "v1", Kind: "Pod"})
+	if err != nil {
+		t.Fatalf("resolve invalidated resource: %v", err)
+	}
+	if refreshedPod.Resource.Resource != "pods-v2" || len(client.calls) != 3 {
+		t.Fatalf("resource invalidation did not cause one refresh: resolution=%#v calls=%v", refreshedPod, client.calls)
+	}
+	if _, err := resolver.Resolve(context.Background(), SourceDescriptor{SourceID: "node-source", APIVersion: "v1", Kind: "Node"}); err != nil {
+		t.Fatalf("resolve unaffected resource: %v", err)
+	}
+	if len(client.calls) != 3 {
+		t.Fatalf("resource invalidation evicted an unrelated kind: %v", client.calls)
+	}
+
+	resolver.InvalidateGroupVersion("v1")
+	if _, err := resolver.Resolve(context.Background(), SourceDescriptor{SourceID: "pod-source", APIVersion: "v1", Kind: "Pod"}); err != nil {
+		t.Fatalf("resolve after group/version invalidation (pod): %v", err)
+	}
+	if _, err := resolver.Resolve(context.Background(), SourceDescriptor{SourceID: "node-source", APIVersion: "v1", Kind: "Node"}); err != nil {
+		t.Fatalf("resolve after group/version invalidation (node): %v", err)
+	}
+	if len(client.calls) != 5 {
+		t.Fatalf("group/version invalidation did not evict every kind: %v", client.calls)
+	}
+
+	resolver.InvalidateAll()
+	if _, err := resolver.Resolve(context.Background(), SourceDescriptor{SourceID: "pod-source", APIVersion: "v1", Kind: "Pod"}); err != nil {
+		t.Fatalf("resolve after full invalidation: %v", err)
+	}
+	if len(client.calls) != 6 {
+		t.Fatalf("full invalidation did not evict the cache: %v", client.calls)
+	}
+}
+
 type blockingDiscovery struct {
 	resources *metav1.APIResourceList
 	started   chan struct{}
