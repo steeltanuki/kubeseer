@@ -45,3 +45,13 @@ Review this file before non-trivial work when the current request matches past m
 - Lesson: A proof can pass with explicit writable caches while the same command fails when Walden launches Go with the sandbox default cache.
 - Guardrail: Use writable GOCACHE and GOMODCACHE paths for every Go-backed Walden completion or verification in restricted environments.
 
+### 2026-08-01T21:42:53Z | installation-access-policy | requirements
+- Trigger: A manual acceptance-criterion scan passed Markdown backticks through an unsafe shell regex
+- Lesson: Backticks inside a double-quoted shell pattern are command substitutions, so a read-only quality scan can execute unintended text and distort its pattern.
+- Guardrail: Pass Markdown-aware rg patterns in single quotes and keep shell metacharacters literal during spec quality scans.
+
+### 2026-08-02T08:21:08Z | installation-access-policy | requirements
+- Trigger: User rejected the generic singleton name default during design review
+- Lesson: A singleton resource name is part of the operator UX and should communicate the policy role, not merely its cardinality
+- Guardrail: Name installation-wide singleton resources after their administrative function before approving requirements
+
