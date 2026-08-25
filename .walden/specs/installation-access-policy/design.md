@@ -1,11 +1,11 @@
 ---
 walden_schema_version: v1alpha1
-status: in-review
-approved_at:
-last_modified: 2026-08-25T20:39:17Z
-approved_fingerprint:
-source_requirements_approved_at:
-source_requirements_fingerprint:
+status: approved
+approved_at: 2026-08-25T21:05:38Z
+last_modified: 2026-08-25T21:05:38Z
+approved_fingerprint: sha256:8a75e79f579c3d9fa19fce2f6ab6b4cbabc52058ae1d2ad3951d36a20f920d1a
+source_requirements_approved_at: 2026-08-02T08:25:14Z
+source_requirements_fingerprint: sha256:f7a99b5d19399e9f98b7c6631911cbb448abbb53d361cc1be48e1c6dbae3de93
 ---
 
 # Feature Design

@@ -1,118 +1,124 @@
 ---
 walden_schema_version: v1alpha1
-status: draft
-approved_at:
-last_modified: 2026-08-25T20:38:32Z
-approved_fingerprint:
-source_design_approved_at:
-source_design_fingerprint:
+status: approved
+approved_at: 2026-08-25T21:15:19Z
+last_modified: 2026-08-25T21:29:06Z
+approved_fingerprint: sha256:1d7cab82a6c4c7efd515ba9b8a47e35c6f020588945f6787f473437adae1471f
+source_design_approved_at: 2026-08-25T21:05:38Z
+source_design_fingerprint: sha256:8a75e79f579c3d9fa19fce2f6ab6b4cbabc52058ae1d2ad3951d36a20f920d1a
 ---
 
 # Implementation Plan
 
-- [ ] 1. Define and generate the installation access policy API
-  - [ ] 1.1 Add the typed `KubeseerAccessPolicy` API contract
-    - Add the cluster-scoped policy and list types, namespace modes, namespace policy,
-      resource rules, active singleton-name constant, scheme registration, JSON
-      behavior, and generated deep-copy support without adding policy fields to
-      namespaced `Kubeseer` resources.
-    - Test scheme registration, JSON round trips, deep-copy isolation, the core API
-      group representation, nil-versus-explicit-empty `systemNamespaces`, and the
-      disabled zero value for cluster-scoped access.
+- [x] 1. Consolidate the policy API contract at the envtest layer
+  - [x] 1.1 Migrate the typed policy contract into `TestAPIContract`
+    - Extend the existing `api/v1alpha1` envtest suite with named policy subtests
+      for scheme registration, typed controller-runtime client round trips, JSON
+      representation, deep-copy isolation, the active singleton-name constant,
+      nil-versus-explicit-empty `systemNamespaces`, and the disabled zero value for
+      cluster-scoped access.
+    - Preserve the policy as a cluster-scoped administrative API separate from
+      namespaced `Kubeseer` resources. Emit the stable
+      `API_CONTRACT=kubeseer-access-policy-types STATUS=passed` marker only after all
+      migrated assertions pass, then remove
+      `api/v1alpha1/kubeseer_access_policy_types_test.go`.
     - Requirements: `R1.AC1`, `R1.AC3`, `R2.AC5`, `R2.AC6`, `R3.AC2`, `R4.AC3`, `NFR4`
-    - Design: Overview; Components And Interfaces / KubeseerAccessPolicy API; Data Models
+    - Design: Overview; Components And Interfaces / KubeseerAccessPolicy API; Data Models; Testing Strategy
     - Verification:
-      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-access-policy-go-build GOMODCACHE=/tmp/kubeseer-access-policy-go-mod go test -v -run '^TestKubeseerAccessPolicy(SchemeRegistration|JSONRoundTrip|DeepCopyIsolation)$' ./api/v1alpha1"]
-        expect_output: "--- PASS: TestKubeseerAccessPolicySchemeRegistration"
+      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-access-policy-go-build GOMODCACHE=/tmp/kubeseer-access-policy-go-mod make test-api"]
+        expect_output: "API_CONTRACT=kubeseer-access-policy-types STATUS=passed"
+        timeout: 20m
         covers: ["R1.AC1", "R1.AC3", "R2.AC5", "R2.AC6", "R3.AC2", "R4.AC3"]
 
-  - [ ] 1.2 Generate and assert the structural cluster-scoped CRD
-    - Add kubebuilder markers for cluster scope, the
-      `installation-access-ceiling` singleton CEL rule, enum/default/pattern/list
-      constraints, required non-empty rule members, and valid empty deny-all policy
-      surfaces; regenerate the CRD and deep-copy artifacts.
-    - Extend generated-artifact verification to compare every generated CRD and add
-      a static manifest contract test covering names, scope, defaults, set lists,
-      exact API group/Kind syntax, and absence of a status subresource.
+  - [x] 1.2 Prove generated CRD admission and the real policy client adapter
+    - Extend `TestAPIContract` against the installed generated CRD to discover the
+      cluster-scoped resource, persist the active singleton through a real
+      controller-runtime client, observe omitted-field defaults, preserve an
+      explicitly empty `systemNamespaces`, and exercise the controller-runtime-backed
+      `PolicySource` adapter against the envtest API server.
+    - Prove admission rejects non-singleton names, invalid modes and namespaces,
+      duplicate set values, empty resource-rule members, malformed groups and Kinds,
+      and wildcards while accepting both intentional empty deny-all boundaries.
+      Retain static structural-schema assertions that admission cannot expose, emit
+      `API_CONTRACT=kubeseer-access-policy-admission STATUS=passed`, then remove
+      `api/v1alpha1/kubeseer_access_policy_crd_test.go`.
     - Requirements: `R1.AC1`, `R1.AC2`, `R1.AC3`, `R2.AC5`, `R2.AC6`, `R3.AC2`, `R4.AC3`, `R5.AC1`, `R5.AC2`, `R5.AC3`, `R5.AC4`, `R5.AC5`, `R5.AC6`, `R5.AC7`, `R5.AC8`, `NFR1`, `NFR4`
-    - Design: Architecture; Components And Interfaces / KubeseerAccessPolicy API; Data Models; Security Considerations
+    - Design: Architecture; Components And Interfaces / KubeseerAccessPolicy API; Components And Interfaces / PolicySource and loader; Data Models; Security Considerations; Testing Strategy
     - Verification:
-      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-access-policy-go-build GOMODCACHE=/tmp/kubeseer-access-policy-go-mod go test -v -run '^TestKubeseerAccessPolicyGeneratedCRDContract$' ./api/v1alpha1"]
-        expect_output: "--- PASS: TestKubeseerAccessPolicyGeneratedCRDContract"
+      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-access-policy-go-build GOMODCACHE=/tmp/kubeseer-access-policy-go-mod make test-api"]
+        expect_output: "API_CONTRACT=kubeseer-access-policy-admission STATUS=passed"
+        timeout: 20m
         covers: ["R1.AC1", "R1.AC2", "R1.AC3", "R2.AC5", "R2.AC6", "R3.AC2", "R4.AC3", "R5.AC1", "R5.AC2", "R5.AC3", "R5.AC4", "R5.AC5", "R5.AC6", "R5.AC7", "R5.AC8"]
-      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-access-policy-go-build GOMODCACHE=/tmp/kubeseer-access-policy-go-mod make verify"]
-        expect_output: "generated artifacts are current"
 
-- [ ] 2. Compile and evaluate the logical installation ceiling
-  - [ ] 2.1 Implement defensive validation and immutable policy compilation
-    - Create `internal/accesspolicy` with stable reason/diagnostic contracts and a
-      compiler that validates the active name, namespace modes and names, duplicate
-      set entries, resource rule cardinality, exact group/Kind syntax, and wildcard
-      exclusion even when API admission is bypassed.
-    - Compile defensive copies of namespace sets and every API-group/Kind
-      cross-product; preserve nil-versus-empty system namespace behavior, accept the
-      two intentional empty deny-all boundaries, and deterministically select a
-      field-specific validation error.
-    - Requirements: `R1.AC2`, `R2.AC5`, `R2.AC6`, `R3.AC2`, `R3.AC6`, `R4.AC3`, `R5.AC1`, `R5.AC2`, `R5.AC3`, `R5.AC4`, `R5.AC5`, `R5.AC6`, `R5.AC7`, `R5.AC8`, `R5.AC9`, `R8.AC1`, `R8.AC2`, `NFR1`, `NFR2`, `NFR3`, `NFR4`, `NFR5`
-    - Design: Components And Interfaces / Compiler; Data Models; Error Handling; Security Considerations
+- [x] 2. Prove the production discovery-to-policy path at the module layer
+  - [x] 2.1 Add the first real `TestModuleIntegration` evaluation scenarios
+    - Create `test/integration` with the single top-level
+      `TestModuleIntegration` entry point and compose the production
+      `discovery.Resolver`, policy compiler, immutable snapshot, and evaluator. Keep
+      only `discovery.DiscoveryClient` controlled so scenarios exercise the real
+      module contracts rather than test-only orchestration or feature flags.
+    - Migrate the compiler and evaluator behavior tables through real discovery
+      resolutions: all namespace modes and exclusions, system-namespace default and
+      explicit-empty behavior, exact built-in and CRD-backed resource matches,
+      resource-rule cross-products, namespaced and cluster-scoped decisions,
+      defensive validation, immutable inputs, deterministic precedence, logical/RBAC
+      separation, and sanitized stable diagnostics.
+    - Emit `MODULE_INTEGRATION=discovery-access-policy-evaluation STATUS=passed` only
+      after the migrated cases pass, then remove
+      `internal/accesspolicy/compiler_test.go` and
+      `internal/accesspolicy/evaluator_test.go`.
+    - Requirements: `R1.AC2`, `R1.AC4`, `R2.AC1`, `R2.AC2`, `R2.AC3`, `R2.AC4`, `R2.AC5`, `R2.AC6`, `R3.AC1`, `R3.AC2`, `R3.AC3`, `R3.AC4`, `R3.AC5`, `R3.AC6`, `R4.AC1`, `R4.AC2`, `R4.AC3`, `R4.AC4`, `R4.AC5`, `R5.AC1`, `R5.AC2`, `R5.AC3`, `R5.AC4`, `R5.AC5`, `R5.AC6`, `R5.AC7`, `R5.AC8`, `R5.AC9`, `R7.AC1`, `R7.AC2`, `R7.AC3`, `R7.AC4`, `R8.AC1`, `R8.AC2`, `R8.AC3`, `R8.AC4`, `R8.AC5`, `R8.AC6`, `NFR1`, `NFR2`, `NFR3`, `NFR4`, `NFR5`
+    - Design: Architecture; Components And Interfaces / Compiler; Components And Interfaces / Snapshot evaluator; Data Models; Decision Algorithm; Error Handling; Security Considerations; Testing Strategy
     - Verification:
-      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-access-policy-go-build GOMODCACHE=/tmp/kubeseer-access-policy-go-mod go test -v -run '^TestCompilePolicy$' ./internal/accesspolicy"]
-        expect_output: "--- PASS: TestCompilePolicy"
-        covers: ["R1.AC2", "R2.AC5", "R2.AC6", "R3.AC2", "R3.AC6", "R4.AC3", "R5.AC1", "R5.AC2", "R5.AC3", "R5.AC4", "R5.AC5", "R5.AC6", "R5.AC7", "R5.AC8", "R5.AC9", "R8.AC1", "R8.AC2"]
+      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-access-policy-go-build GOMODCACHE=/tmp/kubeseer-access-policy-go-mod make test-integration"]
+        expect_output: "MODULE_INTEGRATION=discovery-access-policy-evaluation STATUS=passed"
+        timeout: 20m
+        covers: ["R1.AC2", "R1.AC4", "R2.AC1", "R2.AC2", "R2.AC3", "R2.AC4", "R2.AC5", "R2.AC6", "R3.AC1", "R3.AC2", "R3.AC3", "R3.AC4", "R3.AC5", "R3.AC6", "R4.AC1", "R4.AC2", "R4.AC3", "R4.AC4", "R4.AC5", "R5.AC1", "R5.AC2", "R5.AC3", "R5.AC4", "R5.AC5", "R5.AC6", "R5.AC7", "R5.AC8", "R5.AC9", "R7.AC1", "R7.AC2", "R7.AC3", "R7.AC4", "R8.AC1", "R8.AC2", "R8.AC3", "R8.AC4", "R8.AC5", "R8.AC6"]
 
-  - [ ] 2.2 Implement deterministic namespace, resource, and scope evaluation
-    - Add normalized `Request` and stable `Decision` contracts plus pure snapshot
-      evaluation with the documented precedence: snapshot state, invalid request,
-      resource denial, cluster-scope denial, namespace denial, allow.
-    - Cover all namespace modes, exclusion priority, explicit system-namespace
-      inclusion, exact built-in and CRD-backed matches, cross-product matches,
-      namespaced versus cluster-scoped behavior, and request narrowing without any
-      Kubernetes API, resource-instance, ServiceAccount, or user-RBAC input.
-    - Add permutation and combined-denial tests proving byte-for-byte stability,
-      immutable compiled inputs, exactly one primary reason, logical/RBAC separation,
-      and sanitized messages.
-    - Requirements: `R1.AC4`, `R2.AC1`, `R2.AC2`, `R2.AC3`, `R2.AC4`, `R2.AC5`, `R2.AC6`, `R3.AC1`, `R3.AC2`, `R3.AC3`, `R3.AC4`, `R3.AC5`, `R3.AC6`, `R4.AC1`, `R4.AC2`, `R4.AC3`, `R4.AC4`, `R4.AC5`, `R7.AC1`, `R7.AC2`, `R7.AC3`, `R7.AC4`, `R8.AC1`, `R8.AC2`, `R8.AC3`, `R8.AC4`, `R8.AC5`, `R8.AC6`, `NFR1`, `NFR2`, `NFR3`, `NFR4`, `NFR5`
-    - Design: Components And Interfaces / Snapshot evaluator; Data Models; Decision Algorithm; Security Considerations
-    - Verification:
-      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-access-policy-go-build GOMODCACHE=/tmp/kubeseer-access-policy-go-mod go test -v -run '^TestEvaluatePolicy$' ./internal/accesspolicy"]
-        expect_output: "--- PASS: TestEvaluatePolicy"
-        covers: ["R1.AC4", "R2.AC1", "R2.AC2", "R2.AC3", "R2.AC4", "R2.AC5", "R2.AC6", "R3.AC1", "R3.AC2", "R3.AC3", "R3.AC4", "R3.AC5", "R3.AC6", "R4.AC1", "R4.AC2", "R4.AC3", "R4.AC4", "R4.AC5", "R7.AC1", "R7.AC2", "R7.AC3", "R7.AC4", "R8.AC1", "R8.AC2", "R8.AC3", "R8.AC4", "R8.AC5", "R8.AC6"]
-
-- [ ] 3. Load the active policy through a fail-closed boundary
-  - [ ] 3.1 Implement the narrow policy source, loader, and terminal snapshots
-    - Add a `PolicySource` abstraction and controller-runtime client adapter that can
-      retrieve only `KubeseerAccessPolicy/installation-access-ceiling`; classify
-      not-found separately from other read failures and pass retrieved objects through
-      the defensive compiler.
-    - Return a newly constructed valid or deny-all snapshot for every load attempt,
-      never reuse a previous success, and keep raw upstream errors and resource data
-      outside stable status-facing decisions.
-    - Test transitions from valid to missing, invalid, and unavailable policy;
-      demonstrate that all failure snapshots deny every request, evaluation performs
-      no source call, logical allows remain distinct from later RBAC failures, and
-      diagnostics contain only approved request/configuration identities.
+  - [x] 2.2 Extend `TestModuleIntegration` through the fail-closed loader
+    - Extend the same production collaboration path with the real loader, compiler,
+      immutable snapshot, evaluator, and discovery resolver. Control only the narrow
+      `PolicySource` boundary for deterministic missing, invalid, and unavailable
+      transitions; rely on Task 1.2 for the real controller-runtime adapter proof.
+    - Prove every load constructs a fresh snapshot, never reuses a prior success,
+      denies every resolved request on missing, invalid, or unavailable policy,
+      performs no policy-source call during evaluation, keeps logical allows distinct
+      from later RBAC outcomes, and excludes raw upstream errors and resource data
+      from stable decisions.
+    - Emit `MODULE_INTEGRATION=discovery-access-policy-loader STATUS=passed` only after
+      the migrated cases pass, then remove
+      `internal/accesspolicy/loader_test.go`.
     - Requirements: `R1.AC2`, `R1.AC4`, `R6.AC1`, `R6.AC2`, `R6.AC3`, `R6.AC4`, `R6.AC5`, `R7.AC1`, `R7.AC2`, `R7.AC3`, `R7.AC4`, `R8.AC1`, `R8.AC2`, `R8.AC5`, `R8.AC6`, `NFR1`, `NFR2`, `NFR3`, `NFR4`, `NFR5`
-    - Design: Architecture; Components And Interfaces / PolicySource and loader; Error Handling; Security Considerations
+    - Design: Architecture; Components And Interfaces / PolicySource and loader; Components And Interfaces / Compiler; Components And Interfaces / Snapshot evaluator; Error Handling; Security Considerations; Testing Strategy
     - Verification:
-      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-access-policy-go-build GOMODCACHE=/tmp/kubeseer-access-policy-go-mod go test -v -run '^TestLoadPolicy$' ./internal/accesspolicy"]
-        expect_output: "--- PASS: TestLoadPolicy"
+      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-access-policy-go-build GOMODCACHE=/tmp/kubeseer-access-policy-go-mod make test-integration"]
+        expect_output: "MODULE_INTEGRATION=discovery-access-policy-loader STATUS=passed"
+        timeout: 20m
         covers: ["R1.AC2", "R1.AC4", "R6.AC1", "R6.AC2", "R6.AC3", "R6.AC4", "R6.AC5", "R7.AC1", "R7.AC2", "R7.AC3", "R7.AC4", "R8.AC1", "R8.AC2", "R8.AC5", "R8.AC6"]
 
-- [ ] 4. Prove admission and defaulting on supported Kubernetes API servers
-  - [ ] 4.1 Extend the envtest contract and compatibility matrix for the policy CRD
-    - Extend the existing API-server contract to discover the cluster-scoped policy
-      resource, persist a valid `installation-access-ceiling`, observe omitted-field
-      defaults, and preserve an explicitly empty `systemNamespaces` list.
-    - Prove the API server rejects non-singleton names, invalid modes/namespaces,
-      duplicate set values, empty rule members, malformed groups/Kinds, and wildcards
-      while accepting empty deny-all namespace and resource configurations.
-    - Run the contract through the existing Kubernetes v1.35.6 and v1.36.2
-      compatibility matrix without starting a controller manager or reading any
-      Kubernetes resource instance governed by the policy.
-    - Requirements: `R1.AC1`, `R1.AC2`, `R1.AC3`, `R2.AC5`, `R2.AC6`, `R3.AC2`, `R4.AC3`, `R5.AC1`, `R5.AC2`, `R5.AC3`, `R5.AC4`, `R5.AC5`, `R5.AC6`, `R5.AC7`, `R5.AC8`, `NFR1`, `NFR4`
+- [x] 3. Seal generated, compatibility, and higher-layer verification
+  - [x] 3.1 Run the complete installation access policy verification matrix
+    - Regenerate and verify deep-copy code and CRD manifests, and update generated
+      verification only where necessary to keep all generated policy artifacts under
+      drift detection.
+    - Run the default higher-layer suite, the envtest API contract on Kubernetes
+      v1.35.6 and v1.36.2, compilation, and module tidiness. Confirm the test-layer
+      policy reports no package-local unit-test files after the five migrated files
+      are removed and that no ambient kubeconfig or cloud credentials are used.
+    - Requirements: `R1.AC1`, `R1.AC2`, `R1.AC3`, `R2.AC5`, `R2.AC6`, `R3.AC2`, `R4.AC3`, `R5.AC1`, `R5.AC2`, `R5.AC3`, `R5.AC4`, `R5.AC5`, `R5.AC6`, `R5.AC7`, `R5.AC8`, `NFR1`, `NFR2`, `NFR4`
     - Design: Testing Strategy; Verification Plan; Failure Modes And Tradeoffs
     - Verification:
+      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-access-policy-go-build GOMODCACHE=/tmp/kubeseer-access-policy-go-mod make verify"]
+        expect_output: "Test layer policy passed"
+        timeout: 20m
+      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-access-policy-go-build GOMODCACHE=/tmp/kubeseer-access-policy-go-mod make test"]
+        expect_output: "TEST_LAYER=module-integration STATUS=passed"
+        timeout: 20m
       - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-access-policy-go-build GOMODCACHE=/tmp/kubeseer-access-policy-go-mod make test-compatibility"]
         expect_output: "API compatibility matrix passed"
-        timeout: 30m
+        timeout: 35m
         covers: ["R1.AC1", "R1.AC2", "R1.AC3", "R2.AC5", "R2.AC6", "R3.AC2", "R4.AC3", "R5.AC1", "R5.AC2", "R5.AC3", "R5.AC4", "R5.AC5", "R5.AC6", "R5.AC7", "R5.AC8"]
+      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-access-policy-go-build GOMODCACHE=/tmp/kubeseer-access-policy-go-mod go build ./..."]
+        timeout: 10m
+      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-access-policy-go-build GOMODCACHE=/tmp/kubeseer-access-policy-go-mod go mod tidy -diff"]
+        timeout: 10m
