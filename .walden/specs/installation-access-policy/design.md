@@ -1,11 +1,11 @@
 ---
 walden_schema_version: v1alpha1
-status: approved
-approved_at: 2026-08-02T08:26:03Z
-last_modified: 2026-08-02T08:26:03Z
-approved_fingerprint: sha256:89800f88c9cfa51ad505ef2cd57fff2b7640cbec3fb5d51af7c6db79df594722
-source_requirements_approved_at: 2026-08-02T08:25:14Z
-source_requirements_fingerprint: sha256:f7a99b5d19399e9f98b7c6631911cbb448abbb53d361cc1be48e1c6dbae3de93
+status: in-review
+approved_at:
+last_modified: 2026-08-25T20:39:17Z
+approved_fingerprint:
+source_requirements_approved_at:
+source_requirements_fingerprint:
 ---
 
 # Feature Design
@@ -33,6 +33,7 @@ and uses set-list semantics plus CEL only where OpenAPI markers cannot express a
 cross-field or metadata invariant ([Kubernetes CEL validation guidance](https://github.com/kubernetes/website/blob/main/content/en/blog/_posts/2022/crd-validation-rules-graduate-to-beta.md)).
 
 <!-- assumed: every resource rule present in spec.resources is enabled; no per-rule switch is introduced (source: approved requirements and simplest viable shape) -->
+<!-- assumed: behavioral proof uses the repository's approved module-integration and envtest layers, with no new package-local unit-test files (source: .walden/constitution.md Go And Controller Conventions and approved integration-testing-foundation design) -->
 
 ## Architecture
 
@@ -315,40 +316,48 @@ single reason even when several constraints would deny the same request.
 - Failure mode: an object not named `installation-access-ceiling` is submitted.
   Mitigation: CEL rejects it at the API server and compilation rejects it defensively.
   Tradeoff: multiple named policies are intentionally unsupported.
+- Failure mode: higher-layer scenarios make a compiler or evaluator regression harder
+  to localize than an implementation-coupled unit test. Mitigation: the named module-
+  integration suite reports the earliest discovery, load, compile, or evaluation
+  boundary and keeps table-case names stable. Tradeoff: the suite favors observable
+  production collaboration over isolated function-level diagnosis.
 
 ## Testing Strategy
 
-- API unit tests register both new kinds, verify deep-copy isolation, and assert JSON
-  round trips preserve omitted versus explicit-empty `systemNamespaces`.
-- Compiler table tests cover every namespace mode, default and overridden system
-  namespace sets, exclusion precedence, exact core/non-core group-kind cross-products,
-  cluster-scope defaults, duplicate and malformed values, empty deny-all scopes, and
-  stable field-specific diagnostics.
-- Evaluator table tests permute list/rule order and combined denial conditions to prove
-  byte-for-byte stable decisions and precedence without any client or resource read.
-- Loader tests use a narrow fake source to prove missing, invalid, and unavailable
-  outcomes replace prior success with deny-all snapshots and never invoke evaluation-
-  time I/O.
-- Generated-manifest tests parse the CRD and assert group/version, cluster scope,
-  singleton-name CEL, enums, defaults, set lists, required rule members, and wildcard
-  rejection.
-- `envtest` installs the generated CRD into a real API server, creates valid policies,
-  observes persisted defaults, and proves invalid name/mode/list/rule shapes are
-  rejected. `envtest` is appropriate because it installs CRDs and starts etcd plus an
-  API server without requiring a controller manager
-  ([controller-runtime envtest](https://github.com/kubernetes-sigs/controller-runtime/blob/main/pkg/envtest/server.go)).
-- Existing generation and compatibility checks run against the project's supported
-  Kubernetes API-server matrix so the new CRD does not regress the v1.35 floor.
+- Extend the existing `TestAPIContract` envtest suite to register both policy kinds,
+  use a real typed client, and observe serialization, persisted defaults, copy
+  isolation, omitted-versus-explicit-empty `systemNamespaces`, and the installed CRD
+  schema through the Kubernetes API boundary.
+- The same API suite inspects the installed CRD and submits accepted and rejected
+  objects, covering group/version, cluster scope, singleton-name CEL, enums, defaults,
+  set lists, required rule members, exact group/Kind syntax, and wildcard rejection.
+- Add the first `TestModuleIntegration` suite under `test/integration`. It composes the
+  real discovery resolver with the real policy loader, compiler, and evaluator through
+  their production contracts. Only `discovery.DiscoveryClient` and `PolicySource`
+  infrastructure are controlled locally; no test-only production seam is introduced.
+- Compiler scenarios drive resolved discovery metadata through load and evaluation
+  while varying every namespace mode, system-namespace representation, exact resource
+  cross-product, duplicate or malformed value, empty deny-all boundary, and stable
+  field-specific diagnostic.
+- Evaluator scenarios use real discovery resolutions and permute rule/list order plus
+  combined denials to prove byte-for-byte stable decisions, precedence, narrowing,
+  immutable inputs, and absence of evaluation-time Kubernetes I/O.
+- Loader scenarios prove valid-to-missing, invalid, and unavailable transitions through
+  the full discovery-to-policy path. The controller-runtime client adapter is exercised
+  through envtest rather than a fake Kubernetes client; a controlled `PolicySource`
+  covers non-API upstream failures without exposing raw errors.
+- The generated-artifact verifier and the existing Kubernetes compatibility matrix run
+  unchanged against every supported API-server version, while `make verify` enforces
+  that no package-local unit-test suite is added.
 
 ## Verification Plan
 
-- Requirement proof: use table-driven compiler/evaluator tests mapped to each
-  namespace, resource, scope, failure-state, RBAC-separation, and determinism
-  acceptance criterion.
-- Test evidence: run focused `go test` packages for `api/v1alpha1` and
-  `internal/accesspolicy`, the CRD manifest assertions, and focused `envtest` cases;
-  run the existing generation verification to prove checked-in generated artifacts
-  match source markers.
+- Requirement proof: map every API/admission criterion to named `TestAPIContract`
+  subtests and every compiler/evaluator/loader criterion to named
+  `TestModuleIntegration` subtests that traverse the production collaboration path.
+- Test evidence: run `make test-integration`, `make test-api`, and
+  `make test-compatibility`; run `make verify` to prove generated artifacts are current
+  and the no-unit-test repository policy still passes.
 - Operational evidence: no new metrics or status are required at this layer. Stable
   reason codes and sanitized messages are the observable contract consumed by later
   enforcement and diagnostics.
@@ -368,5 +377,5 @@ single reason even when several constraints would deny the same request.
 | `NFR1` | Fail-closed loader/compiler/evaluator construction and tests |
 | `NFR2` | Canonical sets, ordered diagnostics, fixed reasons, and permutation tests |
 | `NFR3` | Precompiled in-memory lookup structures and allocation-light evaluation |
-| `NFR4` | Narrow source interface and pure compiler/evaluator unit boundaries |
+| `NFR4` | Narrow source interface, pure compiler/evaluator module boundaries, and higher-layer test composition |
 | `NFR5` | Sanitized decision/message contract and confidentiality assertions |

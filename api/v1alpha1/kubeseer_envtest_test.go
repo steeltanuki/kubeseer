@@ -16,25 +16,25 @@ package v1alpha1
 
 import (
 	"context"
-	"os"
+	"encoding/json"
 	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
 
+	harness "github.com/steeltanuki/kubeseer/test/envtest"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
 )
 
 const (
-	testNamespace        = "default"
 	kubeseerResource     = "kubeseers"
 	kubeseerCRDName      = "kubeseers.kubeseer.io"
 	accessPolicyResource = "kubeseeraccesspolicies"
@@ -58,74 +58,277 @@ var accessPolicyResourceGVR = schema.GroupVersionResource{
 }
 
 func TestAPIContract(t *testing.T) {
-	assets := os.Getenv("KUBEBUILDER_ASSETS")
-	if assets == "" {
-		t.Fatal("KUBEBUILDER_ASSETS is required; run this suite through make test-api")
-	}
-
 	crdPath, err := filepath.Abs(filepath.Join("..", "..", "config", "crd", "bases"))
 	if err != nil {
 		t.Fatalf("resolve generated CRD path: %v", err)
 	}
 
-	environment := &envtest.Environment{
+	environment, err := harness.New(t, harness.Options{
 		CRDDirectoryPaths:     []string{crdPath},
 		ErrorIfCRDPathMissing: true,
-		CRDInstallOptions: envtest.CRDInstallOptions{
-			CleanUpAfterUse: true,
-			MaxTime:         crdInstallMaxWait,
-			PollInterval:    crdInstallPollDelay,
-		},
+		CRDMaxWait:            crdInstallMaxWait,
+		CRDPollInterval:       crdInstallPollDelay,
+	})
+	if err != nil {
+		t.Fatalf("create envtest harness: %v", err)
+	}
+	if _, err := environment.Start(); err != nil {
+		t.Fatalf("start Kubernetes API server: %v", err)
 	}
 
-	config, err := environment.Start()
+	clients, err := environment.Clients()
 	if err != nil {
-		t.Fatalf("start Kubernetes API server with assets %s: %v", assets, err)
-	}
-	defer func() {
-		if err := environment.Stop(); err != nil {
-			t.Errorf("stop Kubernetes API server: %v", err)
-		}
-	}()
-
-	apiExtensions, err := apiextensionsclient.NewForConfig(config)
-	if err != nil {
-		t.Fatalf("create API extensions client: %v", err)
-	}
-	dynamicClient, err := dynamic.NewForConfig(config)
-	if err != nil {
-		t.Fatalf("create dynamic client: %v", err)
-	}
-	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
-	if err != nil {
-		t.Fatalf("create discovery client: %v", err)
+		t.Fatalf("create envtest clients: %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), apiRequestTimeout)
 	defer cancel()
 
-	assertCRDEstablished(t, ctx, apiExtensions, kubeseerCRDName)
-	assertCRDEstablished(t, ctx, apiExtensions, accessPolicyCRDName)
-	assertResourceRegistered(t, discoveryClient, kubeseerResource, true)
-	assertResourceRegistered(t, discoveryClient, accessPolicyResource, false)
-	resources := dynamicClient.Resource(kubeseerResourceGVR).Namespace(testNamespace)
-	accessPolicies := dynamicClient.Resource(accessPolicyResourceGVR)
+	assertCRDEstablished(t, ctx, clients.APIExtensions, kubeseerCRDName)
+	assertCRDEstablished(t, ctx, clients.APIExtensions, accessPolicyCRDName)
+	assertInstalledCRDContract(t, ctx, clients.APIExtensions)
+	assertResourceRegistered(t, clients.Discovery, kubeseerResource, true)
+	assertResourceRegistered(t, clients.Discovery, accessPolicyResource, false)
+	namespace := environment.Scope().Namespace
+	resources := clients.Dynamic.Resource(kubeseerResourceGVR).Namespace(namespace)
+	accessPolicies := clients.Dynamic.Resource(accessPolicyResourceGVR)
+	environment.AddCleanup("delete Kubeseer API contract fixtures", func(ctx context.Context) error {
+		for _, name := range []string{"minimal", "valid-source", "negative-generation", "status-isolation", "typed-persistence"} {
+			err := resources.Delete(ctx, name, metav1.DeleteOptions{})
+			if err != nil && !apierrors.IsNotFound(err) {
+				return err
+			}
+		}
+		return nil
+	})
+	environment.AddCleanup("delete KubeseerAccessPolicy API contract fixture", func(ctx context.Context) error {
+		err := accessPolicies.Delete(ctx, InstallationAccessCeilingName, metav1.DeleteOptions{})
+		if err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+		return nil
+	})
 
-	createMinimalResource(t, ctx, resources)
-	createValidSourceResource(t, ctx, resources)
-	assertMissingSpecRejected(t, ctx, resources)
-	assertInvalidSourceRejected(t, ctx, resources)
-	assertNonListSourcesRejected(t, ctx, resources)
-	assertNegativeObservedGenerationRejected(t, ctx, resources)
-	assertStatusUpdatePreservesSpec(t, ctx, resources)
-	assertUnservedVersionRejected(t, ctx, dynamicClient)
+	assertTypedSchemeAndClient(t, ctx, resources, namespace)
+	createMinimalResource(t, ctx, resources, namespace)
+	createValidSourceResource(t, ctx, resources, namespace)
+	assertMissingSpecRejected(t, ctx, resources, namespace)
+	assertInvalidSourceRejected(t, ctx, resources, namespace)
+	assertNonListSourcesRejected(t, ctx, resources, namespace)
+	assertNegativeObservedGenerationRejected(t, ctx, resources, namespace)
+	assertStatusUpdatePreservesSpec(t, ctx, resources, namespace)
+	assertUnservedVersionRejected(t, ctx, clients.Dynamic, namespace)
 	assertAccessPolicyDefaultingAndEmptyOverride(t, ctx, accessPolicies)
 	assertAccessPolicyValidation(t, ctx, accessPolicies)
 
-	t.Logf("API contract passed with Kubernetes assets %s", assets)
+	t.Logf("API contract passed with Kubernetes assets %s", environment.AssetsDirectory())
+	t.Log("API_CONTRACT=kubeseer-v1alpha1 STATUS=passed")
+	t.Log("API_CONTRACT=kubeseer-access-policy STATUS=passed")
 }
 
-func assertCRDEstablished(t *testing.T, ctx context.Context, client *apiextensionsclient.Clientset, crdName string) {
+func assertTypedSchemeAndClient(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface, namespace string) {
+	t.Helper()
+
+	typeScheme := runtime.NewScheme()
+	if err := AddToScheme(typeScheme); err != nil {
+		t.Fatalf("register Kubeseer typed scheme: %v", err)
+	}
+	for _, object := range []runtime.Object{&Kubeseer{}, &KubeseerList{}} {
+		gvks, _, err := typeScheme.ObjectKinds(object)
+		if err != nil {
+			t.Fatalf("resolve typed GVK for %T: %v", object, err)
+		}
+		if len(gvks) != 1 || gvks[0].GroupVersion() != GroupVersion {
+			t.Fatalf("unexpected typed GVK for %T: %v", object, gvks)
+		}
+	}
+	if object, err := typeScheme.New(GroupVersion.WithKind("Kubeseer")); err != nil || object == nil {
+		t.Fatalf("construct Kubeseer from the registered scheme: object=%T err=%v", object, err)
+	}
+
+	original := &Kubeseer{
+		TypeMeta: metav1.TypeMeta{APIVersion: GroupVersion.String(), Kind: "Kubeseer"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "typed-persistence",
+			Namespace: namespace,
+			Labels:    map[string]string{"contract": "typed"},
+		},
+		Spec: KubeseerSpec{Sources: []KubeseerSource{{ID: "typed-source"}}},
+		Status: KubeseerStatus{
+			ObservedGeneration: 7,
+			Conditions: []metav1.Condition{{
+				Type:               "Ready",
+				Status:             metav1.ConditionTrue,
+				ObservedGeneration: 7,
+				LastTransitionTime: metav1.Time{Time: time.Date(2026, time.August, 1, 11, 30, 0, 0, time.UTC)},
+				Reason:             "Available",
+				Message:            "API contract is available",
+			}},
+			Result: &KubeseerResult{},
+		},
+	}
+
+	encoded, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("serialize typed Kubeseer: %v", err)
+	}
+	var decoded Kubeseer
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("deserialize typed Kubeseer: %v", err)
+	}
+	if decoded.TypeMeta != original.TypeMeta || decoded.Name != original.Name || decoded.Namespace != original.Namespace || !reflect.DeepEqual(original.Labels, decoded.Labels) || !reflect.DeepEqual(original.Spec, decoded.Spec) {
+		t.Fatalf("typed JSON round-trip changed identity, metadata, or spec: original=%#v decoded=%#v", original, decoded)
+	}
+	if decoded.Status.ObservedGeneration != original.Status.ObservedGeneration || decoded.Status.Result == nil || len(decoded.Status.Conditions) != len(original.Status.Conditions) {
+		t.Fatalf("typed JSON round-trip changed the status envelope: original=%#v decoded=%#v", original.Status, decoded.Status)
+	}
+	for index, condition := range original.Status.Conditions {
+		decodedCondition := decoded.Status.Conditions[index]
+		if decodedCondition.Type != condition.Type || decodedCondition.Status != condition.Status || decodedCondition.ObservedGeneration != condition.ObservedGeneration || decodedCondition.Reason != condition.Reason || decodedCondition.Message != condition.Message || !decodedCondition.LastTransitionTime.Time.Equal(condition.LastTransitionTime.Time) {
+			t.Fatalf("typed JSON round-trip changed condition %d: original=%#v decoded=%#v", index, condition, decodedCondition)
+		}
+	}
+
+	withoutSources := &Kubeseer{TypeMeta: original.TypeMeta, Spec: KubeseerSpec{}}
+	withoutSourcesJSON, err := json.Marshal(withoutSources)
+	if err != nil {
+		t.Fatalf("serialize typed Kubeseer without sources: %v", err)
+	}
+	var serializedFields map[string]json.RawMessage
+	if err := json.Unmarshal(withoutSourcesJSON, &serializedFields); err != nil {
+		t.Fatalf("inspect typed empty spec: %v", err)
+	}
+	var specFields map[string]json.RawMessage
+	if err := json.Unmarshal(serializedFields["spec"], &specFields); err != nil {
+		t.Fatalf("decode typed empty spec: %v", err)
+	}
+	if _, found := specFields["sources"]; found {
+		t.Fatalf("typed empty sources field was synthesized: %s", withoutSourcesJSON)
+	}
+
+	apiObject, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&Kubeseer{
+		TypeMeta: original.TypeMeta,
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      original.Name,
+			Namespace: original.Namespace,
+			Labels:    original.Labels,
+		},
+		Spec: original.Spec,
+	})
+	if err != nil {
+		t.Fatalf("convert typed Kubeseer for API persistence: %v", err)
+	}
+	apiObject["apiVersion"] = GroupVersion.String()
+	apiObject["kind"] = "Kubeseer"
+	created, err := resources.Create(ctx, &unstructured.Unstructured{Object: apiObject}, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("persist typed Kubeseer through the API server: %v", err)
+	}
+	var persisted Kubeseer
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(created.Object, &persisted); err != nil {
+		t.Fatalf("decode persisted Kubeseer into typed object: %v", err)
+	}
+	if persisted.Name != original.Name || persisted.Namespace != namespace || !reflect.DeepEqual(persisted.Spec, original.Spec) {
+		t.Fatalf("typed API persistence changed identity or spec: original=%#v persisted=%#v", original, persisted)
+	}
+
+	persisted.Status = original.Status
+	copy := persisted.DeepCopy()
+	if copy == &persisted || copy.Status.Result == nil {
+		t.Fatal("generated typed DeepCopy did not return an isolated result envelope")
+	}
+	copy.Labels["contract"] = "changed"
+	copy.Spec.Sources[0].ID = "changed"
+	copy.Status.Conditions[0].Reason = "Changed"
+	if persisted.Labels["contract"] != "typed" || persisted.Spec.Sources[0].ID != "typed-source" || persisted.Status.Conditions[0].Reason != "Available" {
+		t.Fatalf("generated typed DeepCopy aliases the API-derived object: %#v", persisted)
+	}
+}
+
+func assertInstalledCRDContract(t *testing.T, ctx context.Context, client apiextensionsclient.Interface) {
+	t.Helper()
+
+	crd, err := client.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, kubeseerCRDName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get installed CRD contract: %v", err)
+	}
+	if crd.Spec.Group != GroupVersion.Group || crd.Spec.Scope != apiextensionsv1.NamespaceScoped {
+		t.Fatalf("installed CRD identity or scope is incorrect: %#v", crd.Spec)
+	}
+	if crd.Spec.Names.Kind != "Kubeseer" || crd.Spec.Names.ListKind != "KubeseerList" || crd.Spec.Names.Plural != kubeseerResource || crd.Spec.Names.Singular != "kubeseer" {
+		t.Fatalf("installed CRD names are incorrect: %#v", crd.Spec.Names)
+	}
+	if len(crd.Spec.Versions) != 1 {
+		t.Fatalf("installed CRD has %d versions, expected one", len(crd.Spec.Versions))
+	}
+	version := crd.Spec.Versions[0]
+	if version.Name != GroupVersion.Version || !version.Served || !version.Storage || version.Subresources == nil || version.Subresources.Status == nil {
+		t.Fatalf("installed CRD version or status subresource is incorrect: %#v", version)
+	}
+	if version.Schema == nil || version.Schema.OpenAPIV3Schema == nil {
+		t.Fatal("installed CRD has no structural OpenAPI schema")
+	}
+
+	root := version.Schema.OpenAPIV3Schema
+	if root.Type != "object" {
+		t.Fatalf("installed CRD root schema is not an object: %q", root.Type)
+	}
+	for _, property := range []string{"apiVersion", "kind", "metadata", "spec", "status"} {
+		if _, found := root.Properties[property]; !found {
+			t.Fatalf("installed CRD schema does not expose %q", property)
+		}
+	}
+	spec, found := root.Properties["spec"]
+	if !found || spec.Type != "object" || len(spec.Properties) != 1 {
+		t.Fatalf("installed CRD spec schema is incorrect: %#v", spec)
+	}
+	sources, found := spec.Properties["sources"]
+	if !found || sources.Type != "array" || sources.Items == nil || sources.Items.Schema == nil || sources.XListType == nil || *sources.XListType != "map" || len(sources.XListMapKeys) != 1 || sources.XListMapKeys[0] != "id" {
+		t.Fatalf("installed CRD sources schema is incorrect: %#v", sources)
+	}
+	source := sources.Items.Schema
+	idSchema, found := source.Properties["id"]
+	if !found || source.Type != "object" || !apiContractContains(source.Required, "id") || idSchema.Type != "string" || idSchema.MaxLength == nil || *idSchema.MaxLength != 63 || idSchema.Pattern != `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$` {
+		t.Fatalf("installed CRD source ID schema is incorrect: %#v", source)
+	}
+	status, found := root.Properties["status"]
+	if !found || status.Type != "object" {
+		t.Fatalf("installed CRD status schema is incorrect: %#v", status)
+	}
+	observedGeneration, found := status.Properties["observedGeneration"]
+	if !found || observedGeneration.Type != "integer" || observedGeneration.Format != "int64" || observedGeneration.Minimum == nil || *observedGeneration.Minimum != 0 {
+		t.Fatalf("installed CRD observedGeneration schema is incorrect: %#v", observedGeneration)
+	}
+	if result, found := status.Properties["result"]; !found || result.Type != "object" || len(result.Properties) != 0 || result.AdditionalProperties != nil {
+		t.Fatalf("installed CRD result schema is incorrect: %#v", result)
+	}
+	apiContractAssertNoDefaults(t, root)
+}
+
+func apiContractContains(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func apiContractAssertNoDefaults(t *testing.T, schema *apiextensionsv1.JSONSchemaProps) {
+	t.Helper()
+	if schema.Default != nil {
+		t.Fatalf("installed CRD schema contains an implicit default: %#v", schema.Default)
+	}
+	for _, property := range schema.Properties {
+		property := property
+		apiContractAssertNoDefaults(t, &property)
+	}
+	if schema.Items != nil && schema.Items.Schema != nil {
+		apiContractAssertNoDefaults(t, schema.Items.Schema)
+	}
+}
+
+func assertCRDEstablished(t *testing.T, ctx context.Context, client apiextensionsclient.Interface, crdName string) {
 	t.Helper()
 
 	crd, err := client.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, crdName, metav1.GetOptions{})
@@ -140,7 +343,7 @@ func assertCRDEstablished(t *testing.T, ctx context.Context, client *apiextensio
 	t.Fatalf("CRD %s did not become Established: %#v", crdName, crd.Status.Conditions)
 }
 
-func assertResourceRegistered(t *testing.T, client *discovery.DiscoveryClient, resourceName string, namespaced bool) {
+func assertResourceRegistered(t *testing.T, client discovery.DiscoveryInterface, resourceName string, namespaced bool) {
 	t.Helper()
 
 	resources, err := client.ServerResourcesForGroupVersion(GroupVersion.String())
@@ -158,14 +361,14 @@ func assertResourceRegistered(t *testing.T, client *discovery.DiscoveryClient, r
 	t.Fatalf("%s is not registered in API discovery: %#v", resourceName, resources.APIResources)
 }
 
-func createMinimalResource(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface) {
+func createMinimalResource(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface, namespace string) {
 	t.Helper()
 
-	created, err := resources.Create(ctx, newKubeseer("minimal", map[string]interface{}{}), metav1.CreateOptions{})
+	created, err := resources.Create(ctx, newKubeseer("minimal", namespace, map[string]interface{}{}), metav1.CreateOptions{})
 	if err != nil {
 		t.Fatalf("create minimal Kubeseer: %v", err)
 	}
-	if created.GetName() != "minimal" || created.GetNamespace() != testNamespace {
+	if created.GetName() != "minimal" || created.GetNamespace() != namespace {
 		t.Fatalf("minimal Kubeseer was not persisted as requested: %#v", created.Object)
 	}
 	if _, err := resources.Get(ctx, "minimal", metav1.GetOptions{}); err != nil {
@@ -173,10 +376,10 @@ func createMinimalResource(t *testing.T, ctx context.Context, resources dynamic.
 	}
 }
 
-func createValidSourceResource(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface) {
+func createValidSourceResource(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface, namespace string) {
 	t.Helper()
 
-	created, err := resources.Create(ctx, newKubeseer("valid-source", map[string]interface{}{
+	created, err := resources.Create(ctx, newKubeseer("valid-source", namespace, map[string]interface{}{
 		"sources": []interface{}{map[string]interface{}{"id": "source-one"}},
 	}), metav1.CreateOptions{})
 	if err != nil {
@@ -187,35 +390,35 @@ func createValidSourceResource(t *testing.T, ctx context.Context, resources dyna
 	}
 }
 
-func assertMissingSpecRejected(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface) {
+func assertMissingSpecRejected(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface, namespace string) {
 	t.Helper()
 
-	assertInvalidCreate(t, ctx, resources, newKubeseer("missing-spec", nil), "missing spec")
+	assertInvalidCreate(t, ctx, resources, newKubeseer("missing-spec", namespace, nil), "missing spec")
 	assertNotPersisted(t, ctx, resources, "missing-spec")
 }
 
-func assertInvalidSourceRejected(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface) {
+func assertInvalidSourceRejected(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface, namespace string) {
 	t.Helper()
 
-	assertInvalidCreate(t, ctx, resources, newKubeseer("invalid-source", map[string]interface{}{
+	assertInvalidCreate(t, ctx, resources, newKubeseer("invalid-source", namespace, map[string]interface{}{
 		"sources": []interface{}{map[string]interface{}{"id": "Invalid_Source"}},
 	}), "invalid source ID")
 	assertNotPersisted(t, ctx, resources, "invalid-source")
 }
 
-func assertNonListSourcesRejected(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface) {
+func assertNonListSourcesRejected(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface, namespace string) {
 	t.Helper()
 
-	assertInvalidCreate(t, ctx, resources, newKubeseer("non-list-sources", map[string]interface{}{
+	assertInvalidCreate(t, ctx, resources, newKubeseer("non-list-sources", namespace, map[string]interface{}{
 		"sources": "not-a-list",
 	}), "non-list sources")
 	assertNotPersisted(t, ctx, resources, "non-list-sources")
 }
 
-func assertNegativeObservedGenerationRejected(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface) {
+func assertNegativeObservedGenerationRejected(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface, namespace string) {
 	t.Helper()
 
-	created, err := resources.Create(ctx, newKubeseer("negative-generation", map[string]interface{}{}), metav1.CreateOptions{})
+	created, err := resources.Create(ctx, newKubeseer("negative-generation", namespace, map[string]interface{}{}), metav1.CreateOptions{})
 	if err != nil {
 		t.Fatalf("create negative-generation fixture: %v", err)
 	}
@@ -229,10 +432,10 @@ func assertNegativeObservedGenerationRejected(t *testing.T, ctx context.Context,
 	}
 }
 
-func assertStatusUpdatePreservesSpec(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface) {
+func assertStatusUpdatePreservesSpec(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface, namespace string) {
 	t.Helper()
 
-	created, err := resources.Create(ctx, newKubeseer("status-isolation", map[string]interface{}{
+	created, err := resources.Create(ctx, newKubeseer("status-isolation", namespace, map[string]interface{}{
 		"sources": []interface{}{map[string]interface{}{"id": "stable-source"}},
 	}), metav1.CreateOptions{})
 	if err != nil {
@@ -467,14 +670,14 @@ func newAccessPolicy(name string, spec map[string]interface{}) *unstructured.Uns
 	}}
 }
 
-func assertUnservedVersionRejected(t *testing.T, ctx context.Context, client dynamic.Interface) {
+func assertUnservedVersionRejected(t *testing.T, ctx context.Context, client dynamic.Interface, namespace string) {
 	t.Helper()
 
 	unservedResources := client.Resource(schema.GroupVersionResource{
 		Group:    GroupVersion.Group,
 		Version:  "v1beta1",
 		Resource: kubeseerResource,
-	}).Namespace(testNamespace)
+	}).Namespace(namespace)
 	_, err := unservedResources.Create(ctx, &unstructured.Unstructured{Object: map[string]interface{}{
 		"apiVersion": unservedAPIVersion,
 		"kind":       "Kubeseer",
@@ -504,13 +707,13 @@ func assertNotPersisted(t *testing.T, ctx context.Context, resources dynamic.Res
 	}
 }
 
-func newKubeseer(name string, spec map[string]interface{}) *unstructured.Unstructured {
+func newKubeseer(name, namespace string, spec map[string]interface{}) *unstructured.Unstructured {
 	object := map[string]interface{}{
 		"apiVersion": GroupVersion.String(),
 		"kind":       "Kubeseer",
 		"metadata": map[string]interface{}{
 			"name":      name,
-			"namespace": testNamespace,
+			"namespace": namespace,
 		},
 	}
 	if spec != nil {

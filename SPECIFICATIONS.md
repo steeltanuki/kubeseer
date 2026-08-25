@@ -68,6 +68,7 @@ The constitution should include at least:
   environment.md
   specs/
     kubeseer-api-foundation/
+    integration-testing-foundation/
     resource-discovery/
     installation-access-policy/
     resource-selection/
@@ -123,7 +124,7 @@ Define the fundamental contract of the `Kubeseer` Custom Resource without introd
 - the CRD can be installed successfully;
 - Kubernetes accepts valid `Kubeseer` manifests;
 - Kubernetes rejects structurally invalid manifests;
-- generated Go APIs compile and pass their tests.
+- generated Go APIs compile and their API contracts pass against local envtest.
 
 ### Dependencies
 
@@ -131,7 +132,55 @@ None.
 
 ---
 
-## 6.2 `resource-discovery`
+## 6.2 `integration-testing-foundation`
+
+### Objective
+
+Establish modular Go boundaries and a cloud-independent higher-layer testing
+strategy before additional production collaboration paths are introduced.
+
+### Includes
+
+- cohesive, acyclic production package boundaries;
+- narrow consumer-owned interfaces and explicit constructors;
+- in-process integration between real Kubeseer modules once a production
+  collaboration path exists;
+- local Kubernetes API integration through pinned envtest assets;
+- full-cluster verification through project-owned kind on Podman;
+- deterministic test ownership, cleanup, and non-vacuous layer selection;
+- envtest as the default bootstrap while no production collaboration path
+  exists;
+- migration and retirement of dedicated unit-test suites after equivalent
+  higher-layer behavior is covered.
+
+### Excludes
+
+- feature-specific discovery, selection, extraction, authorization,
+  reconciliation, or aggregation behavior;
+- the complete end-to-end scenario catalog;
+- cloud-provider Kubernetes certification;
+- performance, soak, or chaos workloads.
+
+### Verifiable outcome
+
+- every supported test layer has a stable repository entry point;
+- the default test command selects envtest during bootstrap and cross-module
+  integration after the first real collaboration path exists;
+- no default path reads an ambient kubeconfig or targets an external cluster;
+- selected empty suites fail explicitly;
+- dedicated unit-test entry points and suites are absent after their required
+  behavior is migrated.
+
+### Dependencies
+
+- `kubeseer-api-foundation`.
+
+Every subsequent feature that introduces or changes production behavior
+inherits `integration-testing-foundation` as a cross-cutting prerequisite.
+
+---
+
+## 6.3 `resource-discovery`
 
 ### Objective
 
@@ -158,10 +207,11 @@ Dynamically resolve the Kubernetes resource types requested by Kubeseer sources.
 ### Dependencies
 
 - `kubeseer-api-foundation`.
+- `integration-testing-foundation`.
 
 ---
 
-## 6.3 `installation-access-policy`
+## 6.4 `installation-access-policy`
 
 ### Objective
 
@@ -220,7 +270,7 @@ spec:
 
 ---
 
-## 6.4 `resource-selection`
+## 6.5 `resource-selection`
 
 ### Objective
 
@@ -270,7 +320,7 @@ sources:
 
 ---
 
-## 6.5 `field-extraction`
+## 6.6 `field-extraction`
 
 ### Objective
 
@@ -314,7 +364,7 @@ fields:
 
 ---
 
-## 6.6 `typed-output-model`
+## 6.7 `typed-output-model`
 
 ### Objective
 
@@ -376,7 +426,7 @@ status:
 
 ---
 
-## 6.7 `value-operators`
+## 6.8 `value-operators`
 
 ### Objective
 
@@ -440,7 +490,7 @@ Define a controlled set of operators applicable to extracted and typed values.
 
 ---
 
-## 6.8 `cross-namespace-aggregation`
+## 6.9 `cross-namespace-aggregation`
 
 ### Objective
 
@@ -499,7 +549,7 @@ source:
 
 ---
 
-## 6.9 `reconciliation-runtime`
+## 6.10 `reconciliation-runtime`
 
 ### Objective
 
@@ -535,7 +585,7 @@ Define when and how the controller reconciles a `Kubeseer` resource.
 
 ---
 
-## 6.10 `status-and-conditions`
+## 6.11 `status-and-conditions`
 
 ### Objective
 
@@ -587,7 +637,7 @@ status:
 
 ---
 
-## 6.11 `authorization-enforcement`
+## 6.12 `authorization-enforcement`
 
 ### Objective
 
@@ -619,7 +669,7 @@ attempting to read the requested resource.
 
 ---
 
-## 6.12 `admission-validation`
+## 6.13 `admission-validation`
 
 ### Objective
 
@@ -648,7 +698,7 @@ Reject invalid Kubeseer configurations as early and clearly as possible.
 
 ---
 
-## 6.13 `observability`
+## 6.14 `observability`
 
 ### Objective
 
@@ -683,7 +733,7 @@ Make Kubeseer's runtime behavior measurable, diagnosable, and auditable.
 
 ---
 
-## 6.14 `performance-and-limits`
+## 6.15 `performance-and-limits`
 
 ### Objective
 
@@ -719,7 +769,7 @@ duplicate operations where caching does not affect correctness or isolation.
 
 ---
 
-## 6.15 `packaging-and-installation`
+## 6.16 `packaging-and-installation`
 
 ### Objective
 
@@ -758,7 +808,7 @@ Effective RBAC and the logical access policy should be aligned as closely as pra
 
 ---
 
-## 6.16 `end-to-end-scenarios`
+## 6.17 `end-to-end-scenarios`
 
 ### Objective
 
@@ -803,7 +853,7 @@ go test ./test/e2e/...
 
 ---
 
-## 6.17 `local-development-environment`
+## 6.18 `local-development-environment`
 
 ### Objective
 
@@ -888,14 +938,15 @@ A user on a supported host can follow one documented workflow to:
 
 ```text
 1. kubeseer-api-foundation
-2. resource-discovery
-3. installation-access-policy
-4. resource-selection
-5. field-extraction
-6. typed-output-model
-7. reconciliation-runtime
-8. status-and-conditions
-9. authorization-enforcement
+2. integration-testing-foundation
+3. resource-discovery
+4. installation-access-policy
+5. resource-selection
+6. field-extraction
+7. typed-output-model
+8. reconciliation-runtime
+9. status-and-conditions
+10. authorization-enforcement
 ```
 
 Expected result: Kubeseer can read a typed field from an authorized Kubernetes resource and publish a stable result in status.
@@ -903,9 +954,9 @@ Expected result: Kubeseer can read a typed field from an authorized Kubernetes r
 ## Phase 2 — Filtering and aggregation
 
 ```text
-10. value-operators
-11. cross-namespace-aggregation
-12. admission-validation
+11. value-operators
+12. cross-namespace-aggregation
+13. admission-validation
 ```
 
 Expected result: Kubeseer can filter, group, and aggregate typed values across multiple namespaces.
@@ -913,11 +964,11 @@ Expected result: Kubeseer can filter, group, and aggregate typed values across m
 ## Phase 3 — Production readiness and experimentation
 
 ```text
-13. observability
-14. performance-and-limits
-15. packaging-and-installation
-16. end-to-end-scenarios
-17. local-development-environment
+14. observability
+15. performance-and-limits
+16. packaging-and-installation
+17. end-to-end-scenarios
+18. local-development-environment
 ```
 
 Expected result: Kubeseer is deployable, measurable, bounded, certifiable, and easy to explore locally without an existing Kubernetes cluster.
@@ -927,6 +978,10 @@ Expected result: Kubeseer is deployable, measurable, bounded, certifiable, and e
 # 8. Dependency overview
 
 ```text
+kubeseer-api-foundation
+└── integration-testing-foundation
+    └── required by every later feature that changes production behavior
+
 kubeseer-api-foundation
 ├── resource-discovery
 │   ├── installation-access-policy

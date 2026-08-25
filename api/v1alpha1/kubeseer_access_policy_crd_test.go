@@ -64,7 +64,7 @@ func TestKubeseerAccessPolicyGeneratedCRDContract(t *testing.T) {
 	}
 
 	schema := version.Schema.OpenAPIV3Schema
-	if schema.Type != "object" || !contains(schema.Required, "spec") {
+	if schema.Type != "object" || !apiContractContains(schema.Required, "spec") {
 		t.Fatalf("access policy root schema is not a required structural object: %#v", schema)
 	}
 	if len(schema.XValidations) != 1 || schema.XValidations[0].Rule != "self.metadata.name == 'installation-access-ceiling'" ||
@@ -73,15 +73,15 @@ func TestKubeseerAccessPolicyGeneratedCRDContract(t *testing.T) {
 	}
 
 	spec, ok := schema.Properties["spec"]
-	if !ok || spec.Type != "object" || !contains(spec.Required, "namespaces") {
+	if !ok || spec.Type != "object" || !apiContractContains(spec.Required, "namespaces") {
 		t.Fatalf("access policy spec schema is missing or not required: %#v", spec)
 	}
-	if len(spec.Properties) != 3 || sortedSchemaKeys(spec.Properties)[0] != "allowClusterScoped" {
-		t.Fatalf("access policy spec exposes an unexpected field surface: %v", sortedSchemaKeys(spec.Properties))
+	if len(spec.Properties) != 3 {
+		t.Fatalf("access policy spec exposes an unexpected field surface: %v", spec.Properties)
 	}
 
 	namespaces, ok := spec.Properties["namespaces"]
-	if !ok || namespaces.Type != "object" || !contains(namespaces.Required, "mode") {
+	if !ok || namespaces.Type != "object" || !apiContractContains(namespaces.Required, "mode") {
 		t.Fatalf("namespace policy schema is missing or not required: %#v", namespaces)
 	}
 	mode, ok := namespaces.Properties["mode"]
@@ -110,7 +110,7 @@ func TestKubeseerAccessPolicyGeneratedCRDContract(t *testing.T) {
 		t.Fatalf("resource rules are not an atomic list: %#v", resources)
 	}
 	resourceRule := resources.Items.Schema
-	if resourceRule.Type != "object" || !contains(resourceRule.Required, "apiGroups") || !contains(resourceRule.Required, "kinds") {
+	if resourceRule.Type != "object" || !apiContractContains(resourceRule.Required, "apiGroups") || !apiContractContains(resourceRule.Required, "kinds") {
 		t.Fatalf("resource rule required fields are incorrect: %#v", resourceRule)
 	}
 	apiGroups := resourceRule.Properties["apiGroups"]

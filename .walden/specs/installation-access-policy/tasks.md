@@ -1,17 +1,17 @@
 ---
 walden_schema_version: v1alpha1
-status: approved
-approved_at: 2026-08-02T08:52:52Z
-last_modified: 2026-08-25T10:47:29Z
-approved_fingerprint: sha256:427da64da46d7d23d62e316355c606a1371217053667284d34a11673f31cbe58
-source_design_approved_at: 2026-08-02T08:26:03Z
-source_design_fingerprint: sha256:89800f88c9cfa51ad505ef2cd57fff2b7640cbec3fb5d51af7c6db79df594722
+status: draft
+approved_at:
+last_modified: 2026-08-25T20:38:32Z
+approved_fingerprint:
+source_design_approved_at:
+source_design_fingerprint:
 ---
 
 # Implementation Plan
 
-- [x] 1. Define and generate the installation access policy API
-  - [x] 1.1 Add the typed `KubeseerAccessPolicy` API contract
+- [ ] 1. Define and generate the installation access policy API
+  - [ ] 1.1 Add the typed `KubeseerAccessPolicy` API contract
     - Add the cluster-scoped policy and list types, namespace modes, namespace policy,
       resource rules, active singleton-name constant, scheme registration, JSON
       behavior, and generated deep-copy support without adding policy fields to
@@ -26,7 +26,7 @@ source_design_fingerprint: sha256:89800f88c9cfa51ad505ef2cd57fff2b7640cbec3fb5d5
         expect_output: "--- PASS: TestKubeseerAccessPolicySchemeRegistration"
         covers: ["R1.AC1", "R1.AC3", "R2.AC5", "R2.AC6", "R3.AC2", "R4.AC3"]
 
-  - [x] 1.2 Generate and assert the structural cluster-scoped CRD
+  - [ ] 1.2 Generate and assert the structural cluster-scoped CRD
     - Add kubebuilder markers for cluster scope, the
       `installation-access-ceiling` singleton CEL rule, enum/default/pattern/list
       constraints, required non-empty rule members, and valid empty deny-all policy
@@ -43,8 +43,8 @@ source_design_fingerprint: sha256:89800f88c9cfa51ad505ef2cd57fff2b7640cbec3fb5d5
       - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-access-policy-go-build GOMODCACHE=/tmp/kubeseer-access-policy-go-mod make verify"]
         expect_output: "generated artifacts are current"
 
-- [x] 2. Compile and evaluate the logical installation ceiling
-  - [x] 2.1 Implement defensive validation and immutable policy compilation
+- [ ] 2. Compile and evaluate the logical installation ceiling
+  - [ ] 2.1 Implement defensive validation and immutable policy compilation
     - Create `internal/accesspolicy` with stable reason/diagnostic contracts and a
       compiler that validates the active name, namespace modes and names, duplicate
       set entries, resource rule cardinality, exact group/Kind syntax, and wildcard
@@ -60,7 +60,7 @@ source_design_fingerprint: sha256:89800f88c9cfa51ad505ef2cd57fff2b7640cbec3fb5d5
         expect_output: "--- PASS: TestCompilePolicy"
         covers: ["R1.AC2", "R2.AC5", "R2.AC6", "R3.AC2", "R3.AC6", "R4.AC3", "R5.AC1", "R5.AC2", "R5.AC3", "R5.AC4", "R5.AC5", "R5.AC6", "R5.AC7", "R5.AC8", "R5.AC9", "R8.AC1", "R8.AC2"]
 
-  - [x] 2.2 Implement deterministic namespace, resource, and scope evaluation
+  - [ ] 2.2 Implement deterministic namespace, resource, and scope evaluation
     - Add normalized `Request` and stable `Decision` contracts plus pure snapshot
       evaluation with the documented precedence: snapshot state, invalid request,
       resource denial, cluster-scope denial, namespace denial, allow.
@@ -78,8 +78,8 @@ source_design_fingerprint: sha256:89800f88c9cfa51ad505ef2cd57fff2b7640cbec3fb5d5
         expect_output: "--- PASS: TestEvaluatePolicy"
         covers: ["R1.AC4", "R2.AC1", "R2.AC2", "R2.AC3", "R2.AC4", "R2.AC5", "R2.AC6", "R3.AC1", "R3.AC2", "R3.AC3", "R3.AC4", "R3.AC5", "R3.AC6", "R4.AC1", "R4.AC2", "R4.AC3", "R4.AC4", "R4.AC5", "R7.AC1", "R7.AC2", "R7.AC3", "R7.AC4", "R8.AC1", "R8.AC2", "R8.AC3", "R8.AC4", "R8.AC5", "R8.AC6"]
 
-- [x] 3. Load the active policy through a fail-closed boundary
-  - [x] 3.1 Implement the narrow policy source, loader, and terminal snapshots
+- [ ] 3. Load the active policy through a fail-closed boundary
+  - [ ] 3.1 Implement the narrow policy source, loader, and terminal snapshots
     - Add a `PolicySource` abstraction and controller-runtime client adapter that can
       retrieve only `KubeseerAccessPolicy/installation-access-ceiling`; classify
       not-found separately from other read failures and pass retrieved objects through
@@ -98,8 +98,8 @@ source_design_fingerprint: sha256:89800f88c9cfa51ad505ef2cd57fff2b7640cbec3fb5d5
         expect_output: "--- PASS: TestLoadPolicy"
         covers: ["R1.AC2", "R1.AC4", "R6.AC1", "R6.AC2", "R6.AC3", "R6.AC4", "R6.AC5", "R7.AC1", "R7.AC2", "R7.AC3", "R7.AC4", "R8.AC1", "R8.AC2", "R8.AC5", "R8.AC6"]
 
-- [x] 4. Prove admission and defaulting on supported Kubernetes API servers
-  - [x] 4.1 Extend the envtest contract and compatibility matrix for the policy CRD
+- [ ] 4. Prove admission and defaulting on supported Kubernetes API servers
+  - [ ] 4.1 Extend the envtest contract and compatibility matrix for the policy CRD
     - Extend the existing API-server contract to discover the cluster-scoped policy
       resource, persist a valid `installation-access-ceiling`, observe omitted-field
       defaults, and preserve an explicitly empty `systemNamespaces` list.

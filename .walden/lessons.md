@@ -45,6 +45,56 @@ Review this file before non-trivial work when the current request matches past m
 - Lesson: A proof can pass with explicit writable caches while the same command fails when Walden launches Go with the sandbox default cache.
 - Guardrail: Use writable GOCACHE and GOMODCACHE paths for every Go-backed Walden completion or verification in restricted environments.
 
+### 2026-08-25T13:11:23Z | integration-testing-foundation | design
+- Trigger: The user removed the unit-test layer during design review because AI-generated code will be verified at higher test layers
+- Lesson: The required test layers are a product-level maintenance and confidence decision that must be fixed in requirements before designing the harness
+- Guardrail: Before opening design review for a testing foundation, confirm which test layers are mandatory and record the accepted diagnostic and coverage trade-off in requirements
+
+### 2026-08-25T13:33:08Z | integration-testing-foundation | tasks
+- Trigger: Task planning found that api/v1alpha1 and internal/discovery have no production collaboration path, so the required non-vacuous module suite would need artificial production code or a test-only composition
+- Lesson: A testing foundation must define its bootstrap behavior for the period before the first real cross-module collaboration path exists
+- Guardrail: Before design review, inventory actual production collaboration edges rather than package count and specify the default local test layer when that edge count is zero
+
+### 2026-08-25T14:06:28Z | integration-testing-foundation | execute
+- Trigger: A broad package test was run without the envtest asset contract
+- Lesson: Package-local API tests include an envtest contract that intentionally fails when KUBEBUILDER_ASSETS is absent; direct go test is not the repository entry point for that package.
+- Guardrail: Use the task proof and make test-api for envtest-backed packages; use go test -run '^$' only for compile-only checks when assets are unavailable.
+
+### 2026-08-25T14:10:59Z | integration-testing-foundation | execute
+- Trigger: The temporary runner acceptance fixture exposed a different Go diagnostic for a missing package
+- Lesson: go test -list reports missing directories as stat <path>: directory not found rather than always using the pattern prefix
+- Guardrail: Classify both pattern and stat directory-not-found diagnostics as not-applicable, while propagating other list failures.
+
+### 2026-08-25T14:11:16Z | integration-testing-foundation | execute
+- Trigger: The runner acceptance compile-error assertion assumed a compiler wording
+- Lesson: Go parser failures may report expected tokens without the phrase syntax error
+- Guardrail: Assert the stable failed marker and non-zero propagation plus a broad parser diagnostic, not one exact compiler sentence.
+
+### 2026-08-25T14:12:51Z | integration-testing-foundation | execute
+- Trigger: Public layer targets exposed the glob-directory missing diagnostic from go test
+- Lesson: An absent wildcard package can be reported as lstat <path>: no such file or directory, which is a not-applicable state rather than a compile failure
+- Guardrail: Classify lstat/stat missing-path diagnostics as not-applicable while continuing to propagate actual compiler and tooling errors.
+
+### 2026-08-25T14:13:22Z | integration-testing-foundation | execute
+- Trigger: The acceptance harness fixture overlapped the real module-integration glob during concurrent checks
+- Lesson: Temporary Go packages under a selected test-layer directory can be mistaken for real suites and alter probe results
+- Guardrail: Keep acceptance fixtures outside every production layer glob and clean only their exact temporary ownership path.
+
+### 2026-08-25T15:24:20Z | integration-testing-foundation | execute
+- Trigger: make verify reached controller-gen module verification but the restricted sandbox blocked proxy.golang.org DNS
+- Lesson: A writable Go build cache is not sufficient for repository verification when controller-gen must verify a module through the checksum database; the proof can fail before the changed verifier runs.
+- Guardrail: Preflight Go tool dependencies and rerun make verify with approved network access when the pinned controller tool is not already fully cached; distinguish dependency transport failures from repository verification failures.
+
+### 2026-08-25T20:12:32Z | integration-testing-foundation | execute
+- Trigger: task 4.2 final go mod tidy -diff attempted dependency downloads and exited before producing a module diff
+- Lesson: The final matrix can reach a cold or non-writable module cache even after build and envtest proofs pass; Walden then reports dependency-resolution failure as the task failure.
+- Guardrail: Run the final Go tidiness proof with an explicit writable GOMODCACHE and network access, and distinguish module-resolution failures from an actual go.mod/go.sum diff before changing dependencies.
+
+### 2026-08-25T20:28:26Z | resource-discovery | execute
+- Trigger: walden verify failed after integration-testing-foundation removed the package-local discovery tests
+- Lesson: The discovery implementation still passes the consolidated envtest suite, but the approved resource-discovery proofs target deleted unit-test names and the race proof omits KUBEBUILDER_ASSETS.
+- Guardrail: When a testing foundation changes test-layer ownership, update dependent Walden proof commands to the surviving higher-layer suite before re-verification.
+
 ### 2026-08-01T21:42:53Z | installation-access-policy | requirements
 - Trigger: A manual acceptance-criterion scan passed Markdown backticks through an unsafe shell regex
 - Lesson: Backticks inside a double-quoted shell pattern are command substitutions, so a read-only quality scan can execute unintended text and distort its pattern.
@@ -59,4 +109,12 @@ Review this file before non-trivial work when the current request matches past m
 - Trigger: Generated CRD validation markers were accepted syntactically but item constraints were absent from the manifest
 - Lesson: controller-gen v0.20.1 uses the lowercase validation:items: marker prefix for array-item MaxLength and Pattern; the uppercase form can be ignored without producing item schema
 - Guardrail: After adding controller-gen markers, inspect the generated OpenAPI item schema and assert the intended constraints before treating generation as complete
+### 2026-08-25T20:38:20Z | installation-access-policy | execute
+- Trigger: Execution preflight found that the approved task proofs add package-local unit tests rejected by the newer integration-testing foundation on develop
+- Lesson: Feature execution plans can become operationally obsolete when a later approved repository-wide testing contract changes the permitted proof layer without changing the feature fingerprints
+- Guardrail: Before starting an older approved feature, compare its proof commands and test locations with the current constitution and testing-foundation gates; reconcile from the earliest conflicting phase
 
+### 2026-08-25T20:39:09Z | installation-access-policy | design
+- Trigger: Post-reconciliation diff check found trailing spaces in blank approval frontmatter emitted by Walden v0.10.1
+- Lesson: A deterministic workflow mutation can still introduce repository-formatting defects that validation does not report
+- Guardrail: Run git diff --check after reconciliation and normalize blank frontmatter values before opening review
