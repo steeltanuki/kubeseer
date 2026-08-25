@@ -12,15 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package v1alpha1 defines the public Kubernetes API types for Kubeseer.
+// Package discovery resolves source descriptors to Kubernetes resource
+// identities and their discovery-reported scope.
 //
-// Responsibility: own the versioned Kubeseer resource, list, spec, and status
-// value contracts that are serialized through the Kubernetes API.
+// Responsibility: own discovery validation, resolution, stable source-scoped
+// failures, and the resolution cache without owning controller orchestration.
 //
-// Boundary: this package exposes API values and scheme registration only.
-// Runtime clients, reconciliation, discovery, and other infrastructure are
-// supplied by consuming modules rather than being hidden in this package.
-//
-// +kubebuilder:object:generate=true
-// +groupName=kubeseer.io
-package v1alpha1
+// Boundary: the package owns the consumer-owned DiscoveryClient port and the
+// Clock function adapter. Concrete Kubernetes clients and clocks are supplied
+// by the composition root or by a higher-layer test through NewResolver.
+package discovery

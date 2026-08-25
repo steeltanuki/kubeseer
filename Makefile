@@ -21,8 +21,10 @@ CRD_OUTPUT := config/crd/bases
 DEEP_COPY_HEADER := hack/boilerplate.go.txt
 KUBERNETES_VERSION ?= 1.35.6
 KUBERNETES_COMPATIBILITY_VERSIONS := 1.35.6 1.36.2
+GO_TEST_FLAGS ?=
+KUBEBUILDER_ASSETS ?=
 
-.PHONY: generate manifests verify test-api test-compatibility
+.PHONY: generate manifests verify test test-integration test-api test-compatibility e2e
 
 generate:
 	$(CONTROLLER_GEN) object:headerFile=$(DEEP_COPY_HEADER) paths=$(API_PACKAGE)
@@ -32,16 +34,31 @@ manifests:
 
 verify:
 	./hack/verify-generated.sh
+	./hack/verify-test-layer-policy.sh
+
+test:
+	@set -eu; \
+	if GO_TEST_FLAGS="$(GO_TEST_FLAGS)" ./hack/test-layer-runner.sh module-integration ./test/integration/... '^TestModuleIntegration$$' probe; then \
+		$(MAKE) --no-print-directory test-integration; \
+	else \
+		status=$$?; \
+		if [ "$$status" -ne 2 ]; then exit "$$status"; fi; \
+		$(MAKE) --no-print-directory test-api; \
+	fi
+
+test-integration:
+	GO_TEST_FLAGS="$(GO_TEST_FLAGS)" ./hack/test-layer-runner.sh module-integration ./test/integration/... '^TestModuleIntegration$$' required
 
 test-api:
 	@set -eu; \
-	if [ -n "$${KUBEBUILDER_ASSETS:-}" ]; then \
-		assets="$$KUBEBUILDER_ASSETS"; \
+	if [ -n "$(KUBEBUILDER_ASSETS)" ]; then \
+		assets="$(KUBEBUILDER_ASSETS)"; \
 	else \
 		assets="$$( $(SETUP_ENVTEST) use -p path $(KUBERNETES_VERSION)! 2>/dev/null || ./hack/envtest-assets.sh $(KUBERNETES_VERSION) )"; \
 	fi; \
 	test -n "$$assets"; \
-	KUBEBUILDER_ASSETS="$$assets" go test -v $(API_PACKAGE) -run '^TestAPIContract$$'
+	GO_TEST_FLAGS="$(GO_TEST_FLAGS)" KUBEBUILDER_ASSETS="$$assets" ./hack/test-layer-runner.sh kubernetes-api $(API_PACKAGE) '^TestAPIContract$$' required; \
+	GO_TEST_FLAGS="$(GO_TEST_FLAGS)" KUBEBUILDER_ASSETS="$$assets" ./hack/test-layer-runner.sh kubernetes-api ./internal/discovery '^TestEnvtestDiscovery$$' required
 
 test-compatibility:
 	@set -eu; \
@@ -50,3 +67,6 @@ test-compatibility:
 		KUBEBUILDER_ASSETS= $(MAKE) --no-print-directory test-api KUBERNETES_VERSION="$$version"; \
 	done; \
 	printf '%s\n' 'API compatibility matrix passed'
+
+e2e:
+	./hack/e2e-harness.sh ./test/e2e/... '^TestEndToEnd$$'

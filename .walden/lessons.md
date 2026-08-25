@@ -55,3 +55,38 @@ Review this file before non-trivial work when the current request matches past m
 - Lesson: A testing foundation must define its bootstrap behavior for the period before the first real cross-module collaboration path exists
 - Guardrail: Before design review, inventory actual production collaboration edges rather than package count and specify the default local test layer when that edge count is zero
 
+### 2026-08-25T14:06:28Z | integration-testing-foundation | execute
+- Trigger: A broad package test was run without the envtest asset contract
+- Lesson: Package-local API tests include an envtest contract that intentionally fails when KUBEBUILDER_ASSETS is absent; direct go test is not the repository entry point for that package.
+- Guardrail: Use the task proof and make test-api for envtest-backed packages; use go test -run '^$' only for compile-only checks when assets are unavailable.
+
+### 2026-08-25T14:10:59Z | integration-testing-foundation | execute
+- Trigger: The temporary runner acceptance fixture exposed a different Go diagnostic for a missing package
+- Lesson: go test -list reports missing directories as stat <path>: directory not found rather than always using the pattern prefix
+- Guardrail: Classify both pattern and stat directory-not-found diagnostics as not-applicable, while propagating other list failures.
+
+### 2026-08-25T14:11:16Z | integration-testing-foundation | execute
+- Trigger: The runner acceptance compile-error assertion assumed a compiler wording
+- Lesson: Go parser failures may report expected tokens without the phrase syntax error
+- Guardrail: Assert the stable failed marker and non-zero propagation plus a broad parser diagnostic, not one exact compiler sentence.
+
+### 2026-08-25T14:12:51Z | integration-testing-foundation | execute
+- Trigger: Public layer targets exposed the glob-directory missing diagnostic from go test
+- Lesson: An absent wildcard package can be reported as lstat <path>: no such file or directory, which is a not-applicable state rather than a compile failure
+- Guardrail: Classify lstat/stat missing-path diagnostics as not-applicable while continuing to propagate actual compiler and tooling errors.
+
+### 2026-08-25T14:13:22Z | integration-testing-foundation | execute
+- Trigger: The acceptance harness fixture overlapped the real module-integration glob during concurrent checks
+- Lesson: Temporary Go packages under a selected test-layer directory can be mistaken for real suites and alter probe results
+- Guardrail: Keep acceptance fixtures outside every production layer glob and clean only their exact temporary ownership path.
+
+### 2026-08-25T15:24:20Z | integration-testing-foundation | execute
+- Trigger: make verify reached controller-gen module verification but the restricted sandbox blocked proxy.golang.org DNS
+- Lesson: A writable Go build cache is not sufficient for repository verification when controller-gen must verify a module through the checksum database; the proof can fail before the changed verifier runs.
+- Guardrail: Preflight Go tool dependencies and rerun make verify with approved network access when the pinned controller tool is not already fully cached; distinguish dependency transport failures from repository verification failures.
+
+### 2026-08-25T20:12:32Z | integration-testing-foundation | execute
+- Trigger: task 4.2 final go mod tidy -diff attempted dependency downloads and exited before producing a module diff
+- Lesson: The final matrix can reach a cold or non-writable module cache even after build and envtest proofs pass; Walden then reports dependency-resolution failure as the task failure.
+- Guardrail: Run the final Go tidiness proof with an explicit writable GOMODCACHE and network access, and distinguish module-resolution failures from an actual go.mod/go.sum diff before changing dependencies.
+
