@@ -90,3 +90,8 @@ Review this file before non-trivial work when the current request matches past m
 - Lesson: The final matrix can reach a cold or non-writable module cache even after build and envtest proofs pass; Walden then reports dependency-resolution failure as the task failure.
 - Guardrail: Run the final Go tidiness proof with an explicit writable GOMODCACHE and network access, and distinguish module-resolution failures from an actual go.mod/go.sum diff before changing dependencies.
 
+### 2026-08-25T20:28:26Z | resource-discovery | execute
+- Trigger: walden verify failed after integration-testing-foundation removed the package-local discovery tests
+- Lesson: The discovery implementation still passes the consolidated envtest suite, but the approved resource-discovery proofs target deleted unit-test names and the race proof omits KUBEBUILDER_ASSETS.
+- Guardrail: When a testing foundation changes test-layer ownership, update dependent Walden proof commands to the surviving higher-layer suite before re-verification.
+
