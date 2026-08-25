@@ -95,3 +95,27 @@ Review this file before non-trivial work when the current request matches past m
 - Lesson: The discovery implementation still passes the consolidated envtest suite, but the approved resource-discovery proofs target deleted unit-test names and the race proof omits KUBEBUILDER_ASSETS.
 - Guardrail: When a testing foundation changes test-layer ownership, update dependent Walden proof commands to the surviving higher-layer suite before re-verification.
 
+### 2026-08-01T21:42:53Z | installation-access-policy | requirements
+- Trigger: A manual acceptance-criterion scan passed Markdown backticks through an unsafe shell regex
+- Lesson: Backticks inside a double-quoted shell pattern are command substitutions, so a read-only quality scan can execute unintended text and distort its pattern.
+- Guardrail: Pass Markdown-aware rg patterns in single quotes and keep shell metacharacters literal during spec quality scans.
+
+### 2026-08-02T08:21:08Z | installation-access-policy | requirements
+- Trigger: User rejected the generic singleton name default during design review
+- Lesson: A singleton resource name is part of the operator UX and should communicate the policy role, not merely its cardinality
+- Guardrail: Name installation-wide singleton resources after their administrative function before approving requirements
+
+### 2026-08-25T10:48:26Z | installation-access-policy | execute
+- Trigger: Generated CRD validation markers were accepted syntactically but item constraints were absent from the manifest
+- Lesson: controller-gen v0.20.1 uses the lowercase validation:items: marker prefix for array-item MaxLength and Pattern; the uppercase form can be ignored without producing item schema
+- Guardrail: After adding controller-gen markers, inspect the generated OpenAPI item schema and assert the intended constraints before treating generation as complete
+### 2026-08-25T20:38:20Z | installation-access-policy | execute
+- Trigger: Execution preflight found that the approved task proofs add package-local unit tests rejected by the newer integration-testing foundation on develop
+- Lesson: Feature execution plans can become operationally obsolete when a later approved repository-wide testing contract changes the permitted proof layer without changing the feature fingerprints
+- Guardrail: Before starting an older approved feature, compare its proof commands and test locations with the current constitution and testing-foundation gates; reconcile from the earliest conflicting phase
+
+### 2026-08-25T20:39:09Z | installation-access-policy | design
+- Trigger: Post-reconciliation diff check found trailing spaces in blank approval frontmatter emitted by Walden v0.10.1
+- Lesson: A deterministic workflow mutation can still introduce repository-formatting defects that validation does not report
+- Guardrail: Run git diff --check after reconciliation and normalize blank frontmatter values before opening review
+
