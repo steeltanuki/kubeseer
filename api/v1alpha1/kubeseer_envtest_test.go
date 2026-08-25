@@ -34,19 +34,27 @@ import (
 )
 
 const (
-	testNamespace       = "default"
-	kubeseerResource    = "kubeseers"
-	kubeseerCRDName     = "kubeseers.kubeseer.io"
-	unservedAPIVersion  = "kubeseer.io/v1beta1"
-	apiRequestTimeout   = 30 * time.Second
-	crdInstallMaxWait   = 20 * time.Second
-	crdInstallPollDelay = 100 * time.Millisecond
+	testNamespace        = "default"
+	kubeseerResource     = "kubeseers"
+	kubeseerCRDName      = "kubeseers.kubeseer.io"
+	accessPolicyResource = "kubeseeraccesspolicies"
+	accessPolicyCRDName  = "kubeseeraccesspolicies.kubeseer.io"
+	unservedAPIVersion   = "kubeseer.io/v1beta1"
+	apiRequestTimeout    = 30 * time.Second
+	crdInstallMaxWait    = 20 * time.Second
+	crdInstallPollDelay  = 100 * time.Millisecond
 )
 
 var kubeseerResourceGVR = schema.GroupVersionResource{
 	Group:    GroupVersion.Group,
 	Version:  GroupVersion.Version,
 	Resource: kubeseerResource,
+}
+
+var accessPolicyResourceGVR = schema.GroupVersionResource{
+	Group:    GroupVersion.Group,
+	Version:  GroupVersion.Version,
+	Resource: accessPolicyResource,
 }
 
 func TestAPIContract(t *testing.T) {
@@ -96,9 +104,12 @@ func TestAPIContract(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), apiRequestTimeout)
 	defer cancel()
 
-	assertCRDEstablished(t, ctx, apiExtensions)
-	assertResourceRegistered(t, discoveryClient)
+	assertCRDEstablished(t, ctx, apiExtensions, kubeseerCRDName)
+	assertCRDEstablished(t, ctx, apiExtensions, accessPolicyCRDName)
+	assertResourceRegistered(t, discoveryClient, kubeseerResource, true)
+	assertResourceRegistered(t, discoveryClient, accessPolicyResource, false)
 	resources := dynamicClient.Resource(kubeseerResourceGVR).Namespace(testNamespace)
+	accessPolicies := dynamicClient.Resource(accessPolicyResourceGVR)
 
 	createMinimalResource(t, ctx, resources)
 	createValidSourceResource(t, ctx, resources)
@@ -108,14 +119,16 @@ func TestAPIContract(t *testing.T) {
 	assertNegativeObservedGenerationRejected(t, ctx, resources)
 	assertStatusUpdatePreservesSpec(t, ctx, resources)
 	assertUnservedVersionRejected(t, ctx, dynamicClient)
+	assertAccessPolicyDefaultingAndEmptyOverride(t, ctx, accessPolicies)
+	assertAccessPolicyValidation(t, ctx, accessPolicies)
 
 	t.Logf("API contract passed with Kubernetes assets %s", assets)
 }
 
-func assertCRDEstablished(t *testing.T, ctx context.Context, client *apiextensionsclient.Clientset) {
+func assertCRDEstablished(t *testing.T, ctx context.Context, client *apiextensionsclient.Clientset, crdName string) {
 	t.Helper()
 
-	crd, err := client.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, kubeseerCRDName, metav1.GetOptions{})
+	crd, err := client.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, crdName, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get installed CRD: %v", err)
 	}
@@ -124,10 +137,10 @@ func assertCRDEstablished(t *testing.T, ctx context.Context, client *apiextensio
 			return
 		}
 	}
-	t.Fatalf("CRD %s did not become Established: %#v", kubeseerCRDName, crd.Status.Conditions)
+	t.Fatalf("CRD %s did not become Established: %#v", crdName, crd.Status.Conditions)
 }
 
-func assertResourceRegistered(t *testing.T, client *discovery.DiscoveryClient) {
+func assertResourceRegistered(t *testing.T, client *discovery.DiscoveryClient, resourceName string, namespaced bool) {
 	t.Helper()
 
 	resources, err := client.ServerResourcesForGroupVersion(GroupVersion.String())
@@ -135,11 +148,14 @@ func assertResourceRegistered(t *testing.T, client *discovery.DiscoveryClient) {
 		t.Fatalf("discover %s: %v", GroupVersion.String(), err)
 	}
 	for _, resource := range resources.APIResources {
-		if resource.Name == kubeseerResource {
+		if resource.Name == resourceName {
+			if resource.Namespaced != namespaced {
+				t.Fatalf("%s discovery scope = %t, want %t", resourceName, resource.Namespaced, namespaced)
+			}
 			return
 		}
 	}
-	t.Fatalf("%s is not registered in API discovery: %#v", kubeseerResource, resources.APIResources)
+	t.Fatalf("%s is not registered in API discovery: %#v", resourceName, resources.APIResources)
 }
 
 func createMinimalResource(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface) {
@@ -247,6 +263,208 @@ func assertStatusUpdatePreservesSpec(t *testing.T, ctx context.Context, resource
 	if err != nil || !found || observedGeneration != 1 {
 		t.Fatalf("status update was not persisted: generation=%d found=%t err=%v", observedGeneration, found, err)
 	}
+}
+
+func assertAccessPolicyDefaultingAndEmptyOverride(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface) {
+	t.Helper()
+
+	created, err := resources.Create(ctx, newAccessPolicy(InstallationAccessCeilingName, validAccessPolicySpec()), metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("create valid access policy: %v", err)
+	}
+	if created.GetName() != InstallationAccessCeilingName || created.GetNamespace() != "" {
+		t.Fatalf("access policy was not persisted cluster-scoped: %#v", created.Object)
+	}
+
+	systemNamespaces, found, err := unstructured.NestedSlice(created.Object, "spec", "namespaces", "systemNamespaces")
+	if err != nil || !found || !reflect.DeepEqual(systemNamespaces, []interface{}{"kube-system", "kube-public", "kube-node-lease"}) {
+		t.Fatalf("omitted systemNamespaces did not receive the API default: value=%#v found=%t err=%v", systemNamespaces, found, err)
+	}
+	allowClusterScoped, found, err := unstructured.NestedBool(created.Object, "spec", "allowClusterScoped")
+	if err != nil || !found || allowClusterScoped {
+		t.Fatalf("omitted allowClusterScoped did not default to false: value=%t found=%t err=%v", allowClusterScoped, found, err)
+	}
+
+	current, err := resources.Get(ctx, InstallationAccessCeilingName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get persisted access policy: %v", err)
+	}
+	if err := unstructured.SetNestedSlice(current.Object, []interface{}{}, "spec", "namespaces", "systemNamespaces"); err != nil {
+		t.Fatalf("set explicit empty systemNamespaces: %v", err)
+	}
+	updated, err := resources.Update(ctx, current, metav1.UpdateOptions{})
+	if err != nil {
+		t.Fatalf("update access policy with explicit empty systemNamespaces: %v", err)
+	}
+	systemNamespaces, found, err = unstructured.NestedSlice(updated.Object, "spec", "namespaces", "systemNamespaces")
+	if err != nil || !found || !reflect.DeepEqual(systemNamespaces, []interface{}{}) {
+		t.Fatalf("explicit empty systemNamespaces was not preserved: value=%#v found=%t err=%v", systemNamespaces, found, err)
+	}
+
+	if err := unstructured.SetNestedField(updated.Object, "Explicit", "spec", "namespaces", "mode"); err != nil {
+		t.Fatalf("set empty deny-all namespace mode: %v", err)
+	}
+	for _, field := range []string{"include", "exclude", "systemNamespaces"} {
+		if err := unstructured.SetNestedSlice(updated.Object, []interface{}{}, "spec", "namespaces", field); err != nil {
+			t.Fatalf("set empty namespace list %q: %v", field, err)
+		}
+	}
+	if err := unstructured.SetNestedSlice(updated.Object, []interface{}{}, "spec", "resources"); err != nil {
+		t.Fatalf("set empty resource allowlist: %v", err)
+	}
+	updated, err = resources.Update(ctx, updated, metav1.UpdateOptions{})
+	if err != nil {
+		t.Fatalf("update access policy with empty deny-all boundaries: %v", err)
+	}
+	for _, field := range []string{"include", "exclude", "systemNamespaces"} {
+		values, found, err := unstructured.NestedSlice(updated.Object, "spec", "namespaces", field)
+		if err != nil || !found || !reflect.DeepEqual(values, []interface{}{}) {
+			t.Fatalf("empty deny-all namespace list %q was not preserved: value=%#v found=%t err=%v", field, values, found, err)
+		}
+	}
+	resourcesList, found, err := unstructured.NestedSlice(updated.Object, "spec", "resources")
+	if err != nil || !found || !reflect.DeepEqual(resourcesList, []interface{}{}) {
+		t.Fatalf("empty deny-all resource list was not preserved: value=%#v found=%t err=%v", resourcesList, found, err)
+	}
+
+	if err := resources.Delete(ctx, InstallationAccessCeilingName, metav1.DeleteOptions{}); err != nil {
+		t.Fatalf("delete access policy before invalid cases: %v", err)
+	}
+}
+
+func assertAccessPolicyValidation(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface) {
+	t.Helper()
+
+	tests := []struct {
+		name   string
+		object *unstructured.Unstructured
+	}{
+		{
+			name:   "non-singleton name",
+			object: newAccessPolicy("default", validAccessPolicySpec()),
+		},
+		{
+			name: "invalid mode",
+			object: newAccessPolicy(InstallationAccessCeilingName, func() map[string]interface{} {
+				spec := validAccessPolicySpec()
+				spec["namespaces"].(map[string]interface{})["mode"] = "Unknown"
+				return spec
+			}()),
+		},
+		{
+			name: "invalid namespace",
+			object: newAccessPolicy(InstallationAccessCeilingName, func() map[string]interface{} {
+				spec := validAccessPolicySpec()
+				spec["namespaces"].(map[string]interface{})["include"] = []interface{}{"Invalid_Namespace"}
+				return spec
+			}()),
+		},
+		{
+			name: "duplicate namespace set value",
+			object: newAccessPolicy(InstallationAccessCeilingName, func() map[string]interface{} {
+				spec := validAccessPolicySpec()
+				spec["namespaces"].(map[string]interface{})["include"] = []interface{}{"team-a", "team-a"}
+				return spec
+			}()),
+		},
+		{
+			name: "empty API group rule member",
+			object: newAccessPolicy(InstallationAccessCeilingName, func() map[string]interface{} {
+				spec := validAccessPolicySpec()
+				spec["resources"] = []interface{}{map[string]interface{}{
+					"apiGroups": []interface{}{},
+					"kinds":     []interface{}{"Pod"},
+				}}
+				return spec
+			}()),
+		},
+		{
+			name: "empty Kind rule member",
+			object: newAccessPolicy(InstallationAccessCeilingName, func() map[string]interface{} {
+				spec := validAccessPolicySpec()
+				spec["resources"] = []interface{}{map[string]interface{}{
+					"apiGroups": []interface{}{[]interface{}{}},
+					"kinds":     []interface{}{},
+				}}
+				return spec
+			}()),
+		},
+		{
+			name: "duplicate resource set value",
+			object: newAccessPolicy(InstallationAccessCeilingName, func() map[string]interface{} {
+				spec := validAccessPolicySpec()
+				spec["resources"] = []interface{}{map[string]interface{}{
+					"apiGroups": []interface{}{"apps", "apps"},
+					"kinds":     []interface{}{"Deployment"},
+				}}
+				return spec
+			}()),
+		},
+		{
+			name: "malformed API group",
+			object: newAccessPolicy(InstallationAccessCeilingName, func() map[string]interface{} {
+				spec := validAccessPolicySpec()
+				spec["resources"].([]interface{})[0].(map[string]interface{})["apiGroups"] = []interface{}{"Apps"}
+				return spec
+			}()),
+		},
+		{
+			name: "wildcard API group",
+			object: newAccessPolicy(InstallationAccessCeilingName, func() map[string]interface{} {
+				spec := validAccessPolicySpec()
+				spec["resources"].([]interface{})[0].(map[string]interface{})["apiGroups"] = []interface{}{"*"}
+				return spec
+			}()),
+		},
+		{
+			name: "malformed Kind",
+			object: newAccessPolicy(InstallationAccessCeilingName, func() map[string]interface{} {
+				spec := validAccessPolicySpec()
+				spec["resources"].([]interface{})[0].(map[string]interface{})["kinds"] = []interface{}{"deployment"}
+				return spec
+			}()),
+		},
+		{
+			name: "wildcard Kind",
+			object: newAccessPolicy(InstallationAccessCeilingName, func() map[string]interface{} {
+				spec := validAccessPolicySpec()
+				spec["resources"].([]interface{})[0].(map[string]interface{})["kinds"] = []interface{}{"*"}
+				return spec
+			}()),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertInvalidCreate(t, ctx, resources, test.object, test.name)
+			assertNotPersisted(t, ctx, resources, test.object.GetName())
+		})
+	}
+}
+
+func validAccessPolicySpec() map[string]interface{} {
+	return map[string]interface{}{
+		"namespaces": map[string]interface{}{
+			"mode":    "AllNonSystem",
+			"include": []interface{}{"team-a"},
+			"exclude": []interface{}{"team-b"},
+		},
+		"resources": []interface{}{map[string]interface{}{
+			"apiGroups": []interface{}{""},
+			"kinds":     []interface{}{"Pod"},
+		}},
+	}
+}
+
+func newAccessPolicy(name string, spec map[string]interface{}) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": GroupVersion.String(),
+		"kind":       "KubeseerAccessPolicy",
+		"metadata": map[string]interface{}{
+			"name": name,
+		},
+		"spec": spec,
+	}}
 }
 
 func assertUnservedVersionRejected(t *testing.T, ctx context.Context, client dynamic.Interface) {

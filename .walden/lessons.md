@@ -55,3 +55,8 @@ Review this file before non-trivial work when the current request matches past m
 - Lesson: A singleton resource name is part of the operator UX and should communicate the policy role, not merely its cardinality
 - Guardrail: Name installation-wide singleton resources after their administrative function before approving requirements
 
+### 2026-08-25T10:48:26Z | installation-access-policy | execute
+- Trigger: Generated CRD validation markers were accepted syntactically but item constraints were absent from the manifest
+- Lesson: controller-gen v0.20.1 uses the lowercase validation:items: marker prefix for array-item MaxLength and Pattern; the uppercase form can be ignored without producing item schema
+- Guardrail: After adding controller-gen markers, inspect the generated OpenAPI item schema and assert the intended constraints before treating generation as complete
+

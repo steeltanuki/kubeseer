@@ -53,5 +53,8 @@ compare_generated \
 compare_generated \
 	"$ROOT_DIR/config/crd/bases/kubeseer.io_kubeseers.yaml" \
 	"$TEMP_DIR/config/crd/bases/kubeseer.io_kubeseers.yaml"
+compare_generated \
+	"$ROOT_DIR/config/crd/bases/kubeseer.io_kubeseeraccesspolicies.yaml" \
+	"$TEMP_DIR/config/crd/bases/kubeseer.io_kubeseeraccesspolicies.yaml"
 
 echo "generated artifacts are current"

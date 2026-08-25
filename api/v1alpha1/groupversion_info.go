@@ -27,5 +27,10 @@ var (
 )
 
 func init() {
-	SchemeBuilder.Register(&Kubeseer{}, &KubeseerList{})
+	SchemeBuilder.Register(
+		&Kubeseer{},
+		&KubeseerList{},
+		&KubeseerAccessPolicy{},
+		&KubeseerAccessPolicyList{},
+	)
 }

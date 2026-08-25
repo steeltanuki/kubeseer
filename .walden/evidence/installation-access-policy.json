@@ -1,0 +1,190 @@
+{
+  "schema_version": "v1alpha1",
+  "feature": "installation-access-policy",
+  "tasks": {
+    "1.1": {
+      "task_fingerprint": "sha256:c432d98c68f702a5ec46beb0352e3c25379a46353a2cd7de141fb7fafb40d3d8",
+      "requirements_fingerprint": "sha256:f7a99b5d19399e9f98b7c6631911cbb448abbb53d361cc1be48e1c6dbae3de93",
+      "design_fingerprint": "sha256:89800f88c9cfa51ad505ef2cd57fff2b7640cbec3fb5d51af7c6db79df594722",
+      "tasks_fingerprint": "sha256:427da64da46d7d23d62e316355c606a1371217053667284d34a11673f31cbe58",
+      "code_identity": "sha256:e096964d1518f7109075744606ed99199ea27ddc206c02cd7000190ee6010583",
+      "profile": {
+        "go": "go version go1.26.6-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-access-policy-go-build GOMODCACHE=/tmp/kubeseer-access-policy-go-mod go test -v -run '^TestKubeseerAccessPolicy(SchemeRegistration|JSONRoundTrip|DeepCopyIsolation)$' ./api/v1alpha1"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:b258bf69a3efe0b3aa3a5fb3391b4c5b026fa86cb75e7f9e1eafcd23e9744c7f"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-25T10:47:51Z"
+    },
+    "1.2": {
+      "task_fingerprint": "sha256:a56510b9d08702680423f6178b60922cb7ae5a17b5833f57d1a042b99320026b",
+      "requirements_fingerprint": "sha256:f7a99b5d19399e9f98b7c6631911cbb448abbb53d361cc1be48e1c6dbae3de93",
+      "design_fingerprint": "sha256:89800f88c9cfa51ad505ef2cd57fff2b7640cbec3fb5d51af7c6db79df594722",
+      "tasks_fingerprint": "sha256:427da64da46d7d23d62e316355c606a1371217053667284d34a11673f31cbe58",
+      "code_identity": "sha256:e096964d1518f7109075744606ed99199ea27ddc206c02cd7000190ee6010583",
+      "profile": {
+        "go": "go version go1.26.6-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-access-policy-go-build GOMODCACHE=/tmp/kubeseer-access-policy-go-mod go test -v -run '^TestKubeseerAccessPolicyGeneratedCRDContract$' ./api/v1alpha1"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:025b3d9a12079320a3ad9749916a959b76baed8d8e0c8ff55388c5ca6cc752a8"
+        },
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-access-policy-go-build GOMODCACHE=/tmp/kubeseer-access-policy-go-mod make verify"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:cd157dbd199dd9de25653f0e68b195b470b468187c4c8c1fc7e1f1d980a02f2f"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-25T10:47:51Z"
+    },
+    "2.1": {
+      "task_fingerprint": "sha256:cf495c64d84d33ab04d5412f133728f1446b39a96edbc9c6386ea6dcd031d06b",
+      "requirements_fingerprint": "sha256:f7a99b5d19399e9f98b7c6631911cbb448abbb53d361cc1be48e1c6dbae3de93",
+      "design_fingerprint": "sha256:89800f88c9cfa51ad505ef2cd57fff2b7640cbec3fb5d51af7c6db79df594722",
+      "tasks_fingerprint": "sha256:427da64da46d7d23d62e316355c606a1371217053667284d34a11673f31cbe58",
+      "code_identity": "sha256:e096964d1518f7109075744606ed99199ea27ddc206c02cd7000190ee6010583",
+      "profile": {
+        "go": "go version go1.26.6-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-access-policy-go-build GOMODCACHE=/tmp/kubeseer-access-policy-go-mod go test -v -run '^TestCompilePolicy$' ./internal/accesspolicy"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:d2f0eb6a2e22280198b6d4d4978aa75d9022c637bd27bb5fefb241445a93a52e"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-25T10:47:51Z"
+    },
+    "2.2": {
+      "task_fingerprint": "sha256:8bd91fefcbfeb96e286389dfbaea8f9e689b496e4a5da16ded03df63c19e0145",
+      "requirements_fingerprint": "sha256:f7a99b5d19399e9f98b7c6631911cbb448abbb53d361cc1be48e1c6dbae3de93",
+      "design_fingerprint": "sha256:89800f88c9cfa51ad505ef2cd57fff2b7640cbec3fb5d51af7c6db79df594722",
+      "tasks_fingerprint": "sha256:427da64da46d7d23d62e316355c606a1371217053667284d34a11673f31cbe58",
+      "code_identity": "sha256:e096964d1518f7109075744606ed99199ea27ddc206c02cd7000190ee6010583",
+      "profile": {
+        "go": "go version go1.26.6-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-access-policy-go-build GOMODCACHE=/tmp/kubeseer-access-policy-go-mod go test -v -run '^TestEvaluatePolicy$' ./internal/accesspolicy"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:a6f218b14a9ae4e76b9f879e24841c57fa3fe1b52e6daafa38fc6155eabb9f78"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-25T10:47:51Z"
+    },
+    "3.1": {
+      "task_fingerprint": "sha256:f3719a6e643d709d35fd2b0b622640980d1ce14b352b63769e59397c6b11fff4",
+      "requirements_fingerprint": "sha256:f7a99b5d19399e9f98b7c6631911cbb448abbb53d361cc1be48e1c6dbae3de93",
+      "design_fingerprint": "sha256:89800f88c9cfa51ad505ef2cd57fff2b7640cbec3fb5d51af7c6db79df594722",
+      "tasks_fingerprint": "sha256:427da64da46d7d23d62e316355c606a1371217053667284d34a11673f31cbe58",
+      "code_identity": "sha256:e096964d1518f7109075744606ed99199ea27ddc206c02cd7000190ee6010583",
+      "profile": {
+        "go": "go version go1.26.6-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-access-policy-go-build GOMODCACHE=/tmp/kubeseer-access-policy-go-mod go test -v -run '^TestLoadPolicy$' ./internal/accesspolicy"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:c6e592427b3888457c1d07f325058dd806d1b50d76348029ea2af51dbc6bb628"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-25T10:47:51Z"
+    },
+    "4.1": {
+      "task_fingerprint": "sha256:1e43b8ca3ccef7ac649f7bae66ea20b6c2dcebd797bc354e1dd7e45223df09a1",
+      "requirements_fingerprint": "sha256:f7a99b5d19399e9f98b7c6631911cbb448abbb53d361cc1be48e1c6dbae3de93",
+      "design_fingerprint": "sha256:89800f88c9cfa51ad505ef2cd57fff2b7640cbec3fb5d51af7c6db79df594722",
+      "tasks_fingerprint": "sha256:427da64da46d7d23d62e316355c606a1371217053667284d34a11673f31cbe58",
+      "code_identity": "sha256:e096964d1518f7109075744606ed99199ea27ddc206c02cd7000190ee6010583",
+      "profile": {
+        "go": "go version go1.26.6-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-access-policy-go-build GOMODCACHE=/tmp/kubeseer-access-policy-go-mod make test-compatibility"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:f0611f82ff0380648a00a9560913d60be11760bdbca10091da8cc63a36b44766"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-25T10:47:29Z"
+    }
+  }
+}
