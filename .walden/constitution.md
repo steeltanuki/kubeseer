@@ -70,6 +70,8 @@ No feature may claim compatibility with an unrecorded version. Version changes t
 - Pass `context.Context` through Kubernetes and reconciliation operations.
 - Use structured logging keyed by the relevant Kubeseer namespace/name and source identifier; do not log extracted sensitive values by default.
 - Tests must not depend primarily on arbitrary sleeps. Use readiness checks, bounded polling, and deterministic assertions.
+- Cross-module integration is the lowest required automated test layer once a real production collaboration path exists; local envtest is the bootstrap layer before that point.
+- Do not maintain a dedicated unit-test layer. Existing package-local unit tests are transitional and may be removed only after their required observable behavior passes at a genuine cross-module, envtest, or end-to-end layer.
 
 ## Kubernetes API Conventions
 
@@ -87,7 +89,10 @@ The project toolchain must expose these stable entry points as implementation is
 
 ```bash
 make build       # compile the controller
-make test        # run unit and integration tests
+make test        # run the default local higher-layer suite
+make test-integration # run real cross-module collaboration scenarios
+make test-api    # run local Kubernetes API scenarios with pinned envtest assets
+make test-compatibility # run API scenarios across supported Kubernetes versions
 make lint        # run static analysis and formatting checks
 make generate    # regenerate Go API code
 make manifests   # regenerate CRDs and RBAC manifests
@@ -110,14 +115,16 @@ Until a command is implemented by an approved task, its absence is expected and 
 - `api/`: Kubeseer API types and generated deep-copy code once introduced.
 - `internal/`: non-public controller and domain packages once introduced.
 - `config/`: CRDs, RBAC, manager, webhook, and installation manifests once introduced.
+- `test/integration/`: in-process scenarios spanning real Kubeseer modules once a production collaboration path exists.
+- `test/envtest/`: cross-module Kubernetes API scenarios using a disposable local control plane once introduced.
 - `test/e2e/`: executable cluster-level scenarios once introduced.
 - `examples/`: self-contained, documented examples once introduced.
 
 ## Feature Portfolio And Delivery Order
 
-The canonical feature set is the 17 directories named in `SPECIFICATIONS.md`. The recommended order is:
+The canonical feature set is the 18 directories named in `SPECIFICATIONS.md`. The recommended order is:
 
-1. Minimum vertical slice: `kubeseer-api-foundation`, `resource-discovery`, `installation-access-policy`, `resource-selection`, `field-extraction`, `typed-output-model`, `reconciliation-runtime`, `status-and-conditions`, `authorization-enforcement`.
+1. Minimum vertical slice: `kubeseer-api-foundation`, `integration-testing-foundation`, `resource-discovery`, `installation-access-policy`, `resource-selection`, `field-extraction`, `typed-output-model`, `reconciliation-runtime`, `status-and-conditions`, `authorization-enforcement`.
 2. Filtering and aggregation: `value-operators`, `cross-namespace-aggregation`, `admission-validation`.
 3. Production readiness and experimentation: `observability`, `performance-and-limits`, `packaging-and-installation`, `end-to-end-scenarios`, `local-development-environment`.
 

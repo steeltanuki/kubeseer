@@ -45,3 +45,13 @@ Review this file before non-trivial work when the current request matches past m
 - Lesson: A proof can pass with explicit writable caches while the same command fails when Walden launches Go with the sandbox default cache.
 - Guardrail: Use writable GOCACHE and GOMODCACHE paths for every Go-backed Walden completion or verification in restricted environments.
 
+### 2026-08-25T13:11:23Z | integration-testing-foundation | design
+- Trigger: The user removed the unit-test layer during design review because AI-generated code will be verified at higher test layers
+- Lesson: The required test layers are a product-level maintenance and confidence decision that must be fixed in requirements before designing the harness
+- Guardrail: Before opening design review for a testing foundation, confirm which test layers are mandatory and record the accepted diagnostic and coverage trade-off in requirements
+
+### 2026-08-25T13:33:08Z | integration-testing-foundation | tasks
+- Trigger: Task planning found that api/v1alpha1 and internal/discovery have no production collaboration path, so the required non-vacuous module suite would need artificial production code or a test-only composition
+- Lesson: A testing foundation must define its bootstrap behavior for the period before the first real cross-module collaboration path exists
+- Guardrail: Before design review, inventory actual production collaboration edges rather than package count and specify the default local test layer when that edge count is zero
+
