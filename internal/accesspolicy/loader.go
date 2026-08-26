@@ -41,11 +41,11 @@ func (f PolicySourceFunc) Get(ctx context.Context) (*v1alpha1.KubeseerAccessPoli
 // ClientPolicySource adapts a controller-runtime client to the active policy
 // source. Its Get operation always addresses the cluster-scoped singleton.
 type ClientPolicySource struct {
-	client client.Client
+	client client.Reader
 }
 
 // NewClientPolicySource constructs the controller-runtime policy adapter.
-func NewClientPolicySource(c client.Client) *ClientPolicySource {
+func NewClientPolicySource(c client.Reader) *ClientPolicySource {
 	return &ClientPolicySource{client: c}
 }
 

@@ -1,0 +1,1494 @@
+// Copyright 2026 Alessandro Rontani
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package envtest
+
+import (
+	"context"
+	"errors"
+	"io"
+	"net/http"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/steeltanuki/kubeseer/api/v1alpha1"
+	"github.com/steeltanuki/kubeseer/internal/accesspolicy"
+	discoveryruntime "github.com/steeltanuki/kubeseer/internal/discovery"
+	"github.com/steeltanuki/kubeseer/internal/reconciliation"
+	"github.com/steeltanuki/kubeseer/internal/selection"
+	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
+	crclient "sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlmanager "sigs.k8s.io/controller-runtime/pkg/manager"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+)
+
+const reconciliationRuntimeEnvtestTimeout = 45 * time.Second
+
+func TestEnvtestReconciliationRuntime(t *testing.T) {
+	crdPath, err := filepath.Abs(filepath.Join("..", "..", "config", "crd", "bases"))
+	if err != nil {
+		t.Fatalf("resolve generated CRD path: %v", err)
+	}
+	environment, err := New(t, Options{
+		CRDDirectoryPaths:     []string{crdPath},
+		ErrorIfCRDPathMissing: true,
+		CRDMaxWait:            20 * time.Second,
+		CRDPollInterval:       100 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("create envtest harness: %v", err)
+	}
+	config, err := environment.Start()
+	if err != nil {
+		t.Fatalf("start Kubernetes API server: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), reconciliationRuntimeEnvtestTimeout)
+	defer cancel()
+	clients, err := environment.Clients()
+	if err != nil {
+		t.Fatalf("create envtest clients: %v", err)
+	}
+	namespace := environment.Scope().Namespace
+	observedCRD, observedGVR := runtimeObservedResourceCRD()
+	if _, err := clients.APIExtensions.ApiextensionsV1().CustomResourceDefinitions().Create(ctx, observedCRD, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("create disposable observed-resource CRD: %v", err)
+	}
+	environment.AddCleanup("delete observed-resource CRD", func(ctx context.Context) error {
+		err := clients.APIExtensions.ApiextensionsV1().CustomResourceDefinitions().Delete(ctx, observedCRD.Name, metav1.DeleteOptions{})
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	})
+	environment.AddCleanup("delete observed-resource fixtures", func(ctx context.Context) error {
+		err := clients.Dynamic.Resource(observedGVR).Namespace(namespace).DeleteCollection(ctx, metav1.DeleteOptions{}, metav1.ListOptions{})
+		if err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+		return nil
+	})
+	if err := WaitFor(ctx, 20*time.Second, func(ctx context.Context) (bool, error) {
+		current, err := clients.APIExtensions.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, observedCRD.Name, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		for _, condition := range current.Status.Conditions {
+			if condition.Type == apiextensionsv1.Established && condition.Status == apiextensionsv1.ConditionTrue {
+				return true, nil
+			}
+		}
+		return false, nil
+	}); err != nil {
+		t.Fatalf("wait observed-resource CRD establishment: %v", err)
+	}
+
+	requestRecorder := newRuntimeObservedRequestRecorder(observedGVR, namespace)
+	config.WrapTransport = func(base http.RoundTripper) http.RoundTripper {
+		return &runtimeObservedRecordingTransport{base: base, recorder: requestRecorder}
+	}
+
+	scheme := runtime.NewScheme()
+	if err := v1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("register Kubeseer scheme: %v", err)
+	}
+	managerInstance, err := ctrlmanager.New(config, ctrlmanager.Options{
+		Scheme:  scheme,
+		Metrics: metricsserver.Options{BindAddress: "0"},
+	})
+	if err != nil {
+		t.Fatalf("create controller-runtime manager: %v", err)
+	}
+	if err := reconciliation.SetupWithManager(managerInstance, reconciliation.Options{
+		SafetyInterval:     25 * time.Millisecond,
+		WatchBackoffBase:   5 * time.Millisecond,
+		WatchBackoffMax:    40 * time.Millisecond,
+		EnqueueBackoffBase: 5 * time.Millisecond,
+		EnqueueBackoffMax:  40 * time.Millisecond,
+	}); err != nil {
+		t.Fatalf("setup reconciliation runtime: %v", err)
+	}
+
+	apiClient, err := crclient.New(config, crclient.Options{Scheme: scheme})
+	if err != nil {
+		t.Fatalf("create direct controller-runtime client: %v", err)
+	}
+	initialSource := runtimeEnvtestPodSource("runtime-source", false)
+	existingKey := types.NamespacedName{Namespace: namespace, Name: "runtime-existing"}
+	fanoutKey := types.NamespacedName{Namespace: namespace, Name: "runtime-fanout"}
+	newKey := types.NamespacedName{Namespace: namespace, Name: "runtime-new"}
+	watchKey := types.NamespacedName{Namespace: namespace, Name: "runtime-watch"}
+	watchPeerKey := types.NamespacedName{Namespace: namespace, Name: "runtime-watch-peer"}
+	statusKey := types.NamespacedName{Namespace: namespace, Name: "runtime-status"}
+	allFailedKey := types.NamespacedName{Namespace: namespace, Name: "runtime-all-failed"}
+	emptyKey := types.NamespacedName{Namespace: namespace, Name: "runtime-empty"}
+	adapterKey := types.NamespacedName{Namespace: namespace, Name: "runtime-adapter"}
+	busyKey := types.NamespacedName{Namespace: namespace, Name: "runtime-busy"}
+	freeKey := types.NamespacedName{Namespace: namespace, Name: "runtime-free"}
+	deterministicKey := types.NamespacedName{Namespace: namespace, Name: "runtime-deterministic"}
+	for _, object := range []*v1alpha1.Kubeseer{
+		runtimeEnvtestKubeseer(existingKey, initialSource),
+		runtimeEnvtestKubeseer(fanoutKey, initialSource),
+	} {
+		if err := apiClient.Create(ctx, object); err != nil {
+			t.Fatalf("create pre-start Kubeseer %s/%s: %v", object.Namespace, object.Name, err)
+		}
+	}
+	policy := runtimeEnvtestPolicy(namespace)
+	environment.AddCleanup("delete reconciliation runtime fixtures", func(ctx context.Context) error {
+		var cleanupErr error
+		for _, key := range []types.NamespacedName{existingKey, fanoutKey, newKey, watchKey, watchPeerKey, statusKey, allFailedKey, emptyKey, adapterKey, busyKey, freeKey, deterministicKey} {
+			object := &v1alpha1.Kubeseer{}
+			err := apiClient.Get(ctx, key, object)
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			if err == nil {
+				if deleteErr := apiClient.Delete(ctx, object); deleteErr != nil && !apierrors.IsNotFound(deleteErr) {
+					cleanupErr = errors.Join(cleanupErr, deleteErr)
+				}
+			} else {
+				cleanupErr = errors.Join(cleanupErr, err)
+			}
+		}
+		if deleteErr := apiClient.Delete(ctx, policy); deleteErr != nil && !apierrors.IsNotFound(deleteErr) {
+			cleanupErr = errors.Join(cleanupErr, deleteErr)
+		}
+		if deleteErr := clients.Core.CoreV1().Pods(namespace).Delete(ctx, "runtime-status-pod", metav1.DeleteOptions{}); deleteErr != nil && !apierrors.IsNotFound(deleteErr) {
+			cleanupErr = errors.Join(cleanupErr, deleteErr)
+		}
+		return cleanupErr
+	})
+
+	managerContext, stopManager := context.WithCancel(context.Background())
+	managerErr := make(chan error, 1)
+	go func() { managerErr <- managerInstance.Start(managerContext) }()
+	if !managerInstance.GetCache().WaitForCacheSync(ctx) {
+		stopManager()
+		t.Fatalf("controller-runtime cache did not synchronize")
+	}
+	managerStopped := false
+	stopAndWaitManager := func() {
+		if managerStopped {
+			return
+		}
+		stopManager()
+		select {
+		case err := <-managerErr:
+			if err != nil && !errors.Is(err, context.Canceled) {
+				t.Errorf("stop controller-runtime manager: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Errorf("controller-runtime manager did not stop")
+		}
+		managerStopped = true
+	}
+	defer stopAndWaitManager()
+
+	waitRuntimeSourceState(t, ctx, apiClient, existingKey, v1alpha1.SourceStateError)
+	waitRuntimeSourceState(t, ctx, apiClient, fanoutKey, v1alpha1.SourceStateError)
+	if err := apiClient.Create(ctx, policy); err != nil {
+		t.Fatalf("create installation access policy: %v", err)
+	}
+	waitRuntimeSourceState(t, ctx, apiClient, existingKey, v1alpha1.SourceStateValues)
+	waitRuntimeSourceState(t, ctx, apiClient, fanoutKey, v1alpha1.SourceStateValues)
+
+	newObject := runtimeEnvtestKubeseer(newKey, runtimeEnvtestPodSource("runtime-new-source", false))
+	if err := apiClient.Create(ctx, newObject); err != nil {
+		t.Fatalf("create post-start Kubeseer: %v", err)
+	}
+	waitRuntimeSourceState(t, ctx, apiClient, newKey, v1alpha1.SourceStateValues)
+
+	observedResources := clients.Dynamic.Resource(observedGVR).Namespace(namespace)
+	matchingName := "observed-matching"
+	enterLeaveName := "observed-enter-leave"
+	for _, fixture := range []*unstructured.Unstructured{
+		runtimeEnvtestObservation(matchingName, namespace, "yes", "observed-initial-value"),
+		runtimeEnvtestObservation(enterLeaveName, namespace, "no", "observed-enter-leave-value"),
+	} {
+		if _, err := observedResources.Create(ctx, fixture, metav1.CreateOptions{}); err != nil {
+			t.Fatalf("create observed-resource fixture %s: %v", fixture.GetName(), err)
+		}
+	}
+
+	watchOwner := runtimeEnvtestKubeseer(watchKey, runtimeEnvtestObservedSource("observed-source-a"))
+	watchOwner.Spec.Sources = []v1alpha1.KubeseerSource{
+		runtimeEnvtestObservedSource("observed-source-a"),
+		runtimeEnvtestObservedSource("observed-source-b"),
+	}
+	watchPeer := runtimeEnvtestKubeseer(watchPeerKey, runtimeEnvtestObservedSource("observed-peer-source"))
+	requestRecorder.Reset()
+	if err := apiClient.Create(ctx, watchOwner); err != nil {
+		t.Fatalf("create observed-resource Kubeseer: %v", err)
+	}
+	if err := apiClient.Create(ctx, watchPeer); err != nil {
+		t.Fatalf("create observed-resource peer Kubeseer: %v", err)
+	}
+	waitRuntimeObservedState(t, ctx, apiClient, watchKey, 2, v1alpha1.SourceStateValues, 1, "observed-initial-value")
+	waitRuntimeObservedState(t, ctx, apiClient, watchPeerKey, 1, v1alpha1.SourceStateValues, 1, "observed-initial-value")
+	observedRequests := requestRecorder.Requests()
+	firstWatch, firstList, watchCount := runtimeObservedRequestIndexes(observedRequests)
+	if watchCount != 1 {
+		t.Fatalf("expected one shared observed-resource WATCH for three source bindings, got %d", watchCount)
+	}
+	if firstWatch < 0 || firstList < 0 || firstWatch > firstList {
+		t.Fatalf("expected observed-resource WATCH before selection LIST, requests=%v", observedRequests)
+	}
+	for _, request := range observedRequests {
+		if request.Watch {
+			if request.HasLabelSelector || request.HasFieldSelector {
+				t.Fatalf("metadata WATCH unexpectedly carried a selector: %+v", request)
+			}
+			continue
+		}
+		if !request.HasLabelSelector {
+			t.Fatalf("selection LIST did not carry the source selector: %+v", request)
+		}
+	}
+	if requestRecorder.ActiveWatches() == 0 {
+		t.Fatalf("expected one active metadata WATCH")
+	}
+	for _, request := range observedRequests {
+		if strings.Contains(request.Path, "observed-initial-value") || strings.Contains(request.Path, "{.spec.value}") {
+			t.Fatalf("routing request retained fixture value or field path: %+v", request)
+		}
+	}
+
+	matching, err := observedResources.Get(ctx, matchingName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("read matching observed-resource fixture: %v", err)
+	}
+	if err := unstructured.SetNestedField(matching.Object, "observed-updated-value", "spec", "value"); err != nil {
+		t.Fatalf("update matching observed-resource value: %v", err)
+	}
+	if _, err := observedResources.Update(ctx, matching, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("persist matching observed-resource update: %v", err)
+	}
+	waitRuntimeObservedState(t, ctx, apiClient, watchKey, 2, v1alpha1.SourceStateValues, 1, "observed-updated-value")
+	waitRuntimeObservedState(t, ctx, apiClient, watchPeerKey, 1, v1alpha1.SourceStateValues, 1, "observed-updated-value")
+
+	policyCurrent := &v1alpha1.KubeseerAccessPolicy{}
+	if err := apiClient.Get(ctx, types.NamespacedName{Name: v1alpha1.InstallationAccessCeilingName}, policyCurrent); err != nil {
+		t.Fatalf("read policy before narrowing observed-resource access: %v", err)
+	}
+	policyCurrent.Spec.Resources = []v1alpha1.ResourceRule{{APIGroups: []string{""}, Kinds: []string{"Pod"}}}
+	requestRecorder.Reset()
+	if err := apiClient.Update(ctx, policyCurrent); err != nil {
+		t.Fatalf("narrow installation policy: %v", err)
+	}
+	waitRuntimeObservedState(t, ctx, apiClient, watchKey, 2, v1alpha1.SourceStateError, -1, "")
+	waitRuntimeObservedState(t, ctx, apiClient, watchPeerKey, 1, v1alpha1.SourceStateError, -1, "")
+	if err := WaitFor(ctx, 10*time.Second, func(context.Context) (bool, error) {
+		return requestRecorder.ActiveWatches() == 0, nil
+	}); err != nil {
+		t.Fatalf("narrowed policy did not stop observed-resource WATCH: %v", err)
+	}
+	requestRecorder.Reset()
+	assertRuntimeObservedRequestsAbsent(t, ctx, requestRecorder, 150*time.Millisecond)
+
+	if err := apiClient.Get(ctx, types.NamespacedName{Name: v1alpha1.InstallationAccessCeilingName}, policyCurrent); err != nil {
+		t.Fatalf("read policy before broadening observed-resource access: %v", err)
+	}
+	policyCurrent.Spec.Resources = []v1alpha1.ResourceRule{
+		{APIGroups: []string{""}, Kinds: []string{"Pod"}},
+		{APIGroups: []string{"runtime.kubeseer.io"}, Kinds: []string{"Observation"}},
+	}
+	requestRecorder.Reset()
+	if err := apiClient.Update(ctx, policyCurrent); err != nil {
+		t.Fatalf("broaden installation policy: %v", err)
+	}
+	waitRuntimeObservedState(t, ctx, apiClient, watchKey, 2, v1alpha1.SourceStateValues, 1, "observed-updated-value")
+	waitRuntimeObservedState(t, ctx, apiClient, watchPeerKey, 1, v1alpha1.SourceStateValues, 1, "observed-updated-value")
+	if requestRecorder.ActiveWatches() == 0 {
+		t.Fatalf("broadened policy did not require a fresh observed-resource WATCH")
+	}
+
+	requestRecorder.Reset()
+	requestRecorder.SetPolicyUnavailable(true)
+	waitRuntimeObservedState(t, ctx, apiClient, watchKey, 2, v1alpha1.SourceStateError, -1, "")
+	waitRuntimeObservedState(t, ctx, apiClient, watchPeerKey, 1, v1alpha1.SourceStateError, -1, "")
+	if err := WaitFor(ctx, 10*time.Second, func(context.Context) (bool, error) {
+		return requestRecorder.ActiveWatches() == 0, nil
+	}); err != nil {
+		t.Fatalf("unavailable policy did not stop observed-resource WATCH: %v", err)
+	}
+	requestRecorder.Reset()
+	assertRuntimeObservedRequestsAbsent(t, ctx, requestRecorder, 150*time.Millisecond)
+	requestRecorder.SetPolicyUnavailable(false)
+	waitRuntimeObservedState(t, ctx, apiClient, watchKey, 2, v1alpha1.SourceStateValues, 1, "observed-updated-value")
+	waitRuntimeObservedState(t, ctx, apiClient, watchPeerKey, 1, v1alpha1.SourceStateValues, 1, "observed-updated-value")
+
+	watchCountBeforeClose := requestRecorder.WatchRequestCount()
+	if !requestRecorder.CloseOneWatch() {
+		t.Fatalf("expected an active observed-resource WATCH to close")
+	}
+	matching, err = observedResources.Get(ctx, matchingName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("read matching observed-resource fixture before watch-gap update: %v", err)
+	}
+	if err := unstructured.SetNestedField(matching.Object, "observed-after-watch-close", "spec", "value"); err != nil {
+		t.Fatalf("prepare watch-gap observed-resource update: %v", err)
+	}
+	if _, err := observedResources.Update(ctx, matching, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("persist watch-gap observed-resource update: %v", err)
+	}
+	waitRuntimeObservedState(t, ctx, apiClient, watchKey, 2, v1alpha1.SourceStateValues, 1, "observed-after-watch-close")
+	waitRuntimeObservedState(t, ctx, apiClient, watchPeerKey, 1, v1alpha1.SourceStateValues, 1, "observed-after-watch-close")
+	if err := WaitFor(ctx, 10*time.Second, func(context.Context) (bool, error) {
+		return requestRecorder.WatchRequestCount() >= watchCountBeforeClose+1 && requestRecorder.ActiveWatches() > 0, nil
+	}); err != nil {
+		t.Fatalf("closed observed-resource WATCH did not restart: %v", err)
+	}
+
+	enterLeave, err := observedResources.Get(ctx, enterLeaveName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("read selector enter/leave fixture: %v", err)
+	}
+	enterLeave.SetLabels(map[string]string{"watch": "yes"})
+	if enterLeave, err = observedResources.Update(ctx, enterLeave, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("enter selector with observed-resource fixture: %v", err)
+	}
+	waitRuntimeObservedState(t, ctx, apiClient, watchKey, 2, v1alpha1.SourceStateValues, 2, "")
+	waitRuntimeObservedState(t, ctx, apiClient, watchPeerKey, 1, v1alpha1.SourceStateValues, 2, "")
+	enterLeave.SetLabels(map[string]string{"watch": "no"})
+	if _, err := observedResources.Update(ctx, enterLeave, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("leave selector with observed-resource fixture: %v", err)
+	}
+	waitRuntimeObservedState(t, ctx, apiClient, watchKey, 2, v1alpha1.SourceStateValues, 1, "observed-after-watch-close")
+	waitRuntimeObservedState(t, ctx, apiClient, watchPeerKey, 1, v1alpha1.SourceStateValues, 1, "observed-after-watch-close")
+	if err := observedResources.Delete(ctx, matchingName, metav1.DeleteOptions{}); err != nil {
+		t.Fatalf("delete matching observed-resource fixture: %v", err)
+	}
+	waitRuntimeObservedState(t, ctx, apiClient, watchKey, 2, v1alpha1.SourceStateValues, 0, "")
+	waitRuntimeObservedState(t, ctx, apiClient, watchPeerKey, 1, v1alpha1.SourceStateValues, 0, "")
+
+	watchCurrent := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, watchKey, watchCurrent); err != nil {
+		t.Fatalf("read watched Kubeseer before source cleanup: %v", err)
+	}
+	watchCurrent.Spec.Sources = nil
+	if err := apiClient.Update(ctx, watchCurrent); err != nil {
+		t.Fatalf("remove observed-resource sources: %v", err)
+	}
+	waitRuntimeEmptyResult(t, ctx, apiClient, watchKey)
+	if err := apiClient.Delete(ctx, watchPeer); err != nil {
+		t.Fatalf("delete watched peer Kubeseer: %v", err)
+	}
+	if err := WaitFor(ctx, 10*time.Second, func(ctx context.Context) (bool, error) {
+		current := &v1alpha1.Kubeseer{}
+		err := apiClient.Get(ctx, watchPeerKey, current)
+		if apierrors.IsNotFound(err) {
+			return requestRecorder.ActiveWatches() == 0, nil
+		}
+		return false, err
+	}); err != nil {
+		t.Fatalf("source and owner deletion did not stop observed-resource WATCH: %v", err)
+	}
+
+	statusPodName := "runtime-status-pod"
+	statusPod, err := clients.Core.CoreV1().Pods(namespace).Create(ctx, runtimeEnvtestStatusPod(statusPodName, namespace), metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("create status publication Pod: %v", err)
+	}
+	statusSource := runtimeEnvtestPodFieldSource("status-success")
+	statusKeyObject := &v1alpha1.Kubeseer{
+		ObjectMeta: metav1.ObjectMeta{Namespace: statusKey.Namespace, Name: statusKey.Name},
+		Spec: v1alpha1.KubeseerSpec{Sources: []v1alpha1.KubeseerSource{
+			statusSource,
+			runtimeEnvtestInvalidSource("status-invalid"),
+		}},
+	}
+	if err := apiClient.Create(ctx, statusKeyObject); err != nil {
+		t.Fatalf("create mixed status Kubeseer: %v", err)
+	}
+	waitRuntimeMixedStatus(t, ctx, apiClient, statusKey, statusKeyObject.Generation, 1)
+	statusBeforeCondition := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, statusKey, statusBeforeCondition); err != nil {
+		t.Fatalf("read mixed status before condition preservation: %v", err)
+	}
+	statusBeforeCondition.Status.Conditions = []metav1.Condition{{Type: "External", Status: metav1.ConditionTrue, LastTransitionTime: metav1.Now(), Reason: "Fixture", Message: "must survive runtime publication"}}
+	if err := apiClient.Status().Update(ctx, statusBeforeCondition); err != nil {
+		t.Fatalf("persist condition before generation-only publication: %v", err)
+	}
+	statusBeforeGeneration := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, statusKey, statusBeforeGeneration); err != nil {
+		t.Fatalf("read mixed status before generation-only update: %v", err)
+	}
+	statusBeforeResult := statusBeforeGeneration.Status.Result.DeepCopy()
+	statusWritesBeforeGeneration := requestRecorder.StatusWrites(statusKey.Name)
+	statusBeforeGeneration.Spec.Sources[0].Selector = &v1alpha1.ResourceSelector{
+		Name:        statusPodName,
+		MatchLabels: map[string]string{"runtime-status": "yes"},
+	}
+	if err := apiClient.Update(ctx, statusBeforeGeneration); err != nil {
+		t.Fatalf("change status selector without changing selected result: %v", err)
+	}
+	waitRuntimeMixedStatus(t, ctx, apiClient, statusKey, statusBeforeGeneration.Generation, 1)
+	statusAfterGeneration := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, statusKey, statusAfterGeneration); err != nil {
+		t.Fatalf("read mixed status after generation-only publication: %v", err)
+	}
+	if !reflect.DeepEqual(statusBeforeResult, statusAfterGeneration.Status.Result) {
+		t.Fatalf("generation-only publication changed the semantic result: before=%#v after=%#v", statusBeforeResult, statusAfterGeneration.Status.Result)
+	}
+	if len(statusAfterGeneration.Status.Conditions) != 1 || statusAfterGeneration.Status.Conditions[0].Message != "must survive runtime publication" {
+		t.Fatalf("generation-only publication did not preserve conditions: %#v", statusAfterGeneration.Status.Conditions)
+	}
+	if statusAfterGeneration.Spec.Sources[0].Selector == nil || statusAfterGeneration.Spec.Sources[0].Selector.Name != statusPodName {
+		t.Fatalf("generation-only publication did not preserve the latest spec: %#v", statusAfterGeneration.Spec.Sources[0].Selector)
+	}
+	if requestRecorder.StatusWrites(statusKey.Name) != statusWritesBeforeGeneration+1 {
+		t.Fatalf("generation-only publication status writes=%d, want %d", requestRecorder.StatusWrites(statusKey.Name), statusWritesBeforeGeneration+1)
+	}
+
+	statusPod, err = clients.Core.CoreV1().Pods(namespace).Get(ctx, statusPodName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("read status Pod before unchanged source event: %v", err)
+	}
+	statusPod.Annotations = map[string]string{"runtime-event": "unchanged-result"}
+	if _, err := clients.Core.CoreV1().Pods(namespace).Update(ctx, statusPod, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("update status Pod without changing selection: %v", err)
+	}
+	statusWritesBeforeSourceEvent := requestRecorder.StatusWrites(statusKey.Name)
+	assertRuntimeStatusWritesStable(t, ctx, requestRecorder, statusKey.Name, statusWritesBeforeSourceEvent, 150*time.Millisecond)
+
+	if err := clients.Core.CoreV1().Pods(namespace).Delete(ctx, statusPodName, metav1.DeleteOptions{}); err != nil {
+		t.Fatalf("delete selected status Pod: %v", err)
+	}
+	waitRuntimeMixedStatus(t, ctx, apiClient, statusKey, statusAfterGeneration.Generation, 0)
+	if _, err := clients.Core.CoreV1().Pods(namespace).Create(ctx, runtimeEnvtestStatusPod(statusPodName, namespace), metav1.CreateOptions{}); err != nil {
+		t.Fatalf("recreate selected status Pod: %v", err)
+	}
+	waitRuntimeMixedStatus(t, ctx, apiClient, statusKey, statusAfterGeneration.Generation, 1)
+
+	allFailedObject := &v1alpha1.Kubeseer{
+		ObjectMeta: metav1.ObjectMeta{Namespace: allFailedKey.Namespace, Name: allFailedKey.Name},
+		Spec: v1alpha1.KubeseerSpec{Sources: []v1alpha1.KubeseerSource{
+			runtimeEnvtestInvalidSource("all-failed-discovery"),
+			runtimeEnvtestInvalidSelectorSource("all-failed-selector"),
+		}},
+	}
+	if err := apiClient.Create(ctx, allFailedObject); err != nil {
+		t.Fatalf("create all-failed Kubeseer: %v", err)
+	}
+	waitRuntimeSourceStates(t, ctx, apiClient, allFailedKey, 2, v1alpha1.SourceStateError, 0, "")
+	allFailedWrites := requestRecorder.StatusWrites(allFailedKey.Name)
+	assertRuntimeStatusWritesStable(t, ctx, requestRecorder, allFailedKey.Name, allFailedWrites, 150*time.Millisecond)
+
+	emptyObject := &v1alpha1.Kubeseer{ObjectMeta: metav1.ObjectMeta{Namespace: emptyKey.Namespace, Name: emptyKey.Name}}
+	if err := apiClient.Create(ctx, emptyObject); err != nil {
+		t.Fatalf("create zero-source Kubeseer: %v", err)
+	}
+	waitRuntimeEmptyResult(t, ctx, apiClient, emptyKey)
+
+	updated := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, existingKey, updated); err != nil {
+		t.Fatalf("read existing Kubeseer before generation burst: %v", err)
+	}
+	updated.Spec.Sources = []v1alpha1.KubeseerSource{runtimeEnvtestPodSource("runtime-follow-up-a", true)}
+	if err := apiClient.Update(ctx, updated); err != nil {
+		t.Fatalf("update first generation: %v", err)
+	}
+	updated.Spec.Sources = []v1alpha1.KubeseerSource{runtimeEnvtestPodSource("runtime-follow-up-b", true)}
+	if err := apiClient.Update(ctx, updated); err != nil {
+		t.Fatalf("update second generation: %v", err)
+	}
+	waitRuntimeObservedGeneration(t, ctx, apiClient, existingKey, updated.Generation)
+
+	statusOnly := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, existingKey, statusOnly); err != nil {
+		t.Fatalf("read existing Kubeseer before status-only update: %v", err)
+	}
+	statusOnly.Status.Conditions = []metav1.Condition{{Type: "External", Status: metav1.ConditionTrue, LastTransitionTime: metav1.Now(), Reason: "Fixture", Message: "status-only event"}}
+	if err := apiClient.Status().Update(ctx, statusOnly); err != nil {
+		t.Fatalf("update status-only condition: %v", err)
+	}
+	stableVersion := statusOnly.ResourceVersion
+	observations := 0
+	if err := WaitFor(ctx, 3*time.Second, func(ctx context.Context) (bool, error) {
+		current := &v1alpha1.Kubeseer{}
+		if err := apiClient.Get(ctx, existingKey, current); err != nil {
+			return false, err
+		}
+		if current.ResourceVersion != stableVersion {
+			return false, errors.New("status-only event caused an unexpected runtime status write")
+		}
+		observations++
+		return observations >= 3, nil
+	}); err != nil {
+		t.Fatalf("status-only predicate suppression: %v", err)
+	}
+
+	if err := apiClient.Delete(ctx, newObject); err != nil {
+		t.Fatalf("delete post-start Kubeseer: %v", err)
+	}
+	if err := WaitFor(ctx, 10*time.Second, func(ctx context.Context) (bool, error) {
+		current := &v1alpha1.Kubeseer{}
+		err := apiClient.Get(ctx, newKey, current)
+		if apierrors.IsNotFound(err) {
+			return true, nil
+		}
+		return false, err
+	}); err != nil {
+		t.Fatalf("Kubeseer deletion handling: %v", err)
+	}
+
+	stopAndWaitManager()
+	runRuntimeEnvtestAdapterScenarios(t, ctx, apiClient, clients, namespace, adapterKey, busyKey, freeKey, deterministicKey, emptyKey)
+
+	t.Log("API_CONTRACT=reconciliation-runtime-lifecycle STATUS=passed")
+	t.Log("API_CONTRACT=reconciliation-runtime-watch-routing STATUS=passed")
+	t.Log("API_CONTRACT=reconciliation-runtime-status STATUS=passed")
+}
+
+func runtimeEnvtestKubeseer(key types.NamespacedName, source v1alpha1.KubeseerSource) *v1alpha1.Kubeseer {
+	return &v1alpha1.Kubeseer{
+		ObjectMeta: metav1.ObjectMeta{Namespace: key.Namespace, Name: key.Name},
+		Spec:       v1alpha1.KubeseerSpec{Sources: []v1alpha1.KubeseerSource{source}},
+	}
+}
+
+func runtimeEnvtestPodSource(id string, explicitEmpty bool) v1alpha1.KubeseerSource {
+	source := v1alpha1.KubeseerSource{ID: id, Resource: v1alpha1.ResourceReference{APIVersion: "v1", Kind: "Pod"}}
+	if explicitEmpty {
+		source.Namespaces = &v1alpha1.NamespaceSelection{Names: []string{}}
+	}
+	return source
+}
+
+func runtimeEnvtestPodFieldSource(id string) v1alpha1.KubeseerSource {
+	source := runtimeEnvtestPodSource(id, false)
+	source.Selector = &v1alpha1.ResourceSelector{MatchLabels: map[string]string{"runtime-status": "yes"}}
+	source.Fields = []v1alpha1.KubeseerField{{Name: "name", Path: "{.metadata.name}", Type: v1alpha1.ValueTypeString}}
+	return source
+}
+
+func runtimeEnvtestInvalidSource(id string) v1alpha1.KubeseerSource {
+	return v1alpha1.KubeseerSource{
+		ID:       id,
+		Resource: v1alpha1.ResourceReference{APIVersion: "v1", Kind: "Missing"},
+	}
+}
+
+func runtimeEnvtestInvalidSelectorSource(id string) v1alpha1.KubeseerSource {
+	source := runtimeEnvtestPodSource(id, false)
+	source.Selector = &v1alpha1.ResourceSelector{FieldSelector: "metadata.name in ("}
+	return source
+}
+
+func runtimeEnvtestStatusPod(name, namespace string) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels:    map[string]string{"runtime-status": "yes"},
+		},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "main", Image: "busybox"}}},
+	}
+}
+
+func runtimeEnvtestPolicy(namespace string) *v1alpha1.KubeseerAccessPolicy {
+	return &v1alpha1.KubeseerAccessPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: v1alpha1.InstallationAccessCeilingName},
+		Spec: v1alpha1.KubeseerAccessPolicySpec{
+			Namespaces: v1alpha1.NamespacePolicy{Mode: v1alpha1.NamespaceModeExplicit, Include: []string{namespace}},
+			Resources: []v1alpha1.ResourceRule{
+				{APIGroups: []string{""}, Kinds: []string{"Pod"}},
+				{APIGroups: []string{"runtime.kubeseer.io"}, Kinds: []string{"Observation"}},
+			},
+		},
+	}
+}
+
+func runtimeObservedResourceCRD() (*apiextensionsv1.CustomResourceDefinition, schema.GroupVersionResource) {
+	const group = "runtime.kubeseer.io"
+	const version = "v1"
+	return &apiextensionsv1.CustomResourceDefinition{
+		ObjectMeta: metav1.ObjectMeta{Name: "observations." + group},
+		Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+			Group: group,
+			Names: apiextensionsv1.CustomResourceDefinitionNames{
+				Plural:     "observations",
+				Singular:   "observation",
+				Kind:       "Observation",
+				ListKind:   "ObservationList",
+				ShortNames: []string{"obs"},
+			},
+			Scope: apiextensionsv1.NamespaceScoped,
+			Versions: []apiextensionsv1.CustomResourceDefinitionVersion{{
+				Name:    version,
+				Served:  true,
+				Storage: true,
+				Schema: &apiextensionsv1.CustomResourceValidation{OpenAPIV3Schema: &apiextensionsv1.JSONSchemaProps{
+					Type: "object",
+					Properties: map[string]apiextensionsv1.JSONSchemaProps{
+						"spec": {
+							Type: "object",
+							Properties: map[string]apiextensionsv1.JSONSchemaProps{
+								"value": {Type: "string"},
+							},
+						},
+					},
+				}},
+			}},
+		},
+	}, schema.GroupVersionResource{Group: group, Version: version, Resource: "observations"}
+}
+
+func runtimeEnvtestObservation(name, namespace, watchLabel, value string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "runtime.kubeseer.io/v1",
+		"kind":       "Observation",
+		"metadata": map[string]interface{}{
+			"name":      name,
+			"namespace": namespace,
+			"labels":    map[string]interface{}{"watch": watchLabel},
+		},
+		"spec": map[string]interface{}{"value": value},
+	}}
+}
+
+func runtimeEnvtestObservedSource(id string) v1alpha1.KubeseerSource {
+	return v1alpha1.KubeseerSource{
+		ID:       id,
+		Resource: v1alpha1.ResourceReference{APIVersion: "runtime.kubeseer.io/v1", Kind: "Observation"},
+		Selector: &v1alpha1.ResourceSelector{MatchLabels: map[string]string{"watch": "yes"}},
+		Fields: []v1alpha1.KubeseerField{{
+			Name: "value",
+			Path: "{.spec.value}",
+			Type: v1alpha1.ValueTypeString,
+		}},
+	}
+}
+
+type runtimeObservedRequest struct {
+	Method           string
+	Path             string
+	Watch            bool
+	HasLabelSelector bool
+	HasFieldSelector bool
+	ResourceVersion  string
+}
+
+type runtimeObservedRequestRecorder struct {
+	mu                sync.Mutex
+	gvr               schema.GroupVersionResource
+	namespace         string
+	requests          []runtimeObservedRequest
+	active            []*runtimeObservedWatchBody
+	statusWrites      map[string]int
+	policyUnavailable bool
+}
+
+func newRuntimeObservedRequestRecorder(gvr schema.GroupVersionResource, namespace string) *runtimeObservedRequestRecorder {
+	return &runtimeObservedRequestRecorder{gvr: gvr, namespace: namespace, statusWrites: make(map[string]int)}
+}
+
+func (r *runtimeObservedRequestRecorder) observedPath() string {
+	if r == nil {
+		return ""
+	}
+	return "/apis/" + r.gvr.Group + "/" + r.gvr.Version + "/namespaces/" + r.namespace + "/" + r.gvr.Resource
+}
+
+func (r *runtimeObservedRequestRecorder) policyPath() string {
+	return "/apis/kubeseer.io/v1alpha1/kubeseeraccesspolicies/" + v1alpha1.InstallationAccessCeilingName
+}
+
+func (r *runtimeObservedRequestRecorder) record(request *http.Request) {
+	if r == nil || request == nil || request.URL == nil || request.URL.Path != r.observedPath() {
+		return
+	}
+	query := request.URL.Query()
+	entry := runtimeObservedRequest{
+		Method:           request.Method,
+		Path:             request.URL.Path,
+		Watch:            query.Get("watch") == "true",
+		HasLabelSelector: query.Get("labelSelector") != "",
+		HasFieldSelector: query.Get("fieldSelector") != "",
+		ResourceVersion:  query.Get("resourceVersion"),
+	}
+	r.mu.Lock()
+	r.requests = append(r.requests, entry)
+	r.mu.Unlock()
+}
+
+func (r *runtimeObservedRequestRecorder) addBody(body *runtimeObservedWatchBody) {
+	if r == nil || body == nil {
+		return
+	}
+	body.mu.Lock()
+	defer body.mu.Unlock()
+	if body.closed {
+		return
+	}
+	r.mu.Lock()
+	r.active = append(r.active, body)
+	r.mu.Unlock()
+}
+
+func (r *runtimeObservedRequestRecorder) removeBody(body *runtimeObservedWatchBody) {
+	if r == nil || body == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for index, active := range r.active {
+		if active == body {
+			r.active = append(r.active[:index], r.active[index+1:]...)
+			return
+		}
+	}
+}
+
+func (r *runtimeObservedRequestRecorder) Requests() []runtimeObservedRequest {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]runtimeObservedRequest(nil), r.requests...)
+}
+
+func (r *runtimeObservedRequestRecorder) recordStatusWrite(request *http.Request) {
+	if r == nil || request == nil || request.URL == nil || request.Method != http.MethodPut {
+		return
+	}
+	prefix := "/apis/kubeseer.io/v1alpha1/namespaces/" + r.namespace + "/kubeseers/"
+	if !strings.HasPrefix(request.URL.Path, prefix) || !strings.HasSuffix(request.URL.Path, "/status") {
+		return
+	}
+	name := strings.TrimSuffix(strings.TrimPrefix(request.URL.Path, prefix), "/status")
+	if name == "" || strings.Contains(name, "/") {
+		return
+	}
+	r.mu.Lock()
+	if r.statusWrites == nil {
+		r.statusWrites = make(map[string]int)
+	}
+	r.statusWrites[name]++
+	r.mu.Unlock()
+}
+
+func (r *runtimeObservedRequestRecorder) StatusWrites(name string) int {
+	if r == nil {
+		return 0
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.statusWrites[name]
+}
+
+func (r *runtimeObservedRequestRecorder) Reset() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.requests = nil
+	r.mu.Unlock()
+}
+
+func (r *runtimeObservedRequestRecorder) ActiveWatches() int {
+	if r == nil {
+		return 0
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.active)
+}
+
+func (r *runtimeObservedRequestRecorder) WatchRequestCount() int {
+	count := 0
+	for _, request := range r.Requests() {
+		if request.Watch {
+			count++
+		}
+	}
+	return count
+}
+
+func (r *runtimeObservedRequestRecorder) SetPolicyUnavailable(unavailable bool) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.policyUnavailable = unavailable
+	r.mu.Unlock()
+}
+
+func (r *runtimeObservedRequestRecorder) isPolicyUnavailable() bool {
+	if r == nil {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.policyUnavailable
+}
+
+func (r *runtimeObservedRequestRecorder) CloseOneWatch() bool {
+	if r == nil {
+		return false
+	}
+	r.mu.Lock()
+	active := append([]*runtimeObservedWatchBody(nil), r.active...)
+	r.mu.Unlock()
+	for index := len(active) - 1; index >= 0; index-- {
+		if closed, _ := active[index].closeOnce(); closed {
+			return true
+		}
+	}
+	return false
+}
+
+type runtimeObservedRecordingTransport struct {
+	base     http.RoundTripper
+	recorder *runtimeObservedRequestRecorder
+}
+
+func (t *runtimeObservedRecordingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if t == nil || t.base == nil {
+		return nil, errors.New("recording transport has no base transport")
+	}
+	if t.recorder != nil && request != nil && request.URL != nil {
+		t.recorder.recordStatusWrite(request)
+		if request.Method == http.MethodGet && request.URL.Path == t.recorder.policyPath() && t.recorder.isPolicyUnavailable() {
+			return nil, errors.New("simulated policy API unavailability")
+		}
+		t.recorder.record(request)
+	}
+	response, err := t.base.RoundTrip(request)
+	if err == nil && response != nil && response.Body != nil && t.recorder != nil && request != nil && request.URL != nil && request.URL.Path == t.recorder.observedPath() && request.URL.Query().Get("watch") == "true" {
+		body := &runtimeObservedWatchBody{ReadCloser: response.Body, recorder: t.recorder}
+		response.Body = body
+		t.recorder.addBody(body)
+	}
+	return response, err
+}
+
+type runtimeObservedWatchBody struct {
+	io.ReadCloser
+	recorder *runtimeObservedRequestRecorder
+	mu       sync.Mutex
+	closed   bool
+}
+
+func (b *runtimeObservedWatchBody) isClosed() bool {
+	if b == nil {
+		return true
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.closed
+}
+
+func (b *runtimeObservedWatchBody) closeOnce() (bool, error) {
+	if b == nil {
+		return false, nil
+	}
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return false, nil
+	}
+	b.closed = true
+	reader := b.ReadCloser
+	recorder := b.recorder
+	b.mu.Unlock()
+	if recorder != nil {
+		recorder.removeBody(b)
+	}
+	if reader == nil {
+		return true, nil
+	}
+	return true, reader.Close()
+}
+
+func (b *runtimeObservedWatchBody) Close() error {
+	_, err := b.closeOnce()
+	return err
+}
+
+func runtimeObservedRequestIndexes(requests []runtimeObservedRequest) (firstWatch, firstList, watchCount int) {
+	firstWatch, firstList = -1, -1
+	for index, request := range requests {
+		if request.Watch {
+			watchCount++
+			if firstWatch == -1 {
+				firstWatch = index
+			}
+			continue
+		}
+		if firstList == -1 {
+			firstList = index
+		}
+	}
+	return firstWatch, firstList, watchCount
+}
+
+func assertRuntimeObservedRequestsAbsent(t *testing.T, ctx context.Context, recorder *runtimeObservedRequestRecorder, duration time.Duration) {
+	t.Helper()
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		t.Fatalf("context ended while checking denied observed-resource requests: %v", ctx.Err())
+	case <-timer.C:
+	}
+	if requests := recorder.Requests(); len(requests) != 0 {
+		t.Fatalf("denied observed-resource target issued requests: %+v", requests)
+	}
+}
+
+func assertRuntimeStatusWritesStable(t *testing.T, ctx context.Context, recorder *runtimeObservedRequestRecorder, name string, want int, duration time.Duration) {
+	t.Helper()
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		t.Fatalf("context ended while checking unchanged status writes: %v", ctx.Err())
+	case <-timer.C:
+	}
+	if got := recorder.StatusWrites(name); got != want {
+		t.Fatalf("unchanged source event status writes=%d, want %d", got, want)
+	}
+}
+
+func waitRuntimeSourceState(t *testing.T, ctx context.Context, client crclient.Client, key types.NamespacedName, want v1alpha1.KubeseerSourceState) {
+	t.Helper()
+	waitRuntimeSourceStates(t, ctx, client, key, 1, want, -1, "")
+}
+
+func waitRuntimeObservedState(t *testing.T, ctx context.Context, client crclient.Client, key types.NamespacedName, sourceCount int, want v1alpha1.KubeseerSourceState, resourceCount int, value string) {
+	t.Helper()
+	waitRuntimeSourceStates(t, ctx, client, key, sourceCount, want, resourceCount, value)
+}
+
+func waitRuntimeMixedStatus(t *testing.T, ctx context.Context, client crclient.Client, key types.NamespacedName, generation int64, resourceCount int) {
+	t.Helper()
+	if err := WaitFor(ctx, 10*time.Second, func(ctx context.Context) (bool, error) {
+		object := &v1alpha1.Kubeseer{}
+		if err := client.Get(ctx, key, object); err != nil {
+			return false, err
+		}
+		if object.Status.Result == nil || object.Status.ObservedGeneration != generation || len(object.Status.Result.Sources) != 2 {
+			return false, nil
+		}
+		success, failed := object.Status.Result.Sources[0], object.Status.Result.Sources[1]
+		if success.ID != "status-success" || success.State != v1alpha1.SourceStateValues || failed.ID != "status-invalid" || failed.State != v1alpha1.SourceStateError || failed.Error == nil {
+			return false, nil
+		}
+		if len(success.Resources) != resourceCount {
+			return false, nil
+		}
+		if resourceCount > 0 && !runtimeSourceHasFieldStringValue(success, "name", "runtime-status-pod") {
+			return false, nil
+		}
+		return true, nil
+	}); err != nil {
+		t.Fatalf("wait %s/%s mixed ordered status generation %d resources %d: %v", key.Namespace, key.Name, generation, resourceCount, err)
+	}
+}
+
+func waitRuntimeSourceStates(t *testing.T, ctx context.Context, client crclient.Client, key types.NamespacedName, sourceCount int, want v1alpha1.KubeseerSourceState, resourceCount int, value string) {
+	t.Helper()
+	if err := WaitFor(ctx, 10*time.Second, func(ctx context.Context) (bool, error) {
+		object := &v1alpha1.Kubeseer{}
+		if err := client.Get(ctx, key, object); err != nil {
+			return false, err
+		}
+		if object.Status.Result == nil || len(object.Status.Result.Sources) != sourceCount {
+			return false, nil
+		}
+		for _, source := range object.Status.Result.Sources {
+			if source.State != want || want == v1alpha1.SourceStateValues && source.Error != nil || want == v1alpha1.SourceStateError && source.Error == nil {
+				return false, nil
+			}
+			if resourceCount >= 0 && len(source.Resources) != resourceCount {
+				return false, nil
+			}
+			if value != "" && !runtimeSourceHasStringValue(source, value) {
+				return false, nil
+			}
+		}
+		return true, nil
+	}); err != nil {
+		t.Fatalf("wait %s/%s source state %q: %v", key.Namespace, key.Name, want, err)
+	}
+}
+
+func runtimeSourceHasStringValue(source v1alpha1.KubeseerSourceResult, want string) bool {
+	return runtimeSourceHasFieldStringValue(source, "value", want)
+}
+
+func runtimeSourceHasFieldStringValue(source v1alpha1.KubeseerSourceResult, fieldName, want string) bool {
+	for _, resource := range source.Resources {
+		for _, field := range resource.Fields {
+			if field.Name != fieldName {
+				continue
+			}
+			for _, match := range field.Matches {
+				if match.StringValue != nil && *match.StringValue == want {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func waitRuntimeEmptyResult(t *testing.T, ctx context.Context, client crclient.Client, key types.NamespacedName) {
+	t.Helper()
+	if err := WaitFor(ctx, 10*time.Second, func(ctx context.Context) (bool, error) {
+		object := &v1alpha1.Kubeseer{}
+		if err := client.Get(ctx, key, object); err != nil {
+			return false, err
+		}
+		return object.Status.Result != nil && len(object.Status.Result.Sources) == 0, nil
+	}); err != nil {
+		t.Fatalf("wait %s/%s empty result: %v", key.Namespace, key.Name, err)
+	}
+}
+
+func waitRuntimeObservedGeneration(t *testing.T, ctx context.Context, client crclient.Client, key types.NamespacedName, want int64) {
+	t.Helper()
+	if err := WaitFor(ctx, 10*time.Second, func(ctx context.Context) (bool, error) {
+		object := &v1alpha1.Kubeseer{}
+		if err := client.Get(ctx, key, object); err != nil {
+			return false, err
+		}
+		return object.Status.Result != nil && object.Status.ObservedGeneration == want && len(object.Status.Result.Sources) == 1, nil
+	}); err != nil {
+		t.Fatalf("wait %s/%s observed generation %d: %v", key.Namespace, key.Name, want, err)
+	}
+}
+
+func runRuntimeEnvtestAdapterScenarios(t *testing.T, ctx context.Context, apiClient crclient.Client, clients Clients, namespace string, adapterKey, busyKey, freeKey, deterministicKey, emptyKey types.NamespacedName) {
+	t.Helper()
+	store := reconciliation.NewClientKubeseerStore(apiClient)
+	discoveryClient := &runtimeEnvtestDiscoveryAdapter{delegate: clients.Discovery}
+	resolver := discoveryruntime.NewResolver(discoveryClient)
+	resourceLister := &runtimeEnvtestResourceListerAdapter{delegate: selection.NewDynamicResourceLister(clients.Dynamic)}
+	tracker := reconciliation.NewFreshnessTracker()
+	routes := &runtimeEnvtestRouteManager{}
+	statusWriter := &runtimeEnvtestCountingStatusWriter{delegate: reconciliation.NewClientStatusWriter(apiClient.Status())}
+	runtimeInstance, err := reconciliation.NewRuntime(reconciliation.Options{SafetyInterval: time.Hour}, reconciliation.Dependencies{
+		Reader:       store,
+		Lister:       store,
+		PolicySource: accesspolicy.NewClientPolicySource(apiClient),
+		Planner:      selection.NewPlanner(resolver),
+		Executor:     selection.NewExecutor(resourceLister),
+		Routes:       routes,
+		Publisher:    reconciliation.NewStatusPublisher(store, statusWriter, tracker),
+		Tracker:      tracker,
+	})
+	if err != nil {
+		t.Fatalf("construct real-client adapter runtime: %v", err)
+	}
+
+	adapterObject := &v1alpha1.Kubeseer{
+		ObjectMeta: metav1.ObjectMeta{Namespace: adapterKey.Namespace, Name: adapterKey.Name},
+		Spec:       v1alpha1.KubeseerSpec{Sources: []v1alpha1.KubeseerSource{runtimeEnvtestPodFieldSource("adapter-source")}},
+	}
+	if err := apiClient.Create(ctx, adapterObject); err != nil {
+		t.Fatalf("create adapter runtime Kubeseer: %v", err)
+	}
+	request := reconcile.Request{NamespacedName: adapterKey}
+	discoveryClient.FailNext()
+	rateQueue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+	defer rateQueue.ShutDown()
+	rateQueue.Add(request)
+	item, shutdown := rateQueue.Get()
+	if shutdown {
+		t.Fatalf("rate-limited queue shut down before discovery failure")
+	}
+	_, firstErr := runtimeInstance.Reconcile(ctx, item)
+	rateQueue.Done(item)
+	if !reconciliation.IsRetryable(firstErr) {
+		t.Fatalf("discovery availability error was not retryable: %v", firstErr)
+	}
+	waitRuntimeSourceState(t, ctx, apiClient, adapterKey, v1alpha1.SourceStateError)
+	rateQueue.AddRateLimited(item)
+	retryItem, retryShutdown := runtimeEnvtestQueueGet(t, ctx, rateQueue)
+	if retryShutdown {
+		t.Fatalf("rate-limited queue shut down before recovery")
+	}
+	_, retryErr := runtimeInstance.Reconcile(ctx, retryItem)
+	rateQueue.Done(retryItem)
+	rateQueue.Forget(retryItem)
+	if retryErr != nil {
+		t.Fatalf("discovery availability retry did not converge: %v", retryErr)
+	}
+	waitRuntimeSourceStates(t, ctx, apiClient, adapterKey, 1, v1alpha1.SourceStateValues, 1, "")
+
+	listWritesBefore := statusWriter.Calls()
+	resourceLister.FailNext()
+	_, listErr := runtimeInstance.Reconcile(ctx, request)
+	if !reconciliation.IsRetryable(listErr) {
+		t.Fatalf("LIST availability error was not retryable: %v", listErr)
+	}
+	waitRuntimeSourceState(t, ctx, apiClient, adapterKey, v1alpha1.SourceStateError)
+	if statusWriter.Calls() <= listWritesBefore {
+		t.Fatalf("LIST availability failure did not publish its sanitized partial status")
+	}
+	if _, err := runtimeInstance.Reconcile(ctx, request); err != nil {
+		t.Fatalf("LIST availability retry did not converge: %v", err)
+	}
+	waitRuntimeSourceStates(t, ctx, apiClient, adapterKey, 1, v1alpha1.SourceStateValues, 1, "")
+
+	deterministicObject := &v1alpha1.Kubeseer{
+		ObjectMeta: metav1.ObjectMeta{Namespace: deterministicKey.Namespace, Name: deterministicKey.Name},
+		Spec:       v1alpha1.KubeseerSpec{Sources: []v1alpha1.KubeseerSource{runtimeEnvtestInvalidSource("deterministic-invalid")}},
+	}
+	if err := apiClient.Create(ctx, deterministicObject); err != nil {
+		t.Fatalf("create deterministic-failure Kubeseer: %v", err)
+	}
+	if _, err := runtimeInstance.Reconcile(ctx, reconcile.Request{NamespacedName: deterministicKey}); err != nil {
+		t.Fatalf("deterministic source failure unexpectedly requested retry: %v", err)
+	}
+	waitRuntimeSourceState(t, ctx, apiClient, deterministicKey, v1alpha1.SourceStateError)
+	deterministicWrites := statusWriter.Calls()
+	if _, err := runtimeInstance.Reconcile(ctx, reconcile.Request{NamespacedName: deterministicKey}); err != nil {
+		t.Fatalf("repeat deterministic source failure unexpectedly requested retry: %v", err)
+	}
+	if statusWriter.Calls() != deterministicWrites {
+		t.Fatalf("deterministic failure hot-loop wrote status again: before=%d after=%d", deterministicWrites, statusWriter.Calls())
+	}
+
+	busyObject := &v1alpha1.Kubeseer{
+		ObjectMeta: metav1.ObjectMeta{Namespace: busyKey.Namespace, Name: busyKey.Name},
+		Spec:       v1alpha1.KubeseerSpec{Sources: []v1alpha1.KubeseerSource{runtimeEnvtestPodFieldSource("busy-source")}},
+	}
+	freeObject := &v1alpha1.Kubeseer{ObjectMeta: metav1.ObjectMeta{Namespace: freeKey.Namespace, Name: freeKey.Name}}
+	if err := apiClient.Create(ctx, busyObject); err != nil {
+		t.Fatalf("create busy Kubeseer: %v", err)
+	}
+	if err := apiClient.Create(ctx, freeObject); err != nil {
+		t.Fatalf("create independent free Kubeseer: %v", err)
+	}
+	blockRelease := make(chan struct{})
+	blockStarted := make(chan struct{})
+	resourceLister.BlockNext(blockRelease, blockStarted)
+	busyContext, cancelBusy := context.WithCancel(ctx)
+	defer cancelBusy()
+	busyDone := make(chan error, 1)
+	go func() {
+		_, err := runtimeInstance.Reconcile(busyContext, reconcile.Request{NamespacedName: busyKey})
+		busyDone <- err
+	}()
+	select {
+	case <-blockStarted:
+	case <-ctx.Done():
+		t.Fatalf("busy reconciliation did not reach the real LIST adapter: %v", ctx.Err())
+	}
+	freeDone := make(chan error, 1)
+	go func() {
+		_, err := runtimeInstance.Reconcile(ctx, reconcile.Request{NamespacedName: freeKey})
+		freeDone <- err
+	}()
+	select {
+	case err := <-freeDone:
+		if err != nil {
+			t.Fatalf("independent free key was blocked or failed: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatalf("independent free key remained blocked by busy key")
+	}
+	waitRuntimeEmptyResult(t, ctx, apiClient, freeKey)
+	busyWrites := statusWriter.Calls()
+	cancelBusy()
+	select {
+	case err := <-busyDone:
+		if err != nil {
+			t.Fatalf("canceled busy reconciliation returned an error: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatalf("canceled busy reconciliation did not finish")
+	}
+	close(blockRelease)
+	if statusWriter.Calls() != busyWrites {
+		t.Fatalf("canceled reconciliation published status: before=%d after=%d", busyWrites, statusWriter.Calls())
+	}
+
+	adapterCurrent := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, adapterKey, adapterCurrent); err != nil {
+		t.Fatalf("read adapter Kubeseer before conflict proof: %v", err)
+	}
+	conflictTracker := reconciliation.NewFreshnessTracker()
+	conflictTracker.Observe(adapterCurrent)
+	conflictLease, conflictContext, releaseConflict, err := conflictTracker.Acquire(ctx, adapterKey, adapterCurrent.UID, adapterCurrent.Generation)
+	if err != nil {
+		t.Fatalf("acquire conflict proof lease: %v", err)
+	}
+	conflictResult := v1alpha1.KubeseerResult{Sources: []v1alpha1.KubeseerSourceResult{{ID: "conflict-result", State: v1alpha1.SourceStateValues}}}
+	conflictWriter := &runtimeEnvtestConflictStatusWriter{
+		delegate: reconciliation.NewClientStatusWriter(apiClient.Status()),
+		client:   apiClient,
+		key:      adapterKey,
+	}
+	conflictPublisher := reconciliation.NewStatusPublisher(store, conflictWriter, conflictTracker)
+	conflictErr := conflictPublisher.Publish(conflictContext, conflictLease, conflictResult)
+	releaseConflict()
+	if !reconciliation.IsRetryable(conflictErr) || conflictWriter.Calls() != 1 {
+		t.Fatalf("real status conflict = err=%v calls=%d, want one retryable attempt", conflictErr, conflictWriter.Calls())
+	}
+	conflicted := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, adapterKey, conflicted); err != nil {
+		t.Fatalf("read adapter Kubeseer after conflict: %v", err)
+	}
+	if len(conflicted.Status.Conditions) != 1 || conflicted.Status.Conditions[0].Type != "ConflictFixture" {
+		t.Fatalf("concurrent real API status write was overwritten: %#v", conflicted.Status.Conditions)
+	}
+	if conflicted.Status.Result != nil && len(conflicted.Status.Result.Sources) == 1 && conflicted.Status.Result.Sources[0].ID == "conflict-result" {
+		t.Fatalf("conflicting status candidate overwrote the newer API state")
+	}
+	conflictTracker.Observe(conflicted)
+	convergeLease, convergeContext, releaseConverge, err := conflictTracker.Acquire(ctx, adapterKey, conflicted.UID, conflicted.Generation)
+	if err != nil {
+		t.Fatalf("acquire convergence lease after conflict: %v", err)
+	}
+	if err := reconciliation.NewStatusPublisher(store, reconciliation.NewClientStatusWriter(apiClient.Status()), conflictTracker).Publish(convergeContext, convergeLease, conflictResult); err != nil {
+		releaseConverge()
+		t.Fatalf("status did not converge after conflict retry: %v", err)
+	}
+	releaseConverge()
+	converged := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, adapterKey, converged); err != nil {
+		t.Fatalf("read converged adapter status: %v", err)
+	}
+	if converged.Status.Result == nil || len(converged.Status.Result.Sources) != 1 || converged.Status.Result.Sources[0].ID != "conflict-result" {
+		t.Fatalf("status conflict did not converge to the fresh candidate: %#v", converged.Status.Result)
+	}
+
+	emptyCurrent := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, emptyKey, emptyCurrent); err != nil {
+		t.Fatalf("read zero-source Kubeseer for nil/empty suppression: %v", err)
+	}
+	emptyTracker := reconciliation.NewFreshnessTracker()
+	emptyTracker.Observe(emptyCurrent)
+	emptyLease, emptyContext, releaseEmpty, err := emptyTracker.Acquire(ctx, emptyKey, emptyCurrent.UID, emptyCurrent.Generation)
+	if err != nil {
+		t.Fatalf("acquire zero-source semantic lease: %v", err)
+	}
+	emptyWriter := &runtimeEnvtestCountingStatusWriter{delegate: reconciliation.NewClientStatusWriter(apiClient.Status())}
+	if err := reconciliation.NewStatusPublisher(store, emptyWriter, emptyTracker).Publish(emptyContext, emptyLease, v1alpha1.KubeseerResult{}); err != nil {
+		releaseEmpty()
+		t.Fatalf("nil/empty semantic status suppression failed: %v", err)
+	}
+	releaseEmpty()
+	if emptyWriter.Calls() != 0 {
+		t.Fatalf("nil/empty semantic equivalent caused %d status writes", emptyWriter.Calls())
+	}
+
+	staleTracker := reconciliation.NewFreshnessTracker()
+	staleTracker.Observe(converged)
+	staleLease, staleContext, releaseStale, err := staleTracker.Acquire(ctx, adapterKey, converged.UID, converged.Generation)
+	if err != nil {
+		t.Fatalf("acquire stale-lease proof: %v", err)
+	}
+	newer := converged.DeepCopy()
+	newer.Generation++
+	staleTracker.Observe(newer)
+	staleWriter := &runtimeEnvtestCountingStatusWriter{delegate: reconciliation.NewClientStatusWriter(apiClient.Status())}
+	if err := reconciliation.NewStatusPublisher(store, staleWriter, staleTracker).Publish(staleContext, staleLease, conflictResult); err == nil {
+		releaseStale()
+		t.Fatalf("stale lease unexpectedly published status")
+	}
+	releaseStale()
+	if staleWriter.Calls() != 0 {
+		t.Fatalf("stale lease attempted %d status writes", staleWriter.Calls())
+	}
+
+	canceledTracker := reconciliation.NewFreshnessTracker()
+	canceledTracker.Observe(converged)
+	canceledParent, cancelCanceled := context.WithCancel(ctx)
+	canceledLease, canceledContext, releaseCanceled, err := canceledTracker.Acquire(canceledParent, adapterKey, converged.UID, converged.Generation)
+	cancelCanceled()
+	if err != nil {
+		t.Fatalf("acquire canceled proof lease: %v", err)
+	}
+	canceledWriter := &runtimeEnvtestCountingStatusWriter{delegate: reconciliation.NewClientStatusWriter(apiClient.Status())}
+	if err := reconciliation.NewStatusPublisher(store, canceledWriter, canceledTracker).Publish(canceledContext, canceledLease, conflictResult); err == nil {
+		releaseCanceled()
+		t.Fatalf("canceled status publication unexpectedly succeeded")
+	}
+	releaseCanceled()
+	if canceledWriter.Calls() != 0 {
+		t.Fatalf("canceled publication attempted %d status writes", canceledWriter.Calls())
+	}
+
+	_ = namespace
+}
+
+func runtimeEnvtestQueueGet(t *testing.T, ctx context.Context, queue workqueue.TypedRateLimitingInterface[reconcile.Request]) (reconcile.Request, bool) {
+	t.Helper()
+	itemCh := make(chan reconcile.Request, 1)
+	shutdownCh := make(chan bool, 1)
+	go func() {
+		item, shutdown := queue.Get()
+		itemCh <- item
+		shutdownCh <- shutdown
+	}()
+	select {
+	case item := <-itemCh:
+		return item, <-shutdownCh
+	case <-ctx.Done():
+		t.Fatalf("context ended while waiting for rate-limited retry: %v", ctx.Err())
+		return reconcile.Request{}, true
+	case <-time.After(3 * time.Second):
+		t.Fatalf("rate-limited retry was not requeued")
+		return reconcile.Request{}, true
+	}
+}
+
+type runtimeEnvtestDiscoveryAdapter struct {
+	delegate interface {
+		ServerResourcesForGroupVersion(string) (*metav1.APIResourceList, error)
+	}
+	mu       sync.Mutex
+	failNext bool
+}
+
+func (a *runtimeEnvtestDiscoveryAdapter) FailNext() {
+	a.mu.Lock()
+	a.failNext = true
+	a.mu.Unlock()
+}
+
+func (a *runtimeEnvtestDiscoveryAdapter) ServerResourcesForGroupVersion(groupVersion string) (*metav1.APIResourceList, error) {
+	a.mu.Lock()
+	fail := a.failNext
+	a.failNext = false
+	a.mu.Unlock()
+	if fail {
+		return nil, errors.New("simulated discovery API unavailability")
+	}
+	return a.delegate.ServerResourcesForGroupVersion(groupVersion)
+}
+
+type runtimeEnvtestResourceListerAdapter struct {
+	delegate selection.ResourceLister
+	mu       sync.Mutex
+	failNext bool
+	block    *runtimeEnvtestListBlock
+}
+
+type runtimeEnvtestListBlock struct {
+	release <-chan struct{}
+	started chan<- struct{}
+}
+
+func (a *runtimeEnvtestResourceListerAdapter) FailNext() {
+	a.mu.Lock()
+	a.failNext = true
+	a.mu.Unlock()
+}
+
+func (a *runtimeEnvtestResourceListerAdapter) BlockNext(release <-chan struct{}, started chan<- struct{}) {
+	a.mu.Lock()
+	a.block = &runtimeEnvtestListBlock{release: release, started: started}
+	a.mu.Unlock()
+}
+
+func (a *runtimeEnvtestResourceListerAdapter) List(ctx context.Context, target selection.ReadTarget, options metav1.ListOptions) (*unstructured.UnstructuredList, error) {
+	a.mu.Lock()
+	fail := a.failNext
+	a.failNext = false
+	block := a.block
+	a.block = nil
+	a.mu.Unlock()
+	if fail {
+		return nil, errors.New("simulated resource LIST unavailability")
+	}
+	if block != nil {
+		if block.started != nil {
+			close(block.started)
+		}
+		select {
+		case <-block.release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return a.delegate.List(ctx, target, options)
+}
+
+type runtimeEnvtestRouteManager struct{}
+
+func (*runtimeEnvtestRouteManager) Replace(reconciliation.Lease, []reconciliation.AuthorizedRoute) error {
+	return nil
+}
+
+func (*runtimeEnvtestRouteManager) RemoveOwner(types.NamespacedName) {}
+
+func (*runtimeEnvtestRouteManager) RemoveAll() {}
+
+type runtimeEnvtestCountingStatusWriter struct {
+	delegate reconciliation.StatusWriter
+	mu       sync.Mutex
+	calls    int
+}
+
+func (w *runtimeEnvtestCountingStatusWriter) Update(ctx context.Context, object *v1alpha1.Kubeseer) error {
+	w.mu.Lock()
+	w.calls++
+	w.mu.Unlock()
+	return w.delegate.Update(ctx, object)
+}
+
+func (w *runtimeEnvtestCountingStatusWriter) Calls() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.calls
+}
+
+type runtimeEnvtestConflictStatusWriter struct {
+	delegate reconciliation.StatusWriter
+	client   crclient.Client
+	key      types.NamespacedName
+	mu       sync.Mutex
+	calls    int
+}
+
+func (w *runtimeEnvtestConflictStatusWriter) Update(ctx context.Context, object *v1alpha1.Kubeseer) error {
+	w.mu.Lock()
+	w.calls++
+	w.mu.Unlock()
+	current := &v1alpha1.Kubeseer{}
+	if err := w.client.Get(ctx, w.key, current); err != nil {
+		return err
+	}
+	current.Status.Conditions = []metav1.Condition{{Type: "ConflictFixture", Status: metav1.ConditionTrue, LastTransitionTime: metav1.Now(), Reason: "ConcurrentWrite", Message: "newer API state"}}
+	if err := w.client.Status().Update(ctx, current); err != nil {
+		return err
+	}
+	return w.delegate.Update(ctx, object)
+}
+
+func (w *runtimeEnvtestConflictStatusWriter) Calls() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.calls
+}

@@ -59,7 +59,8 @@ test-api:
 	test -n "$$assets"; \
 	GO_TEST_FLAGS="$(GO_TEST_FLAGS)" KUBEBUILDER_ASSETS="$$assets" ./hack/test-layer-runner.sh kubernetes-api $(API_PACKAGE) '^TestAPIContract$$' required; \
 	GO_TEST_FLAGS="$(GO_TEST_FLAGS)" KUBEBUILDER_ASSETS="$$assets" ./hack/test-layer-runner.sh kubernetes-api ./internal/discovery '^TestEnvtestDiscovery$$' required; \
-	GO_TEST_FLAGS="$(GO_TEST_FLAGS)" KUBEBUILDER_ASSETS="$$assets" ./hack/test-layer-runner.sh kubernetes-api ./internal/selection '^TestEnvtestSelection$$' required
+	GO_TEST_FLAGS="$(GO_TEST_FLAGS)" KUBEBUILDER_ASSETS="$$assets" ./hack/test-layer-runner.sh kubernetes-api ./internal/selection '^TestEnvtestSelection$$' required; \
+	GO_TEST_FLAGS="$(GO_TEST_FLAGS)" KUBEBUILDER_ASSETS="$$assets" ./hack/test-layer-runner.sh kubernetes-api ./test/envtest '^TestEnvtestReconciliationRuntime$$' required
 
 test-compatibility:
 	@set -eu; \

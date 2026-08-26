@@ -140,3 +140,7 @@ Review this file before non-trivial work when the current request matches past m
 - Trigger: Initial task 1.1 envtest proof failed while compiling the new API contract helper
 - Lesson: A large envtest helper can hide declaration and shadowing errors until the full API proof starts
 - Guardrail: Run gofmt and a compile-only package check immediately after adding each new envtest helper before starting the local control plane
+### 2026-08-26T19:17:37Z | reconciliation-runtime | design
+- Trigger: Design recovery found design.md missing after a scaffold replacement was split into destructive steps
+- Lesson: After a combined replacement is rejected, deleting the existing Walden document alone can leave the approval chain structurally incomplete
+- Guardrail: Use one Update File patch while a document exists; if it is already missing, recreate it with one Add File patch before any review transition

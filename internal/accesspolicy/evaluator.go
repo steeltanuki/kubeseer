@@ -128,6 +128,25 @@ func (s Snapshot) Evaluate(request Request) Decision {
 	return allowedDecision()
 }
 
+// TerminalReason reports the fail-closed state captured when a policy could
+// not be loaded or compiled. A valid compiled snapshot returns an empty
+// reason.
+func (s Snapshot) TerminalReason() PolicyReason {
+	return s.terminalReason
+}
+
+// TerminalMessage returns the sanitized diagnostic associated with a
+// fail-closed snapshot. It is empty for a valid compiled policy.
+func (s Snapshot) TerminalMessage() string {
+	return s.terminalMessage
+}
+
+// IsTerminal reports whether this snapshot is a deny-all snapshot rather than
+// a compiled policy.
+func (s Snapshot) IsTerminal() bool {
+	return s.terminalReason != ""
+}
+
 // Evaluate is the function form of Snapshot.Evaluate for callers that prefer
 // an explicit evaluator boundary.
 func Evaluate(snapshot Snapshot, request Request) Decision {

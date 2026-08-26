@@ -86,6 +86,18 @@ func TestModuleIntegration(t *testing.T) {
 	t.Run("typed-output batches isolate fields, sources, and cancellation", func(t *testing.T) {
 		assertTypedOutputIsolationScenarios(t)
 	})
+	t.Run("reconciliation runtime scheduling preserves lifecycle and queue semantics", func(t *testing.T) {
+		assertReconciliationRuntimeSchedulingScenarios(t)
+	})
+	t.Run("reconciliation runtime routes authorized metadata events", func(t *testing.T) {
+		assertReconciliationRuntimeWatchRoutingScenarios(t, ctx, resolver)
+	})
+	t.Run("reconciliation runtime composes ordered partial results", func(t *testing.T) {
+		assertReconciliationRuntimePipelineScenarios(t, ctx, resolver)
+	})
+	t.Run("reconciliation runtime publishes guarded semantic status", func(t *testing.T) {
+		assertReconciliationRuntimeStatusScenarios(t, ctx)
+	})
 
 	t.Log("MODULE_INTEGRATION=discovery-access-policy-evaluation STATUS=passed")
 	t.Log("MODULE_INTEGRATION=discovery-access-policy-loader STATUS=passed")
@@ -101,6 +113,10 @@ func TestModuleIntegration(t *testing.T) {
 	t.Log("MODULE_INTEGRATION=typed-output-model-cardinality STATUS=passed")
 	t.Log("MODULE_INTEGRATION=typed-output-model-serialization STATUS=passed")
 	t.Log("MODULE_INTEGRATION=typed-output-model-isolation STATUS=passed")
+	t.Log("MODULE_INTEGRATION=reconciliation-runtime-scheduling STATUS=passed")
+	t.Log("MODULE_INTEGRATION=reconciliation-runtime-watch-routing STATUS=passed")
+	t.Log("MODULE_INTEGRATION=reconciliation-runtime-pipeline STATUS=passed")
+	t.Log("MODULE_INTEGRATION=reconciliation-runtime-status STATUS=passed")
 }
 
 func assertEvaluationScenarios(t *testing.T, ctx context.Context, resolver *discovery.Resolver) {
