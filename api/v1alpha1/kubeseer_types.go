@@ -48,12 +48,64 @@ type KubeseerSpec struct {
 	Sources []KubeseerSource `json:"sources,omitempty"`
 }
 
-// KubeseerSource identifies a future observation source without granting permissions.
+// KubeseerSource identifies one Kubernetes resource selection without granting
+// permissions or embedding installation-policy configuration.
 type KubeseerSource struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
 	ID string `json:"id"`
+
+	// +kubebuilder:validation:Required
+	Resource ResourceReference `json:"resource"`
+
+	// A nil pointer means the containing Kubeseer namespace for namespaced
+	// resources; a non-nil empty Names list intentionally selects no namespace.
+	// +optional
+	Namespaces *NamespaceSelection `json:"namespaces,omitempty"`
+
+	// +optional
+	Selector *ResourceSelector `json:"selector,omitempty"`
+}
+
+// ResourceReference identifies the API version and Kind resolved through
+// Kubernetes discovery.
+type ResourceReference struct {
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	APIVersion string `json:"apiVersion"`
+
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Kind string `json:"kind"`
+}
+
+// NamespaceSelection narrows a namespaced source to an explicit namespace set.
+// Names intentionally omits omitempty so an explicit empty list remains
+// distinguishable from an omitted namespace block after serialization.
+type NamespaceSelection struct {
+	// +listType=set
+	// +kubebuilder:validation:items:MaxLength=63
+	// +kubebuilder:validation:items:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	Names []string `json:"names"`
+}
+
+// ResourceSelector expresses Kubernetes-native name, label, and field
+// selection constraints. All populated mechanisms are combined by the
+// selection planner.
+type ResourceSelector struct {
+	// +optional
+	Name string `json:"name,omitempty"`
+
+	// +optional
+	MatchLabels map[string]string `json:"matchLabels,omitempty"`
+
+	// +optional
+	// +listType=atomic
+	MatchExpressions []metav1.LabelSelectorRequirement `json:"matchExpressions,omitempty"`
+
+	// +optional
+	FieldSelector string `json:"fieldSelector,omitempty"`
 }
 
 // KubeseerStatus contains controller-observed state for a Kubeseer resource.

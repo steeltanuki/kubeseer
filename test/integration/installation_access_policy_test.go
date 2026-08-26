@@ -50,9 +50,29 @@ func TestModuleIntegration(t *testing.T) {
 	t.Run("loader fail-closed transitions use real evaluation", func(t *testing.T) {
 		assertLoaderScenarios(t, ctx, resolver)
 	})
+	t.Run("resource selection planning uses real discovery", func(t *testing.T) {
+		assertResourceSelectionPlanningScenarios(t, ctx, resolver)
+	})
+	t.Run("resource selection authorization is exact and complete", func(t *testing.T) {
+		assertResourceSelectionAuthorizationScenarios(t, ctx, resolver)
+	})
+	t.Run("resource selection execution stays behind the authorization boundary", func(t *testing.T) {
+		assertResourceSelectionExecutionBoundaryScenarios(t, ctx, resolver)
+	})
+	t.Run("resource selection pagination is complete and deterministic", func(t *testing.T) {
+		assertResourceSelectionPaginationScenarios(t, ctx, resolver)
+	})
+	t.Run("resource selection failures remain source-scoped and isolated", func(t *testing.T) {
+		assertResourceSelectionFailureScenarios(t, ctx, resolver)
+	})
 
 	t.Log("MODULE_INTEGRATION=discovery-access-policy-evaluation STATUS=passed")
 	t.Log("MODULE_INTEGRATION=discovery-access-policy-loader STATUS=passed")
+	t.Log("MODULE_INTEGRATION=resource-selection-planning STATUS=passed")
+	t.Log("MODULE_INTEGRATION=resource-selection-authorization STATUS=passed")
+	t.Log("MODULE_INTEGRATION=resource-selection-execution-boundary STATUS=passed")
+	t.Log("MODULE_INTEGRATION=resource-selection-pagination STATUS=passed")
+	t.Log("MODULE_INTEGRATION=resource-selection-failures STATUS=passed")
 }
 
 func assertEvaluationScenarios(t *testing.T, ctx context.Context, resolver *discovery.Resolver) {

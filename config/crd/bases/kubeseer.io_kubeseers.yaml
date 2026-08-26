@@ -43,15 +43,93 @@ spec:
             properties:
               sources:
                 items:
-                  description: KubeseerSource identifies a future observation source
-                    without granting permissions.
+                  description: |-
+                    KubeseerSource identifies one Kubernetes resource selection without granting
+                    permissions or embedding installation-policy configuration.
                   properties:
                     id:
                       maxLength: 63
                       pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                       type: string
+                    namespaces:
+                      description: |-
+                        A nil pointer means the containing Kubeseer namespace for namespaced
+                        resources; a non-nil empty Names list intentionally selects no namespace.
+                      properties:
+                        names:
+                          items:
+                            maxLength: 63
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: set
+                      required:
+                      - names
+                      type: object
+                    resource:
+                      description: |-
+                        ResourceReference identifies the API version and Kind resolved through
+                        Kubernetes discovery.
+                      properties:
+                        apiVersion:
+                          minLength: 1
+                          type: string
+                        kind:
+                          minLength: 1
+                          type: string
+                      required:
+                      - apiVersion
+                      - kind
+                      type: object
+                    selector:
+                      description: |-
+                        ResourceSelector expresses Kubernetes-native name, label, and field
+                        selection constraints. All populated mechanisms are combined by the
+                        selection planner.
+                      properties:
+                        fieldSelector:
+                          type: string
+                        matchExpressions:
+                          items:
+                            description: |-
+                              A label selector requirement is a selector that contains values, a key, and an operator that
+                              relates the key and values.
+                            properties:
+                              key:
+                                description: key is the label key that the selector
+                                  applies to.
+                                type: string
+                              operator:
+                                description: |-
+                                  operator represents a key's relationship to a set of values.
+                                  Valid operators are In, NotIn, Exists and DoesNotExist.
+                                type: string
+                              values:
+                                description: |-
+                                  values is an array of string values. If the operator is In or NotIn,
+                                  the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                  the values array must be empty. This array is replaced during a strategic
+                                  merge patch.
+                                items:
+                                  type: string
+                                type: array
+                                x-kubernetes-list-type: atomic
+                            required:
+                            - key
+                            - operator
+                            type: object
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        matchLabels:
+                          additionalProperties:
+                            type: string
+                          type: object
+                        name:
+                          type: string
+                      type: object
                   required:
                   - id
+                  - resource
                   type: object
                 type: array
                 x-kubernetes-list-map-keys:

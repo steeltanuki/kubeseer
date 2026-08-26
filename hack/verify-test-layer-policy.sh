@@ -56,7 +56,7 @@ for production_root in api internal; do
 	while IFS= read -r file; do
 		relative_path="${file#"$ROOT_DIR"/}"
 		case "$relative_path" in
-		api/v1alpha1/kubeseer_envtest_test.go|internal/discovery/envtest_test.go)
+		api/v1alpha1/kubeseer_envtest_test.go|internal/discovery/envtest_test.go|internal/selection/envtest_test.go)
 			;;
 		*)
 			violation "$relative_path is a package-local test file outside the approved envtest suites"
@@ -67,6 +67,7 @@ done
 
 check_envtest_suite api/v1alpha1/kubeseer_envtest_test.go TestAPIContract
 check_envtest_suite internal/discovery/envtest_test.go TestEnvtestDiscovery
+check_envtest_suite internal/selection/envtest_test.go TestEnvtestSelection
 
 if ((failures > 0)); then
 	printf 'Test layer policy failed (%d violation(s))\n' "$failures" >&2

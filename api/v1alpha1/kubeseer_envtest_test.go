@@ -98,7 +98,7 @@ func TestAPIContract(t *testing.T) {
 	resources := clients.Dynamic.Resource(kubeseerResourceGVR).Namespace(namespace)
 	accessPolicies := clients.Dynamic.Resource(accessPolicyResourceGVR)
 	environment.AddCleanup("delete Kubeseer API contract fixtures", func(ctx context.Context) error {
-		for _, name := range []string{"minimal", "valid-source", "negative-generation", "status-isolation", "typed-persistence"} {
+		for _, name := range []string{"minimal", "valid-source", "negative-generation", "status-isolation", "typed-persistence", "duplicate-source-ids", "missing-resource", "invalid-namespace", "duplicate-namespaces"} {
 			err := resources.Delete(ctx, name, metav1.DeleteOptions{})
 			if err != nil && !apierrors.IsNotFound(err) {
 				return err
@@ -120,6 +120,7 @@ func TestAPIContract(t *testing.T) {
 	assertMissingSpecRejected(t, ctx, resources, namespace)
 	assertInvalidSourceRejected(t, ctx, resources, namespace)
 	assertNonListSourcesRejected(t, ctx, resources, namespace)
+	assertSelectionSourceAdmissionRejected(t, ctx, resources, namespace)
 	assertNegativeObservedGenerationRejected(t, ctx, resources, namespace)
 	assertStatusUpdatePreservesSpec(t, ctx, resources, namespace)
 	assertUnservedVersionRejected(t, ctx, clients.Dynamic, namespace)
@@ -129,6 +130,7 @@ func TestAPIContract(t *testing.T) {
 
 	t.Logf("API contract passed with Kubernetes assets %s", environment.AssetsDirectory())
 	t.Log("API_CONTRACT=kubeseer-v1alpha1 STATUS=passed")
+	t.Log("API_CONTRACT=resource-selection-types STATUS=passed")
 	t.Log("API_CONTRACT=kubeseer-access-policy STATUS=passed")
 	t.Log("API_CONTRACT=kubeseer-access-policy-admission STATUS=passed")
 }
@@ -160,7 +162,21 @@ func assertTypedSchemeAndClient(t *testing.T, ctx context.Context, resources dyn
 			Namespace: namespace,
 			Labels:    map[string]string{"contract": "typed"},
 		},
-		Spec: KubeseerSpec{Sources: []KubeseerSource{{ID: "typed-source"}}},
+		Spec: KubeseerSpec{Sources: []KubeseerSource{{
+			ID:         "typed-source",
+			Resource:   ResourceReference{APIVersion: "v1", Kind: "Pod"},
+			Namespaces: &NamespaceSelection{Names: []string{"team-a"}},
+			Selector: &ResourceSelector{
+				Name:        "demo",
+				MatchLabels: map[string]string{"app": "demo"},
+				MatchExpressions: []metav1.LabelSelectorRequirement{{
+					Key:      "tier",
+					Operator: metav1.LabelSelectorOpIn,
+					Values:   []string{"backend"},
+				}},
+				FieldSelector: "metadata.namespace=team-a",
+			},
+		}}},
 		Status: KubeseerStatus{
 			ObservedGeneration: 7,
 			Conditions: []metav1.Condition{{
@@ -188,6 +204,34 @@ func assertTypedSchemeAndClient(t *testing.T, ctx context.Context, resources dyn
 	}
 	if decoded.Status.ObservedGeneration != original.Status.ObservedGeneration || decoded.Status.Result == nil || len(decoded.Status.Conditions) != len(original.Status.Conditions) {
 		t.Fatalf("typed JSON round-trip changed the status envelope: original=%#v decoded=%#v", original.Status, decoded.Status)
+	}
+	if decoded.Spec.Sources[0].Resource != original.Spec.Sources[0].Resource || decoded.Spec.Sources[0].Namespaces == nil || !reflect.DeepEqual(decoded.Spec.Sources[0].Namespaces.Names, original.Spec.Sources[0].Namespaces.Names) || decoded.Spec.Sources[0].Selector == nil || !reflect.DeepEqual(decoded.Spec.Sources[0].Selector, original.Spec.Sources[0].Selector) {
+		t.Fatalf("typed JSON round-trip changed source selection fields: original=%#v decoded=%#v", original.Spec.Sources[0], decoded.Spec.Sources[0])
+	}
+
+	emptyNamespaces := &Kubeseer{Spec: KubeseerSpec{Sources: []KubeseerSource{{ID: "empty-namespaces", Resource: ResourceReference{APIVersion: "v1", Kind: "Pod"}, Namespaces: &NamespaceSelection{Names: []string{}}}}}}
+	emptyJSON, err := json.Marshal(emptyNamespaces)
+	if err != nil {
+		t.Fatalf("serialize explicit empty namespaces: %v", err)
+	}
+	var decodedEmpty Kubeseer
+	if err := json.Unmarshal(emptyJSON, &decodedEmpty); err != nil {
+		t.Fatalf("deserialize explicit empty namespaces: %v", err)
+	}
+	if decodedEmpty.Spec.Sources[0].Namespaces == nil || decodedEmpty.Spec.Sources[0].Namespaces.Names == nil || len(decodedEmpty.Spec.Sources[0].Namespaces.Names) != 0 {
+		t.Fatalf("explicit empty namespaces lost pointer/list semantics: %#v", decodedEmpty.Spec.Sources[0])
+	}
+	omittedNamespaces := &Kubeseer{Spec: KubeseerSpec{Sources: []KubeseerSource{{ID: "omitted-namespaces", Resource: ResourceReference{APIVersion: "v1", Kind: "Pod"}}}}}
+	omittedJSON, err := json.Marshal(omittedNamespaces)
+	if err != nil {
+		t.Fatalf("serialize omitted namespaces: %v", err)
+	}
+	var decodedOmitted Kubeseer
+	if err := json.Unmarshal(omittedJSON, &decodedOmitted); err != nil {
+		t.Fatalf("deserialize omitted namespaces: %v", err)
+	}
+	if decodedOmitted.Spec.Sources[0].Namespaces != nil {
+		t.Fatalf("omitted namespaces synthesized a selection block: %#v", decodedOmitted.Spec.Sources[0])
 	}
 	for index, condition := range original.Status.Conditions {
 		decodedCondition := decoded.Status.Conditions[index]
@@ -246,8 +290,12 @@ func assertTypedSchemeAndClient(t *testing.T, ctx context.Context, resources dyn
 	}
 	copy.Labels["contract"] = "changed"
 	copy.Spec.Sources[0].ID = "changed"
+	copy.Spec.Sources[0].Namespaces.Names[0] = "changed"
+	copy.Spec.Sources[0].Selector.MatchLabels["app"] = "changed"
+	copy.Spec.Sources[0].Selector.MatchExpressions[0].Values[0] = "changed"
+	copy.Spec.Sources[0].Selector.FieldSelector = "changed"
 	copy.Status.Conditions[0].Reason = "Changed"
-	if persisted.Labels["contract"] != "typed" || persisted.Spec.Sources[0].ID != "typed-source" || persisted.Status.Conditions[0].Reason != "Available" {
+	if persisted.Labels["contract"] != "typed" || persisted.Spec.Sources[0].ID != "typed-source" || persisted.Spec.Sources[0].Namespaces.Names[0] != "team-a" || persisted.Spec.Sources[0].Selector.MatchLabels["app"] != "demo" || persisted.Spec.Sources[0].Selector.MatchExpressions[0].Values[0] != "backend" || persisted.Spec.Sources[0].Selector.FieldSelector != "metadata.namespace=team-a" || persisted.Status.Conditions[0].Reason != "Available" {
 		t.Fatalf("generated typed DeepCopy aliases the API-derived object: %#v", persisted)
 	}
 
@@ -477,8 +525,42 @@ func assertInstalledCRDContract(t *testing.T, ctx context.Context, client apiext
 	}
 	source := sources.Items.Schema
 	idSchema, found := source.Properties["id"]
-	if !found || source.Type != "object" || !apiContractContains(source.Required, "id") || idSchema.Type != "string" || idSchema.MaxLength == nil || *idSchema.MaxLength != 63 || idSchema.Pattern != `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$` {
+	if !found || source.Type != "object" || !apiContractContains(source.Required, "id") || !apiContractContains(source.Required, "resource") || idSchema.Type != "string" || idSchema.MaxLength == nil || *idSchema.MaxLength != 63 || idSchema.Pattern != `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$` {
 		t.Fatalf("installed CRD source ID schema is incorrect: %#v", source)
+	}
+	resource, found := source.Properties["resource"]
+	if !found || resource.Type != "object" || !apiContractContains(resource.Required, "apiVersion") || !apiContractContains(resource.Required, "kind") {
+		t.Fatalf("installed CRD resource reference schema is incorrect: %#v", resource)
+	}
+	for _, field := range []string{"apiVersion", "kind"} {
+		value, found := resource.Properties[field]
+		if !found || value.Type != "string" || value.MinLength == nil || *value.MinLength != 1 {
+			t.Fatalf("installed CRD resource reference field %q is incorrect: %#v", field, value)
+		}
+	}
+	namespaces, found := source.Properties["namespaces"]
+	if !found || namespaces.Type != "object" || !apiContractContains(namespaces.Required, "names") {
+		t.Fatalf("installed CRD namespace selection schema is incorrect: %#v", namespaces)
+	}
+	names, found := namespaces.Properties["names"]
+	if !found || names.Type != "array" || names.XListType == nil || *names.XListType != "set" || names.Items == nil || names.Items.Schema == nil || names.Items.Schema.MaxLength == nil || *names.Items.Schema.MaxLength != 63 || names.Items.Schema.Pattern != `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$` {
+		t.Fatalf("installed CRD namespace names schema is incorrect: %#v", names)
+	}
+	selector, found := source.Properties["selector"]
+	if !found || selector.Type != "object" {
+		t.Fatalf("installed CRD selector schema is incorrect: %#v", selector)
+	}
+	for _, field := range []string{"name", "fieldSelector"} {
+		value, found := selector.Properties[field]
+		if !found || value.Type != "string" {
+			t.Fatalf("installed CRD selector field %q is incorrect: %#v", field, value)
+		}
+	}
+	if labels, found := selector.Properties["matchLabels"]; !found || labels.Type != "object" || labels.AdditionalProperties == nil || labels.AdditionalProperties.Schema == nil || labels.AdditionalProperties.Schema.Type != "string" {
+		t.Fatalf("installed CRD matchLabels schema is incorrect: %#v", selector.Properties["matchLabels"])
+	}
+	if expressions, found := selector.Properties["matchExpressions"]; !found || expressions.Type != "array" || expressions.Items == nil || expressions.Items.Schema == nil || expressions.XListType == nil || *expressions.XListType != "atomic" {
+		t.Fatalf("installed CRD matchExpressions schema is incorrect: %#v", selector.Properties["matchExpressions"])
 	}
 	status, found := root.Properties["status"]
 	if !found || status.Type != "object" {
@@ -669,7 +751,10 @@ func createValidSourceResource(t *testing.T, ctx context.Context, resources dyna
 	t.Helper()
 
 	created, err := resources.Create(ctx, newKubeseer("valid-source", namespace, map[string]interface{}{
-		"sources": []interface{}{map[string]interface{}{"id": "source-one"}},
+		"sources": []interface{}{map[string]interface{}{
+			"id":       "source-one",
+			"resource": map[string]interface{}{"apiVersion": "v1", "kind": "Pod"},
+		}},
 	}), metav1.CreateOptions{})
 	if err != nil {
 		t.Fatalf("create Kubeseer with valid source: %v", err)
@@ -693,6 +778,63 @@ func assertInvalidSourceRejected(t *testing.T, ctx context.Context, resources dy
 		"sources": []interface{}{map[string]interface{}{"id": "Invalid_Source"}},
 	}), "invalid source ID")
 	assertNotPersisted(t, ctx, resources, "invalid-source")
+}
+
+func assertSelectionSourceAdmissionRejected(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface, namespace string) {
+	t.Helper()
+
+	validSource := func(id string) map[string]interface{} {
+		return map[string]interface{}{
+			"id": id,
+			"resource": map[string]interface{}{
+				"apiVersion": "v1",
+				"kind":       "Pod",
+			},
+		}
+	}
+	tests := []struct {
+		name   string
+		object *unstructured.Unstructured
+	}{
+		{
+			name: "duplicate source IDs",
+			object: newKubeseer("duplicate-source-ids", namespace, map[string]interface{}{
+				"sources": []interface{}{validSource("duplicate"), validSource("duplicate")},
+			}),
+		},
+		{
+			name: "missing resource coordinates",
+			object: newKubeseer("missing-resource", namespace, map[string]interface{}{
+				"sources": []interface{}{map[string]interface{}{"id": "missing-resource"}},
+			}),
+		},
+		{
+			name: "invalid namespace name",
+			object: newKubeseer("invalid-namespace", namespace, map[string]interface{}{
+				"sources": []interface{}{func() map[string]interface{} {
+					source := validSource("invalid-namespace")
+					source["namespaces"] = map[string]interface{}{"names": []interface{}{"Invalid_Namespace"}}
+					return source
+				}()},
+			}),
+		},
+		{
+			name: "duplicate namespace names",
+			object: newKubeseer("duplicate-namespaces", namespace, map[string]interface{}{
+				"sources": []interface{}{func() map[string]interface{} {
+					source := validSource("duplicate-namespaces")
+					source["namespaces"] = map[string]interface{}{"names": []interface{}{"team-a", "team-a"}}
+					return source
+				}()},
+			}),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertInvalidCreate(t, ctx, resources, test.object, test.name)
+			assertNotPersisted(t, ctx, resources, test.object.GetName())
+		})
+	}
 }
 
 func assertNonListSourcesRejected(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface, namespace string) {
@@ -725,7 +867,10 @@ func assertStatusUpdatePreservesSpec(t *testing.T, ctx context.Context, resource
 	t.Helper()
 
 	created, err := resources.Create(ctx, newKubeseer("status-isolation", namespace, map[string]interface{}{
-		"sources": []interface{}{map[string]interface{}{"id": "stable-source"}},
+		"sources": []interface{}{map[string]interface{}{
+			"id":       "stable-source",
+			"resource": map[string]interface{}{"apiVersion": "v1", "kind": "Pod"},
+		}},
 	}), metav1.CreateOptions{})
 	if err != nil {
 		t.Fatalf("create status-isolation fixture: %v", err)

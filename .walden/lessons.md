@@ -127,3 +127,8 @@ Review this file before non-trivial work when the current request matches past m
 - Trigger: The goal scope explicitly excluded implementing tasks added or modified during the consistency recovery
 - Lesson: Walden reconciliation can update contracts and proofs without authorizing new code; planning approval and implementation remain separate boundaries
 - Guardrail: During consistency recoveries, always distinguish re-verifying completed tasks from implementing new work and stop if a proof requires code that does not exist
+
+### 2026-08-26T08:51:58Z | resource-selection | requirements
+- Trigger: Initial requirements replacement used delete and add operations on the same path, which the patch mechanism rejected
+- Lesson: A scaffold replacement must use one update operation when multiple operations cannot target the same file
+- Guardrail: Replace an existing Walden scaffold with a single Update File patch
