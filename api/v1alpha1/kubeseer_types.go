@@ -14,7 +14,10 @@
 
 package v1alpha1
 
-import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+)
 
 // Kubeseer is the root custom resource for declarative Kubernetes observation.
 //
@@ -85,7 +88,30 @@ type KubeseerField struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=1024
 	Path string `json:"path"`
+
+	// Type is optional for API compatibility with untyped field declarations.
+	// Typed conversion reports a field-scoped missing-type failure when it is
+	// omitted.
+	// +optional
+	Type KubeseerValueType `json:"type,omitempty"`
 }
+
+// KubeseerValueType identifies the explicit logical type requested for one
+// extracted field.
+// +kubebuilder:validation:Enum=string;integer;number;boolean;timestamp;duration;quantity;object;list
+type KubeseerValueType string
+
+const (
+	ValueTypeString    KubeseerValueType = "string"
+	ValueTypeInteger   KubeseerValueType = "integer"
+	ValueTypeNumber    KubeseerValueType = "number"
+	ValueTypeBoolean   KubeseerValueType = "boolean"
+	ValueTypeTimestamp KubeseerValueType = "timestamp"
+	ValueTypeDuration  KubeseerValueType = "duration"
+	ValueTypeQuantity  KubeseerValueType = "quantity"
+	ValueTypeObject    KubeseerValueType = "object"
+	ValueTypeList      KubeseerValueType = "list"
+)
 
 // ResourceReference identifies the API version and Kind resolved through
 // Kubernetes discovery.
@@ -142,5 +168,175 @@ type KubeseerStatus struct {
 	Result *KubeseerResult `json:"result,omitempty"`
 }
 
-// KubeseerResult reserves a typed result envelope for later features.
-type KubeseerResult struct{}
+// KubeseerResult is the structural, ordered typed-output snapshot published
+// in status.
+type KubeseerResult struct {
+	// +optional
+	// +listType=atomic
+	Sources []KubeseerSourceResult `json:"sources,omitempty"`
+}
+
+// KubeseerSourceState identifies whether a source produced values or failed.
+// +kubebuilder:validation:Enum=values;error
+type KubeseerSourceState string
+
+const (
+	SourceStateValues KubeseerSourceState = "values"
+	SourceStateError  KubeseerSourceState = "error"
+)
+
+// KubeseerFieldState identifies absence, values, or a field-scoped failure.
+// +kubebuilder:validation:Enum=absent;values;error
+type KubeseerFieldState string
+
+const (
+	FieldStateAbsent KubeseerFieldState = "absent"
+	FieldStateValues KubeseerFieldState = "values"
+	FieldStateError  KubeseerFieldState = "error"
+)
+
+// KubeseerMatchState distinguishes a non-null value from an explicit null.
+// +kubebuilder:validation:Enum=value;null
+type KubeseerMatchState string
+
+const (
+	MatchStateValue KubeseerMatchState = "value"
+	MatchStateNull  KubeseerMatchState = "null"
+)
+
+// KubeseerSourceResult is one source-scoped typed-output result.
+type KubeseerSourceResult struct {
+	// +kubebuilder:validation:Required
+	ID string `json:"id"`
+
+	// +kubebuilder:validation:Required
+	State KubeseerSourceState `json:"state"`
+
+	// +optional
+	// +listType=atomic
+	FieldErrors []KubeseerFieldError `json:"fieldErrors,omitempty"`
+
+	// +optional
+	// +listType=atomic
+	Resources []KubeseerResourceResult `json:"resources,omitempty"`
+
+	// +optional
+	Error *KubeseerResultError `json:"error,omitempty"`
+}
+
+// KubeseerResourceResult identifies one contributing selected resource and
+// its ordered typed fields.
+type KubeseerResourceResult struct {
+	// +kubebuilder:validation:Required
+	APIVersion string `json:"apiVersion"`
+
+	// +kubebuilder:validation:Required
+	Kind string `json:"kind"`
+
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// +kubebuilder:validation:Required
+	UID types.UID `json:"uid"`
+
+	// +optional
+	// +listType=atomic
+	Fields []KubeseerFieldResult `json:"fields,omitempty"`
+}
+
+// KubeseerFieldResult is one field-scoped typed outcome.
+type KubeseerFieldResult struct {
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// +optional
+	Type KubeseerValueType `json:"type,omitempty"`
+
+	// +kubebuilder:validation:Required
+	State KubeseerFieldState `json:"state"`
+
+	// +optional
+	// +listType=atomic
+	Matches []KubeseerTypedMatch `json:"matches,omitempty"`
+
+	// +optional
+	Error *KubeseerResultError `json:"error,omitempty"`
+}
+
+// KubeseerTypedMatch is one ordered typed match. Exactly one typed payload is
+// populated when State is value; all payloads are omitted for null.
+type KubeseerTypedMatch struct {
+	// +kubebuilder:validation:Required
+	State KubeseerMatchState `json:"state"`
+
+	// +optional
+	StringValue *string `json:"stringValue,omitempty"`
+
+	// +optional
+	IntegerValue *int64 `json:"integerValue,omitempty"`
+
+	// +optional
+	NumberValue *string `json:"numberValue,omitempty"`
+
+	// +optional
+	BooleanValue *bool `json:"booleanValue,omitempty"`
+
+	// +optional
+	TimestampValue *metav1.Time `json:"timestampValue,omitempty"`
+
+	// +optional
+	DurationValue *KubeseerDurationValue `json:"durationValue,omitempty"`
+
+	// +optional
+	QuantityValue *KubeseerQuantityValue `json:"quantityValue,omitempty"`
+
+	// +optional
+	ObjectValue *string `json:"objectValue,omitempty"`
+
+	// +optional
+	ListValue *string `json:"listValue,omitempty"`
+}
+
+// KubeseerDurationValue is the canonical duration text and exact nanosecond
+// magnitude.
+type KubeseerDurationValue struct {
+	// +kubebuilder:validation:Required
+	Canonical string `json:"canonical"`
+
+	// +kubebuilder:validation:Required
+	Nanoseconds int64 `json:"nanoseconds"`
+}
+
+// KubeseerQuantityValue is the canonical Kubernetes quantity text and exact
+// normalized base-unit decimal magnitude.
+type KubeseerQuantityValue struct {
+	// +kubebuilder:validation:Required
+	Canonical string `json:"canonical"`
+
+	// +kubebuilder:validation:Required
+	BaseUnits string `json:"baseUnits"`
+}
+
+// KubeseerFieldError is a sanitized field planning failure.
+type KubeseerFieldError struct {
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// +kubebuilder:validation:Required
+	Reason string `json:"reason"`
+
+	// +optional
+	Message string `json:"message,omitempty"`
+}
+
+// KubeseerResultError is a sanitized runtime or source-level failure.
+type KubeseerResultError struct {
+	// +kubebuilder:validation:Required
+	Reason string `json:"reason"`
+
+	// +optional
+	Message string `json:"message,omitempty"`
+}

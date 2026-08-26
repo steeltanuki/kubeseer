@@ -33,10 +33,12 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 )
 
 const (
@@ -99,7 +101,7 @@ func TestAPIContract(t *testing.T) {
 	resources := clients.Dynamic.Resource(kubeseerResourceGVR).Namespace(namespace)
 	accessPolicies := clients.Dynamic.Resource(accessPolicyResourceGVR)
 	environment.AddCleanup("delete Kubeseer API contract fixtures", func(ctx context.Context) error {
-		for _, name := range []string{"minimal", "valid-source", "negative-generation", "status-isolation", "typed-persistence", "duplicate-source-ids", "missing-resource", "invalid-namespace", "duplicate-namespaces", "missing-field-name", "missing-field-path", "invalid-field-name", "overlong-field-path", "duplicate-field-names"} {
+		for _, name := range []string{"minimal", "valid-source", "negative-generation", "status-isolation", "typed-persistence", "untyped-field-compatible", "invalid-field-type", "typed-result-persistence", "duplicate-source-ids", "missing-resource", "invalid-namespace", "duplicate-namespaces", "missing-field-name", "missing-field-path", "invalid-field-name", "overlong-field-path", "duplicate-field-names"} {
 			err := resources.Delete(ctx, name, metav1.DeleteOptions{})
 			if err != nil && !apierrors.IsNotFound(err) {
 				return err
@@ -116,6 +118,7 @@ func TestAPIContract(t *testing.T) {
 	})
 
 	assertTypedSchemeAndClient(t, ctx, resources, namespace, environment.Config())
+	assertTypedOutputAPIScenarios(t, ctx, resources, namespace)
 	createMinimalResource(t, ctx, resources, namespace)
 	createValidSourceResource(t, ctx, resources, namespace)
 	assertMissingSpecRejected(t, ctx, resources, namespace)
@@ -135,6 +138,7 @@ func TestAPIContract(t *testing.T) {
 	t.Log("API_CONTRACT=resource-selection-types STATUS=passed")
 	t.Log("API_CONTRACT=kubeseer-access-policy STATUS=passed")
 	t.Log("API_CONTRACT=kubeseer-access-policy-admission STATUS=passed")
+	t.Log("API_CONTRACT=typed-output-model-types STATUS=passed")
 }
 
 func assertTypedSchemeAndClient(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface, namespace string, config *rest.Config) {
@@ -179,8 +183,8 @@ func assertTypedSchemeAndClient(t *testing.T, ctx context.Context, resources dyn
 				FieldSelector: "metadata.namespace=team-a",
 			},
 			Fields: []KubeseerField{
-				{Name: "resourceName", Path: "{.metadata.name}"},
-				{Name: "display-key", Path: "{.data['display-name']}"},
+				{Name: "resourceName", Path: "{.metadata.name}", Type: ValueTypeString},
+				{Name: "display-key", Path: "{.data['display-name']}", Type: ValueTypeString},
 			},
 		}}},
 		Status: KubeseerStatus{
@@ -305,12 +309,228 @@ func assertTypedSchemeAndClient(t *testing.T, ctx context.Context, resources dyn
 	copy.Spec.Sources[0].Selector.FieldSelector = "changed"
 	copy.Spec.Sources[0].Fields[0].Name = "changed"
 	copy.Spec.Sources[0].Fields[1].Path = "{.changed}"
+	copy.Spec.Sources[0].Fields[0].Type = ValueTypeInteger
 	copy.Status.Conditions[0].Reason = "Changed"
-	if persisted.Labels["contract"] != "typed" || persisted.Spec.Sources[0].ID != "typed-source" || persisted.Spec.Sources[0].Namespaces.Names[0] != "team-a" || persisted.Spec.Sources[0].Selector.MatchLabels["app"] != "demo" || persisted.Spec.Sources[0].Selector.MatchExpressions[0].Values[0] != "backend" || persisted.Spec.Sources[0].Selector.FieldSelector != "metadata.namespace=team-a" || persisted.Spec.Sources[0].Fields[0].Name != "resourceName" || persisted.Spec.Sources[0].Fields[1].Path != "{.data['display-name']}" || persisted.Status.Conditions[0].Reason != "Available" {
+	if persisted.Labels["contract"] != "typed" || persisted.Spec.Sources[0].ID != "typed-source" || persisted.Spec.Sources[0].Namespaces.Names[0] != "team-a" || persisted.Spec.Sources[0].Selector.MatchLabels["app"] != "demo" || persisted.Spec.Sources[0].Selector.MatchExpressions[0].Values[0] != "backend" || persisted.Spec.Sources[0].Selector.FieldSelector != "metadata.namespace=team-a" || persisted.Spec.Sources[0].Fields[0].Name != "resourceName" || persisted.Spec.Sources[0].Fields[0].Type != ValueTypeString || persisted.Spec.Sources[0].Fields[1].Path != "{.data['display-name']}" || persisted.Status.Conditions[0].Reason != "Available" {
 		t.Fatalf("generated typed DeepCopy aliases the API-derived object: %#v", persisted)
 	}
 
 	assertAccessPolicyTypedContract(t, ctx, config)
+}
+
+func assertTypedOutputAPIScenarios(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface, namespace string) {
+	t.Helper()
+
+	untyped := newKubeseer("untyped-field-compatible", namespace, map[string]interface{}{
+		"sources": []interface{}{map[string]interface{}{
+			"id":       "untyped-source",
+			"resource": map[string]interface{}{"apiVersion": "v1", "kind": "Pod"},
+			"fields": []interface{}{map[string]interface{}{
+				"name": "resourceName",
+				"path": "{.metadata.name}",
+			}},
+		}},
+	})
+	created, err := resources.Create(ctx, untyped, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("create otherwise-valid field without type: %v", err)
+	}
+	sources, found, err := unstructured.NestedSlice(created.Object, "spec", "sources")
+	if err != nil || !found || len(sources) != 1 {
+		t.Fatalf("read persisted untyped source: found=%t err=%v object=%#v", found, err, created.Object)
+	}
+	source, ok := sources[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("persisted untyped source has unexpected shape: %#v", sources[0])
+	}
+	fields, ok := source["fields"].([]interface{})
+	if !ok || len(fields) != 1 {
+		t.Fatalf("persisted untyped field has unexpected shape: %#v", source["fields"])
+	}
+	field, ok := fields[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("persisted untyped field has unexpected shape: %#v", fields[0])
+	}
+	if _, found := field["type"]; found {
+		t.Fatalf("omitted field type received an API default: %#v", field)
+	}
+
+	invalid := newKubeseer("invalid-field-type", namespace, map[string]interface{}{
+		"sources": []interface{}{map[string]interface{}{
+			"id":       "invalid-type-source",
+			"resource": map[string]interface{}{"apiVersion": "v1", "kind": "Pod"},
+			"fields": []interface{}{map[string]interface{}{
+				"name": "resourceName",
+				"path": "{.metadata.name}",
+				"type": "decimal",
+			}},
+		}},
+	})
+	assertInvalidCreate(t, ctx, resources, invalid, "unsupported typed-output field type")
+	assertNotPersisted(t, ctx, resources, invalid.GetName())
+
+	result := typedResultFixture()
+	encodedJSON, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("serialize typed result as JSON: %v", err)
+	}
+	var decodedJSON KubeseerResult
+	if err := json.Unmarshal(encodedJSON, &decodedJSON); err != nil {
+		t.Fatalf("deserialize typed result JSON: %v", err)
+	}
+	if !typedResultSemanticallyEqual(result, decodedJSON) {
+		t.Fatalf("typed result JSON round-trip changed semantics: original=%#v decoded=%#v", result, decodedJSON)
+	}
+
+	encodedYAML, err := yaml.Marshal(result)
+	if err != nil {
+		t.Fatalf("serialize typed result as YAML: %v", err)
+	}
+	var decodedYAML KubeseerResult
+	if err := yaml.Unmarshal(encodedYAML, &decodedYAML); err != nil {
+		t.Fatalf("deserialize typed result YAML: %v", err)
+	}
+	if !typedResultSemanticallyEqual(result, decodedYAML) {
+		t.Fatalf("typed result YAML round-trip changed semantics: original=%#v decoded=%#v", result, decodedYAML)
+	}
+	if !strings.Contains(string(encodedJSON), `"fieldErrors"`) || !strings.Contains(string(encodedJSON), `"stringValue"`) || !strings.Contains(string(encodedJSON), `"timestampValue"`) {
+		t.Fatalf("typed result JSON did not expose lower-camel-case structural payloads: %s", encodedJSON)
+	}
+
+	copy := result.DeepCopy()
+	if copy == &result || copy.Sources[0].Resources[0].Fields[1].Matches[0].StringValue == result.Sources[0].Resources[0].Fields[1].Matches[0].StringValue {
+		t.Fatal("generated typed-result DeepCopy did not isolate nested pointers")
+	}
+	copy.Sources[0].FieldErrors[0].Name = "changed"
+	*copy.Sources[0].Resources[0].Fields[1].Matches[0].StringValue = "changed"
+	copy.Sources[0].Resources[0].Fields[8].Error.Message = "changed"
+	copy.Sources[0].Resources[0].Fields[9].Matches[0].DurationValue.Canonical = "changed"
+	if result.Sources[0].FieldErrors[0].Name != "planning" || *result.Sources[0].Resources[0].Fields[1].Matches[0].StringValue != "" || result.Sources[0].Resources[0].Fields[8].Error.Message != "invalid number" || result.Sources[0].Resources[0].Fields[9].Matches[0].DurationValue.Canonical != "1.5s" {
+		t.Fatalf("generated typed-result DeepCopy aliases mutable nested fields: %#v", result)
+	}
+
+	assertTypedResultStatusPersistence(t, ctx, resources, namespace, result)
+
+	empty := newKubeseer("typed-empty-result", namespace, map[string]interface{}{})
+	emptyCreated, err := resources.Create(ctx, empty, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("create empty typed-result fixture: %v", err)
+	}
+	emptyStatus := emptyCreated.DeepCopy()
+	emptyStatus.Object["status"] = map[string]interface{}{"result": map[string]interface{}{}}
+	if _, err := resources.UpdateStatus(ctx, emptyStatus, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("persist explicitly empty typed result: %v", err)
+	}
+	storedEmpty, err := resources.Get(ctx, empty.GetName(), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get explicitly empty typed result: %v", err)
+	}
+	if _, found, err := unstructured.NestedMap(storedEmpty.Object, "status", "result"); err != nil || !found {
+		t.Fatalf("explicitly present empty status.result was not persisted: found=%t err=%v object=%#v", found, err, storedEmpty.Object)
+	}
+}
+
+func typedResultSemanticallyEqual(left, right KubeseerResult) bool {
+	leftCopy := *left.DeepCopy()
+	rightCopy := *right.DeepCopy()
+	for _, result := range []*KubeseerResult{&leftCopy, &rightCopy} {
+		for sourceIndex := range result.Sources {
+			for resourceIndex := range result.Sources[sourceIndex].Resources {
+				for fieldIndex := range result.Sources[sourceIndex].Resources[resourceIndex].Fields {
+					for matchIndex := range result.Sources[sourceIndex].Resources[resourceIndex].Fields[fieldIndex].Matches {
+						timestamp := result.Sources[sourceIndex].Resources[resourceIndex].Fields[fieldIndex].Matches[matchIndex].TimestampValue
+						if timestamp != nil {
+							timestamp.Time = timestamp.Time.UTC()
+						}
+					}
+				}
+			}
+		}
+	}
+	return reflect.DeepEqual(leftCopy, rightCopy)
+}
+
+func typedResultFixture() KubeseerResult {
+	emptyString := ""
+	zero := int64(0)
+	falseValue := false
+	timestamp := metav1.NewTime(time.Date(2026, time.August, 26, 14, 0, 0, 0, time.UTC))
+	number := "42.5"
+	object := `{"name":"demo"}`
+	list := `["first",2]`
+
+	return KubeseerResult{
+		Sources: []KubeseerSourceResult{
+			{
+				ID:    "typed-source",
+				State: SourceStateValues,
+				FieldErrors: []KubeseerFieldError{{
+					Name:   "planning",
+					Reason: "MissingType",
+				}},
+				Resources: []KubeseerResourceResult{{
+					APIVersion: "v1",
+					Kind:       "Pod",
+					Namespace:  "team-a",
+					Name:       "demo",
+					UID:        types.UID("9e7d5e6b-4f7b-4c34-8ef6-typedout001"),
+					Fields: []KubeseerFieldResult{
+						{Name: "absent", Type: ValueTypeString, State: FieldStateAbsent},
+						{Name: "empty-string", Type: ValueTypeString, State: FieldStateValues, Matches: []KubeseerTypedMatch{{State: MatchStateValue, StringValue: &emptyString}}},
+						{Name: "zero", Type: ValueTypeInteger, State: FieldStateValues, Matches: []KubeseerTypedMatch{{State: MatchStateValue, IntegerValue: &zero}}},
+						{Name: "false", Type: ValueTypeBoolean, State: FieldStateValues, Matches: []KubeseerTypedMatch{{State: MatchStateValue, BooleanValue: &falseValue}}},
+						{Name: "null", Type: ValueTypeObject, State: FieldStateValues, Matches: []KubeseerTypedMatch{{State: MatchStateNull}}},
+						{Name: "number", Type: ValueTypeNumber, State: FieldStateValues, Matches: []KubeseerTypedMatch{{State: MatchStateValue, NumberValue: &number}}},
+						{Name: "timestamp", Type: ValueTypeTimestamp, State: FieldStateValues, Matches: []KubeseerTypedMatch{{State: MatchStateValue, TimestampValue: &timestamp}}},
+						{Name: "quantity", Type: ValueTypeQuantity, State: FieldStateValues, Matches: []KubeseerTypedMatch{{State: MatchStateValue, QuantityValue: &KubeseerQuantityValue{Canonical: "1.5", BaseUnits: "1.5"}}}},
+						{Name: "error", Type: ValueTypeNumber, State: FieldStateError, Error: &KubeseerResultError{Reason: "InvalidValue", Message: "invalid number"}},
+						{Name: "duration", Type: ValueTypeDuration, State: FieldStateValues, Matches: []KubeseerTypedMatch{{State: MatchStateValue, DurationValue: &KubeseerDurationValue{Canonical: "1.5s", Nanoseconds: 1500000000}}}},
+						{Name: "object", Type: ValueTypeObject, State: FieldStateValues, Matches: []KubeseerTypedMatch{{State: MatchStateValue, ObjectValue: &object}}},
+						{Name: "list", Type: ValueTypeList, State: FieldStateValues, Matches: []KubeseerTypedMatch{{State: MatchStateValue, ListValue: &list}}},
+					},
+				}},
+			},
+			{
+				ID:    "failed-source",
+				State: SourceStateError,
+				Error: &KubeseerResultError{Reason: "ReadUnavailable", Message: "source unavailable"},
+			},
+		},
+	}
+}
+
+func assertTypedResultStatusPersistence(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface, namespace string, result KubeseerResult) {
+	t.Helper()
+
+	object := newKubeseer("typed-result-persistence", namespace, map[string]interface{}{})
+	created, err := resources.Create(ctx, object, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("create typed result persistence fixture: %v", err)
+	}
+	statusObject, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&Kubeseer{Status: KubeseerStatus{Result: &result}})
+	if err != nil {
+		t.Fatalf("convert typed result status for API persistence: %v", err)
+	}
+	status, ok := statusObject["status"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("converted typed result status has unexpected shape: %#v", statusObject["status"])
+	}
+	statusUpdate := created.DeepCopy()
+	statusUpdate.Object["status"] = status
+	if _, err := resources.UpdateStatus(ctx, statusUpdate, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("persist typed result through status subresource: %v", err)
+	}
+	stored, err := resources.Get(ctx, object.GetName(), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get typed result status fixture: %v", err)
+	}
+	var decoded Kubeseer
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(stored.Object, &decoded); err != nil {
+		t.Fatalf("decode persisted typed result: %v", err)
+	}
+	if decoded.Status.Result == nil || !typedResultSemanticallyEqual(result, *decoded.Status.Result) {
+		t.Fatalf("status subresource changed typed result semantics: expected=%#v actual=%#v", result, decoded.Status.Result)
+	}
 }
 
 func assertAccessPolicyTypedContract(t *testing.T, ctx context.Context, config *rest.Config) {
@@ -589,6 +809,10 @@ func assertInstalledCRDContract(t *testing.T, ctx context.Context, client apiext
 	if !found || fieldPath.Type != "string" || fieldPath.MinLength == nil || *fieldPath.MinLength != 1 || fieldPath.MaxLength == nil || *fieldPath.MaxLength != 1024 {
 		t.Fatalf("installed CRD field path schema is incorrect: %#v", fieldPath)
 	}
+	fieldType, found := field.Properties["type"]
+	if !found || fieldType.Type != "string" || !equalJSONValues(fieldType.Enum, []string{"string", "integer", "number", "boolean", "timestamp", "duration", "quantity", "object", "list"}) || fieldType.Default != nil {
+		t.Fatalf("installed CRD field type schema is incorrect: %#v", fieldType)
+	}
 	status, found := root.Properties["status"]
 	if !found || status.Type != "object" {
 		t.Fatalf("installed CRD status schema is incorrect: %#v", status)
@@ -597,10 +821,66 @@ func assertInstalledCRDContract(t *testing.T, ctx context.Context, client apiext
 	if !found || observedGeneration.Type != "integer" || observedGeneration.Format != "int64" || observedGeneration.Minimum == nil || *observedGeneration.Minimum != 0 {
 		t.Fatalf("installed CRD observedGeneration schema is incorrect: %#v", observedGeneration)
 	}
-	if result, found := status.Properties["result"]; !found || result.Type != "object" || len(result.Properties) != 0 || result.AdditionalProperties != nil {
+	result, found := status.Properties["result"]
+	if !found || result.Type != "object" || result.AdditionalProperties != nil || len(result.Properties) != 1 {
 		t.Fatalf("installed CRD result schema is incorrect: %#v", result)
 	}
+	resultSources, found := result.Properties["sources"]
+	if !found || resultSources.Type != "array" || resultSources.Items == nil || resultSources.Items.Schema == nil || resultSources.XListType == nil || *resultSources.XListType != "atomic" {
+		t.Fatalf("installed CRD typed result sources schema is incorrect: %#v", resultSources)
+	}
+	sourceResult := resultSources.Items.Schema
+	if sourceResult.Type != "object" {
+		t.Fatalf("installed CRD typed source result schema is not an object: %#v", sourceResult)
+	}
+	state, found := sourceResult.Properties["state"]
+	if !found || state.Type != "string" || !equalJSONValues(state.Enum, []string{"values", "error"}) {
+		t.Fatalf("installed CRD source state schema is incorrect: %#v", state)
+	}
+	fieldErrors, found := sourceResult.Properties["fieldErrors"]
+	if !found || fieldErrors.Type != "array" || fieldErrors.Items == nil || fieldErrors.Items.Schema == nil || fieldErrors.XListType == nil || *fieldErrors.XListType != "atomic" {
+		t.Fatalf("installed CRD field errors schema is incorrect: %#v", fieldErrors)
+	}
+	resourcesResult, found := sourceResult.Properties["resources"]
+	if !found || resourcesResult.Type != "array" || resourcesResult.Items == nil || resourcesResult.Items.Schema == nil || resourcesResult.XListType == nil || *resourcesResult.XListType != "atomic" {
+		t.Fatalf("installed CRD typed resources schema is incorrect: %#v", resourcesResult)
+	}
+	resourceResult := resourcesResult.Items.Schema
+	fieldsResult, found := resourceResult.Properties["fields"]
+	if !found || fieldsResult.Type != "array" || fieldsResult.Items == nil || fieldsResult.Items.Schema == nil || fieldsResult.XListType == nil || *fieldsResult.XListType != "atomic" {
+		t.Fatalf("installed CRD typed fields schema is incorrect: %#v", fieldsResult)
+	}
+	fieldResult := fieldsResult.Items.Schema
+	fieldResultType, found := fieldResult.Properties["type"]
+	if !found || !equalJSONValues(fieldResultType.Enum, []string{"string", "integer", "number", "boolean", "timestamp", "duration", "quantity", "object", "list"}) {
+		t.Fatalf("installed CRD typed field type schema is incorrect: %#v", fieldResultType)
+	}
+	fieldState, found := fieldResult.Properties["state"]
+	if !found || !equalJSONValues(fieldState.Enum, []string{"absent", "values", "error"}) {
+		t.Fatalf("installed CRD typed field state schema is incorrect: %#v", fieldState)
+	}
+	matches, found := fieldResult.Properties["matches"]
+	if !found || matches.Type != "array" || matches.Items == nil || matches.Items.Schema == nil || matches.XListType == nil || *matches.XListType != "atomic" {
+		t.Fatalf("installed CRD typed matches schema is incorrect: %#v", matches)
+	}
+	match := matches.Items.Schema
+	matchState, found := match.Properties["state"]
+	if !found || !equalJSONValues(matchState.Enum, []string{"value", "null"}) {
+		t.Fatalf("installed CRD match state schema is incorrect: %#v", matchState)
+	}
+	for _, payload := range []string{"stringValue", "numberValue", "objectValue", "listValue"} {
+		value, found := match.Properties[payload]
+		if !found || value.Type != "string" {
+			t.Fatalf("installed CRD typed string payload %q schema is incorrect: %#v", payload, value)
+		}
+	}
+	for _, payload := range []string{"integerValue", "durationValue", "quantityValue", "timestampValue", "booleanValue"} {
+		if _, found := match.Properties[payload]; !found {
+			t.Fatalf("installed CRD typed payload %q schema is missing: %#v", payload, match.Properties)
+		}
+	}
 	apiContractAssertNoDefaults(t, root)
+	apiContractAssertNoPreserveUnknownFields(t, root)
 }
 
 func assertInstalledAccessPolicyCRDContract(t *testing.T, ctx context.Context, client apiextensionsclient.Interface) {
@@ -723,6 +1003,26 @@ func apiContractAssertNoDefaults(t *testing.T, schema *apiextensionsv1.JSONSchem
 	}
 	if schema.Items != nil && schema.Items.Schema != nil {
 		apiContractAssertNoDefaults(t, schema.Items.Schema)
+	}
+}
+
+func apiContractAssertNoPreserveUnknownFields(t *testing.T, schema *apiextensionsv1.JSONSchemaProps) {
+	t.Helper()
+	if schema.XPreserveUnknownFields != nil {
+		t.Fatalf("installed CRD schema contains preserve-unknown-fields at %#v", schema)
+	}
+	for propertyName, property := range schema.Properties {
+		property := property
+		if property.XPreserveUnknownFields != nil {
+			t.Fatalf("installed CRD schema contains preserve-unknown-fields in property %q", propertyName)
+		}
+		apiContractAssertNoPreserveUnknownFields(t, &property)
+	}
+	if schema.Items != nil && schema.Items.Schema != nil {
+		apiContractAssertNoPreserveUnknownFields(t, schema.Items.Schema)
+	}
+	if schema.AdditionalProperties != nil && schema.AdditionalProperties.Schema != nil {
+		apiContractAssertNoPreserveUnknownFields(t, schema.AdditionalProperties.Schema)
 	}
 }
 

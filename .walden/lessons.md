@@ -136,3 +136,7 @@ Review this file before non-trivial work when the current request matches past m
 - Trigger: Initial integration proof exposed empty-match and cancellation-fixture assumptions
 - Lesson: Extraction tests must distinguish absent nil matches from allocated empty slices, and synthetic cancellation contexts can interrupt a source when their checkpoint budget is calibrated to an internal call count.
 - Guardrail: Assert the explicit zero-match contract and design cancellation fixtures at the observable batch boundary; rerun the targeted higher-layer suite before recording task evidence.
+### 2026-08-26T16:06:07Z | typed-output-model | execute
+- Trigger: Initial task 1.1 envtest proof failed while compiling the new API contract helper
+- Lesson: A large envtest helper can hide declaration and shadowing errors until the full API proof starts
+- Guardrail: Run gofmt and a compile-only package check immediately after adding each new envtest helper before starting the local control plane

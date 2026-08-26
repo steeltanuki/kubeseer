@@ -74,6 +74,18 @@ func TestModuleIntegration(t *testing.T) {
 	t.Run("field extraction batches preserve source atomicity and cancellation", func(t *testing.T) {
 		assertFieldExtractionBatchScenarios(t)
 	})
+	t.Run("typed-output scalar planning and conversions remain explicit", func(t *testing.T) {
+		assertTypedOutputConversionScenarios(t)
+	})
+	t.Run("typed-output outcomes preserve cardinality and composite values", func(t *testing.T) {
+		assertTypedOutputCardinalityScenarios(t)
+	})
+	t.Run("typed-output results serialize through the structural status adapter", func(t *testing.T) {
+		assertTypedOutputSerializationScenarios(t)
+	})
+	t.Run("typed-output batches isolate fields, sources, and cancellation", func(t *testing.T) {
+		assertTypedOutputIsolationScenarios(t)
+	})
 
 	t.Log("MODULE_INTEGRATION=discovery-access-policy-evaluation STATUS=passed")
 	t.Log("MODULE_INTEGRATION=discovery-access-policy-loader STATUS=passed")
@@ -85,6 +97,10 @@ func TestModuleIntegration(t *testing.T) {
 	t.Log("MODULE_INTEGRATION=field-extraction-planning STATUS=passed")
 	t.Log("MODULE_INTEGRATION=field-extraction-native-values STATUS=passed")
 	t.Log("MODULE_INTEGRATION=field-extraction-batch STATUS=passed")
+	t.Log("MODULE_INTEGRATION=typed-output-model-conversions STATUS=passed")
+	t.Log("MODULE_INTEGRATION=typed-output-model-cardinality STATUS=passed")
+	t.Log("MODULE_INTEGRATION=typed-output-model-serialization STATUS=passed")
+	t.Log("MODULE_INTEGRATION=typed-output-model-isolation STATUS=passed")
 }
 
 func assertEvaluationScenarios(t *testing.T, ctx context.Context, resolver *discovery.Resolver) {
