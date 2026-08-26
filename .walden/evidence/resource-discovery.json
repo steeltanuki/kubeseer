@@ -3,171 +3,11 @@
   "feature": "resource-discovery",
   "tasks": {
     "1.1": {
-      "task_fingerprint": "sha256:82d822cbf6a28ec41c051809f19b087f3e351bfa3891426bc83f30b93a240f23",
+      "task_fingerprint": "sha256:f3828cc2090b13ba38613ea051bc89b28fbbdf7c23068edf91afd353471ba63d",
       "requirements_fingerprint": "sha256:3d227198f729edbadbff52f8885f0c9af6d35f19a2b2c761565dacc6ff3109c6",
-      "design_fingerprint": "sha256:3758e9ed57d131cec58d72b1d2e659fabdf35d9552eb5f1f4c482f606ab5ea68",
-      "tasks_fingerprint": "sha256:68f192b1c29b8d1f70f322837a1111a14850cc8f482012f34562e839d6bae188",
-      "code_identity": "sha256:c35bb11d4b09a17825b0c8a11515f8a92702c94dfd3554bbf804fd01642ad4d0",
-      "profile": {
-        "go": "go version go1.26.6-X:nodwarf5 linux/amd64",
-        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
-        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
-        "platform": "linux/amd64",
-        "podman": "podman version 5.8.4",
-        "walden": "v0.10.1"
-      },
-      "steps": [
-        {
-          "command": [
-            "go",
-            "test",
-            "-v",
-            "./internal/discovery/...",
-            "-run",
-            "^TestDiscoveryContracts$"
-          ],
-          "expected_exit": 0,
-          "actual_exit": 0,
-          "output_digest": "sha256:a4f59b1ff6d9110bcc145d9432c0ef1332ff9e9db75c3b47bf1d04a6005666b8"
-        }
-      ],
-      "result": "failed",
-      "verified_at": "2026-08-25T20:25:53Z"
-    },
-    "1.2": {
-      "task_fingerprint": "sha256:93c29d3a350bcb4d643ec07e6ef9c425e177d386f84247572ca18749472b0e33",
-      "requirements_fingerprint": "sha256:3d227198f729edbadbff52f8885f0c9af6d35f19a2b2c761565dacc6ff3109c6",
-      "design_fingerprint": "sha256:3758e9ed57d131cec58d72b1d2e659fabdf35d9552eb5f1f4c482f606ab5ea68",
-      "tasks_fingerprint": "sha256:68f192b1c29b8d1f70f322837a1111a14850cc8f482012f34562e839d6bae188",
-      "code_identity": "sha256:c35bb11d4b09a17825b0c8a11515f8a92702c94dfd3554bbf804fd01642ad4d0",
-      "profile": {
-        "go": "go version go1.26.6-X:nodwarf5 linux/amd64",
-        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
-        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
-        "platform": "linux/amd64",
-        "podman": "podman version 5.8.4",
-        "walden": "v0.10.1"
-      },
-      "steps": [
-        {
-          "command": [
-            "go",
-            "test",
-            "-v",
-            "./internal/discovery/...",
-            "-run",
-            "^TestResolve(Single|Core|Grouped|CRD|Scope|Ambiguous)$"
-          ],
-          "expected_exit": 0,
-          "actual_exit": 0,
-          "output_digest": "sha256:4102a2fc62e83194b1d07ec8d4f7a86dd6013b92a196a653faa2a3aedcd59eb7"
-        }
-      ],
-      "result": "failed",
-      "verified_at": "2026-08-25T20:25:53Z"
-    },
-    "1.3": {
-      "task_fingerprint": "sha256:47c5a409d46d47b3dd8991d6c3746706dc699c8aeeffb380df8a2bd9941c6996",
-      "requirements_fingerprint": "sha256:3d227198f729edbadbff52f8885f0c9af6d35f19a2b2c761565dacc6ff3109c6",
-      "design_fingerprint": "sha256:3758e9ed57d131cec58d72b1d2e659fabdf35d9552eb5f1f4c482f606ab5ea68",
-      "tasks_fingerprint": "sha256:68f192b1c29b8d1f70f322837a1111a14850cc8f482012f34562e839d6bae188",
-      "code_identity": "sha256:c35bb11d4b09a17825b0c8a11515f8a92702c94dfd3554bbf804fd01642ad4d0",
-      "profile": {
-        "go": "go version go1.26.6-X:nodwarf5 linux/amd64",
-        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
-        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
-        "platform": "linux/amd64",
-        "podman": "podman version 5.8.4",
-        "walden": "v0.10.1"
-      },
-      "steps": [
-        {
-          "command": [
-            "go",
-            "test",
-            "-v",
-            "./internal/discovery/...",
-            "-run",
-            "^TestResolveBatch$"
-          ],
-          "expected_exit": 0,
-          "actual_exit": 0,
-          "output_digest": "sha256:1c4152e8447a438c02829dbcdcb4c1dec94f3833ae683c20a2ff77379c29d997"
-        }
-      ],
-      "result": "failed",
-      "verified_at": "2026-08-25T20:25:53Z"
-    },
-    "2.1": {
-      "task_fingerprint": "sha256:134271bbb8dfa88ffeb227f02757d8a63063407a6e209a70fed30bdb74a344af",
-      "requirements_fingerprint": "sha256:3d227198f729edbadbff52f8885f0c9af6d35f19a2b2c761565dacc6ff3109c6",
-      "design_fingerprint": "sha256:3758e9ed57d131cec58d72b1d2e659fabdf35d9552eb5f1f4c482f606ab5ea68",
-      "tasks_fingerprint": "sha256:68f192b1c29b8d1f70f322837a1111a14850cc8f482012f34562e839d6bae188",
-      "code_identity": "sha256:c35bb11d4b09a17825b0c8a11515f8a92702c94dfd3554bbf804fd01642ad4d0",
-      "profile": {
-        "go": "go version go1.26.6-X:nodwarf5 linux/amd64",
-        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
-        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
-        "platform": "linux/amd64",
-        "podman": "podman version 5.8.4",
-        "walden": "v0.10.1"
-      },
-      "steps": [
-        {
-          "command": [
-            "go",
-            "test",
-            "-v",
-            "./internal/discovery/...",
-            "-run",
-            "^TestCache(FreshHit|ExpiryRefresh|ConcurrentRefresh)$"
-          ],
-          "expected_exit": 0,
-          "actual_exit": 0,
-          "output_digest": "sha256:cab9ea254b932bdda65030463e9502cc7d3f8d569bc82883acdf829ff4b98500"
-        }
-      ],
-      "result": "failed",
-      "verified_at": "2026-08-25T20:25:53Z"
-    },
-    "2.2": {
-      "task_fingerprint": "sha256:fd36791ec5395a4ae6126fe7edfada90bff16775ec7eb77040c0f28919c079f3",
-      "requirements_fingerprint": "sha256:3d227198f729edbadbff52f8885f0c9af6d35f19a2b2c761565dacc6ff3109c6",
-      "design_fingerprint": "sha256:3758e9ed57d131cec58d72b1d2e659fabdf35d9552eb5f1f4c482f606ab5ea68",
-      "tasks_fingerprint": "sha256:68f192b1c29b8d1f70f322837a1111a14850cc8f482012f34562e839d6bae188",
-      "code_identity": "sha256:c35bb11d4b09a17825b0c8a11515f8a92702c94dfd3554bbf804fd01642ad4d0",
-      "profile": {
-        "go": "go version go1.26.6-X:nodwarf5 linux/amd64",
-        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
-        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
-        "platform": "linux/amd64",
-        "podman": "podman version 5.8.4",
-        "walden": "v0.10.1"
-      },
-      "steps": [
-        {
-          "command": [
-            "go",
-            "test",
-            "-v",
-            "./internal/discovery/...",
-            "-run",
-            "^TestCacheInvalidation$"
-          ],
-          "expected_exit": 0,
-          "actual_exit": 0,
-          "output_digest": "sha256:5a6d16fe9797e3cc9cc6d70990281083f5f39e8b99b965367193453a38febb4f"
-        }
-      ],
-      "result": "failed",
-      "verified_at": "2026-08-25T20:25:53Z"
-    },
-    "3.1": {
-      "task_fingerprint": "sha256:d012f2fbda11fe847b47ee8e14ee480e4ea961452f4c001f38b77fbc31697c84",
-      "requirements_fingerprint": "sha256:3d227198f729edbadbff52f8885f0c9af6d35f19a2b2c761565dacc6ff3109c6",
-      "design_fingerprint": "sha256:3758e9ed57d131cec58d72b1d2e659fabdf35d9552eb5f1f4c482f606ab5ea68",
-      "tasks_fingerprint": "sha256:68f192b1c29b8d1f70f322837a1111a14850cc8f482012f34562e839d6bae188",
-      "code_identity": "sha256:c35bb11d4b09a17825b0c8a11515f8a92702c94dfd3554bbf804fd01642ad4d0",
+      "design_fingerprint": "sha256:c1091faf2b6ed1c8ae37f91667c75d6ed8be2babecde700633cf084cbf75182e",
+      "tasks_fingerprint": "sha256:8671ea5ac173b0887710f98bb167964cfcc6e1258b781c8ed9f61d6d34e625e4",
+      "code_identity": "sha256:b002e0494c613851d96050afe292e84f328b73284b77af56223c3ae483f2d158",
       "profile": {
         "go": "go version go1.26.6-X:nodwarf5 linux/amd64",
         "kind": "kind v0.27.0 go1.23.6 linux/amd64",
@@ -181,22 +21,22 @@
           "command": [
             "sh",
             "-c",
-            "KUBEBUILDER_ASSETS=\"$(./hack/envtest-assets.sh 1.35.6)\" go test -v ./internal/discovery/... -run '^TestEnvtestDiscovery$'"
+            "GOCACHE=/tmp/kubeseer-resource-discovery-go-build GOMODCACHE=/tmp/kubeseer-resource-discovery-go-mod make test-api GO_TEST_FLAGS=-race"
           ],
           "expected_exit": 0,
           "actual_exit": 0,
-          "output_digest": "sha256:69e282f6e84708f48c843e81096f0c049654d0f2c2b381049cbc7db0e9f8ec49"
+          "output_digest": "sha256:8172d42532744c7a0202277b3975202d9a18a0090a225b85178f895a2264a4ab"
         }
       ],
       "result": "passed",
-      "verified_at": "2026-08-25T20:25:53Z"
+      "verified_at": "2026-08-26T08:18:35Z"
     },
-    "3.2": {
-      "task_fingerprint": "sha256:79b8d9afac9bb058e3bfc5533d217c80d342e11a7d4cb351317e8869cee63ef7",
+    "1.2": {
+      "task_fingerprint": "sha256:3c1130b1ce2ba5c4bfa3d80e33e702cd17d49c84017d057a2983890c50654d56",
       "requirements_fingerprint": "sha256:3d227198f729edbadbff52f8885f0c9af6d35f19a2b2c761565dacc6ff3109c6",
-      "design_fingerprint": "sha256:3758e9ed57d131cec58d72b1d2e659fabdf35d9552eb5f1f4c482f606ab5ea68",
-      "tasks_fingerprint": "sha256:68f192b1c29b8d1f70f322837a1111a14850cc8f482012f34562e839d6bae188",
-      "code_identity": "sha256:c35bb11d4b09a17825b0c8a11515f8a92702c94dfd3554bbf804fd01642ad4d0",
+      "design_fingerprint": "sha256:c1091faf2b6ed1c8ae37f91667c75d6ed8be2babecde700633cf084cbf75182e",
+      "tasks_fingerprint": "sha256:8671ea5ac173b0887710f98bb167964cfcc6e1258b781c8ed9f61d6d34e625e4",
+      "code_identity": "sha256:b002e0494c613851d96050afe292e84f328b73284b77af56223c3ae483f2d158",
       "profile": {
         "go": "go version go1.26.6-X:nodwarf5 linux/amd64",
         "kind": "kind v0.27.0 go1.23.6 linux/amd64",
@@ -208,19 +48,162 @@
       "steps": [
         {
           "command": [
-            "go",
-            "test",
-            "-race",
-            "-v",
-            "./internal/discovery/..."
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-resource-discovery-go-build GOMODCACHE=/tmp/kubeseer-resource-discovery-go-mod make test-api GO_TEST_FLAGS=-race"
           ],
           "expected_exit": 0,
-          "actual_exit": 1,
-          "output_digest": "sha256:f857d3042449558cdbc49dee49aec1a7933c5487b5ed81d893c3c5977e483e08"
+          "actual_exit": 0,
+          "output_digest": "sha256:c1003ff112220ae271e40742646839fb888ae5154e6cfb7075f00a4110a6c620"
         }
       ],
-      "result": "failed",
-      "verified_at": "2026-08-25T20:25:53Z"
+      "result": "passed",
+      "verified_at": "2026-08-26T08:18:35Z"
+    },
+    "1.3": {
+      "task_fingerprint": "sha256:d6b20eb56c87a801cf810ea036e8e5f6487bbd7958a587c34889745f191d89ba",
+      "requirements_fingerprint": "sha256:3d227198f729edbadbff52f8885f0c9af6d35f19a2b2c761565dacc6ff3109c6",
+      "design_fingerprint": "sha256:c1091faf2b6ed1c8ae37f91667c75d6ed8be2babecde700633cf084cbf75182e",
+      "tasks_fingerprint": "sha256:8671ea5ac173b0887710f98bb167964cfcc6e1258b781c8ed9f61d6d34e625e4",
+      "code_identity": "sha256:b002e0494c613851d96050afe292e84f328b73284b77af56223c3ae483f2d158",
+      "profile": {
+        "go": "go version go1.26.6-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-resource-discovery-go-build GOMODCACHE=/tmp/kubeseer-resource-discovery-go-mod make test-api GO_TEST_FLAGS=-race"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:c1003ff112220ae271e40742646839fb888ae5154e6cfb7075f00a4110a6c620"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-26T08:18:35Z"
+    },
+    "2.1": {
+      "task_fingerprint": "sha256:45b158eebf71de8870d0d2a7d7d243e5d14540096331e65e0f35bccb10ee0c2d",
+      "requirements_fingerprint": "sha256:3d227198f729edbadbff52f8885f0c9af6d35f19a2b2c761565dacc6ff3109c6",
+      "design_fingerprint": "sha256:c1091faf2b6ed1c8ae37f91667c75d6ed8be2babecde700633cf084cbf75182e",
+      "tasks_fingerprint": "sha256:8671ea5ac173b0887710f98bb167964cfcc6e1258b781c8ed9f61d6d34e625e4",
+      "code_identity": "sha256:b002e0494c613851d96050afe292e84f328b73284b77af56223c3ae483f2d158",
+      "profile": {
+        "go": "go version go1.26.6-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-resource-discovery-go-build GOMODCACHE=/tmp/kubeseer-resource-discovery-go-mod make test-api GO_TEST_FLAGS=-race"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:c1003ff112220ae271e40742646839fb888ae5154e6cfb7075f00a4110a6c620"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-26T08:18:35Z"
+    },
+    "2.2": {
+      "task_fingerprint": "sha256:86d402e89c0b37e350545dbda598e6a9fe7edec1e80219b3a8d51a2f07fc2100",
+      "requirements_fingerprint": "sha256:3d227198f729edbadbff52f8885f0c9af6d35f19a2b2c761565dacc6ff3109c6",
+      "design_fingerprint": "sha256:c1091faf2b6ed1c8ae37f91667c75d6ed8be2babecde700633cf084cbf75182e",
+      "tasks_fingerprint": "sha256:8671ea5ac173b0887710f98bb167964cfcc6e1258b781c8ed9f61d6d34e625e4",
+      "code_identity": "sha256:b002e0494c613851d96050afe292e84f328b73284b77af56223c3ae483f2d158",
+      "profile": {
+        "go": "go version go1.26.6-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-resource-discovery-go-build GOMODCACHE=/tmp/kubeseer-resource-discovery-go-mod make test-api GO_TEST_FLAGS=-race"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:c1003ff112220ae271e40742646839fb888ae5154e6cfb7075f00a4110a6c620"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-26T08:18:35Z"
+    },
+    "3.1": {
+      "task_fingerprint": "sha256:bdf476b82c4ee415e83aa85ed8724196361791db1d60a58db9a268ee65c7416a",
+      "requirements_fingerprint": "sha256:3d227198f729edbadbff52f8885f0c9af6d35f19a2b2c761565dacc6ff3109c6",
+      "design_fingerprint": "sha256:c1091faf2b6ed1c8ae37f91667c75d6ed8be2babecde700633cf084cbf75182e",
+      "tasks_fingerprint": "sha256:8671ea5ac173b0887710f98bb167964cfcc6e1258b781c8ed9f61d6d34e625e4",
+      "code_identity": "sha256:b002e0494c613851d96050afe292e84f328b73284b77af56223c3ae483f2d158",
+      "profile": {
+        "go": "go version go1.26.6-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-resource-discovery-go-build GOMODCACHE=/tmp/kubeseer-resource-discovery-go-mod make test-api KUBERNETES_VERSION=1.35.6"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:621d28e30ad592470a5d2aa3070698fccac7ef80f3a40fa1ca7429c65854e395"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-26T08:18:35Z"
+    },
+    "3.2": {
+      "task_fingerprint": "sha256:be36ea6f600c0f0730b10bfbb56f77f66eb3282ba7cc6b11bcbbecd15fb4e510",
+      "requirements_fingerprint": "sha256:3d227198f729edbadbff52f8885f0c9af6d35f19a2b2c761565dacc6ff3109c6",
+      "design_fingerprint": "sha256:c1091faf2b6ed1c8ae37f91667c75d6ed8be2babecde700633cf084cbf75182e",
+      "tasks_fingerprint": "sha256:8671ea5ac173b0887710f98bb167964cfcc6e1258b781c8ed9f61d6d34e625e4",
+      "code_identity": "sha256:b002e0494c613851d96050afe292e84f328b73284b77af56223c3ae483f2d158",
+      "profile": {
+        "go": "go version go1.26.6-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-resource-discovery-go-build GOMODCACHE=/tmp/kubeseer-resource-discovery-go-mod make test-api GO_TEST_FLAGS=-race"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:c1003ff112220ae271e40742646839fb888ae5154e6cfb7075f00a4110a6c620"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-26T08:18:35Z"
     }
   }
 }

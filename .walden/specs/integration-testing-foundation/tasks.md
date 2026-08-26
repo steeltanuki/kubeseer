@@ -1,9 +1,9 @@
 ---
 walden_schema_version: v1alpha1
 status: approved
-approved_at: 2026-08-25T13:51:10Z
-last_modified: 2026-08-25T20:14:49Z
-approved_fingerprint: sha256:177a943a077b71fd7cd8e189412d15d89fab56aa68cc33d28d2a14f39ed1e722
+approved_at: 2026-08-26T08:11:37Z
+last_modified: 2026-08-26T08:11:37Z
+approved_fingerprint: sha256:8a147b1aee5a6684febea7fcc4a03f1f70c58f113eac99b0adb577047e014d02
 source_design_approved_at: 2026-08-25T13:42:19Z
 source_design_fingerprint: sha256:5ed040de4077c66ff76591309afc4862013bfe4ae5c2d521fafa477231594fae
 ---
@@ -38,7 +38,7 @@ source_design_fingerprint: sha256:5ed040de4077c66ff76591309afc4862013bfe4ae5c2d5
     - Requirements: `R2.AC1`, `R2.AC2`, `R2.AC3`, `R2.AC4`, `R2.AC5`, `R2.AC6`, `R4.AC6`, `R6.AC2`, `R6.AC3`, `NFR2`, `NFR4`
     - Design: Module integration suite; Non-vacuous test-layer runner; Entry-point acceptance checks
     - Verification:
-      - command: ["./hack/test-layer-runner-acceptance.sh"]
+      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-testing-foundation-go-build GOMODCACHE=/tmp/kubeseer-testing-foundation-go-mod ./hack/test-layer-runner-acceptance.sh"]
         expect_output: "Test-layer runner acceptance passed"
         covers: ["R2.AC1", "R2.AC2", "R2.AC3", "R2.AC4", "R2.AC5", "R2.AC6", "R4.AC6", "R6.AC2", "R6.AC3", "NFR2", "NFR4"]
 
@@ -46,12 +46,11 @@ source_design_fingerprint: sha256:5ed040de4077c66ff76591309afc4862013bfe4ae5c2d5
     - Requirements: `R3.AC4`, `R4.AC1`, `R4.AC2`, `R4.AC3`, `R4.AC5`, `R4.AC6`, `R4.AC7`, `R6.AC1`, `NFR2`, `NFR3`, `NFR4`
     - Design: Repository test command surface; Non-vacuous test-layer runner; Architecture command surface
     - Verification:
-      - command: ["make", "test-integration"]
-        expect_exit: 2
-        expect_output: "TEST_LAYER=module-integration STATUS=not-applicable"
+      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-testing-foundation-go-build GOMODCACHE=/tmp/kubeseer-testing-foundation-go-mod make test-integration"]
+        expect_output: "TEST_LAYER=module-integration STATUS=passed"
         covers: ["R4.AC1", "R4.AC6", "R6.AC1"]
-      - command: ["make", "test"]
-        expect_output: "TEST_LAYER=kubernetes-api STATUS=passed"
+      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-testing-foundation-go-build GOMODCACHE=/tmp/kubeseer-testing-foundation-go-mod make test"]
+        expect_output: "TEST_LAYER=module-integration STATUS=passed"
         timeout: 20m
         covers: ["R3.AC4", "R4.AC2", "R4.AC3", "R4.AC5", "R4.AC6", "R4.AC7", "NFR2", "NFR3", "NFR4"]
 
@@ -60,7 +59,7 @@ source_design_fingerprint: sha256:5ed040de4077c66ff76591309afc4862013bfe4ae5c2d5
     - Requirements: `R1.AC4`, `R1.AC5`, `R1.AC6`, `R3.AC1`, `R3.AC3`, `R3.AC4`, `R3.AC5`, `R3.AC6`, `R5.AC1`, `R5.AC2`, `R5.AC3`, `R5.AC4`, `R5.AC5`, `NFR2`, `NFR3`, `NFR4`, `NFR5`
     - Design: Local envtest harness; Error Handling; Security Considerations
     - Verification:
-      - command: ["./hack/envtest-harness-acceptance.sh"]
+      - command: ["sh", "-c", "assets=\"$(./hack/envtest-assets.sh 1.35.6)\" && GOCACHE=/tmp/kubeseer-testing-foundation-go-build GOMODCACHE=/tmp/kubeseer-testing-foundation-go-mod KUBEBUILDER_ASSETS=\"$assets\" ./hack/envtest-harness-acceptance.sh"]
         expect_output: "Envtest harness acceptance passed"
         timeout: 20m
         covers: ["R1.AC4", "R1.AC5", "R1.AC6", "R3.AC1", "R3.AC3", "R3.AC4", "R3.AC5", "R3.AC6", "R5.AC1", "R5.AC2", "R5.AC3", "R5.AC4", "R5.AC5", "NFR2", "NFR3", "NFR4", "NFR5"]
@@ -69,7 +68,7 @@ source_design_fingerprint: sha256:5ed040de4077c66ff76591309afc4862013bfe4ae5c2d5
     - Requirements: `R3.AC1`, `R5.AC6`, `R6.AC5`, `R7.AC2`, `R7.AC4`, `R7.AC5`, `R7.AC6`, `NFR4`, `NFR6`
     - Design: Unit-test retirement and coverage migration; Envtest API integration
     - Verification:
-      - command: ["make", "test-api"]
+      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-testing-foundation-go-build GOMODCACHE=/tmp/kubeseer-testing-foundation-go-mod make test-api"]
         expect_output: "API_CONTRACT=kubeseer-v1alpha1 STATUS=passed"
         timeout: 20m
         covers: ["R3.AC1", "R5.AC6", "R6.AC5", "R7.AC2", "R7.AC4", "R7.AC5", "R7.AC6", "NFR4", "NFR6"]
@@ -78,7 +77,7 @@ source_design_fingerprint: sha256:5ed040de4077c66ff76591309afc4862013bfe4ae5c2d5
     - Requirements: `R1.AC5`, `R1.AC6`, `R3.AC1`, `R5.AC2`, `R5.AC3`, `R5.AC6`, `R6.AC5`, `R7.AC2`, `R7.AC4`, `R7.AC5`, `R7.AC6`, `NFR4`, `NFR6`
     - Design: Unit-test retirement and coverage migration; Local envtest harness; Envtest API integration
     - Verification:
-      - command: ["make", "test-api", "GO_TEST_FLAGS=-race"]
+      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-testing-foundation-go-build GOMODCACHE=/tmp/kubeseer-testing-foundation-go-mod make test-api GO_TEST_FLAGS=-race"]
         expect_output: "API_CONTRACT=resource-discovery STATUS=passed"
         timeout: 25m
         covers: ["R1.AC5", "R1.AC6", "R3.AC1", "R5.AC2", "R5.AC3", "R5.AC6", "R6.AC5", "R7.AC2", "R7.AC4", "R7.AC5", "R7.AC6", "NFR4", "NFR6"]
@@ -106,7 +105,7 @@ source_design_fingerprint: sha256:5ed040de4077c66ff76591309afc4862013bfe4ae5c2d5
         covers: ["R6.AC1", "R6.AC2", "R6.AC3", "R6.AC4", "R7.AC1", "R7.AC2", "R7.AC3", "R7.AC4", "R7.AC5", "R7.AC6", "NFR4", "NFR5", "NFR6"]
       - command: ["sh", "-c", "test ! -e api/v1alpha1/kubeseer_types_test.go && test ! -e internal/discovery/contracts_test.go && test ! -e internal/discovery/resolver_test.go"]
         covers: ["R7.AC1", "R7.AC2"]
-      - command: ["make", "verify"]
+      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-testing-foundation-go-build GOMODCACHE=/tmp/kubeseer-testing-foundation-go-mod make verify"]
         expect_output: "Test layer policy passed"
         covers: ["R7.AC1", "R7.AC3", "NFR6"]
 
@@ -114,23 +113,22 @@ source_design_fingerprint: sha256:5ed040de4077c66ff76591309afc4862013bfe4ae5c2d5
     - Requirements: `R2.AC5`, `R2.AC6`, `R3.AC3`, `R3.AC5`, `R3.AC6`, `R4.AC3`, `R4.AC5`, `R4.AC6`, `R4.AC7`, `R5.AC6`, `R6.AC4`, `NFR2`, `NFR3`, `NFR4`, `NFR5`, `NFR6`
     - Design: Repository test command surface; Verification Plan; Failure Modes And Tradeoffs
     - Verification:
-      - command: ["make", "test"]
-        expect_output: "TEST_LAYER=kubernetes-api STATUS=passed"
+      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-testing-foundation-go-build GOMODCACHE=/tmp/kubeseer-testing-foundation-go-mod make test"]
+        expect_output: "TEST_LAYER=module-integration STATUS=passed"
         timeout: 20m
         covers: ["R2.AC6", "R3.AC3", "R3.AC5", "R3.AC6", "R4.AC3", "R4.AC5", "R4.AC6", "R4.AC7", "R5.AC6", "R6.AC4", "NFR2", "NFR3", "NFR4", "NFR5", "NFR6"]
-      - command: ["make", "test-integration"]
-        expect_exit: 2
-        expect_output: "TEST_LAYER=module-integration STATUS=not-applicable"
+      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-testing-foundation-go-build GOMODCACHE=/tmp/kubeseer-testing-foundation-go-mod make test-integration"]
+        expect_output: "TEST_LAYER=module-integration STATUS=passed"
         covers: ["R2.AC5", "R2.AC6", "R4.AC6"]
-      - command: ["make", "test-api", "GO_TEST_FLAGS=-race"]
+      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-testing-foundation-go-build GOMODCACHE=/tmp/kubeseer-testing-foundation-go-mod make test-api GO_TEST_FLAGS=-race"]
         expect_output: "TEST_LAYER=kubernetes-api STATUS=passed"
         timeout: 25m
         covers: ["R3.AC6", "R5.AC6", "NFR2"]
-      - command: ["make", "test-compatibility"]
+      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-testing-foundation-go-build GOMODCACHE=/tmp/kubeseer-testing-foundation-go-mod make test-compatibility"]
         expect_output: "API compatibility matrix passed"
         timeout: 35m
         covers: ["R4.AC3", "R4.AC5", "NFR2", "NFR3"]
-      - command: ["go", "build", "./..."]
+      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-testing-foundation-go-build GOMODCACHE=/tmp/kubeseer-testing-foundation-go-mod go build ./..."]
         covers: ["R1.AC2"]
-      - command: ["go", "mod", "tidy", "-diff"]
+      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-testing-foundation-go-build GOMODCACHE=/tmp/kubeseer-testing-foundation-go-mod go mod tidy -diff"]
         covers: ["NFR2"]

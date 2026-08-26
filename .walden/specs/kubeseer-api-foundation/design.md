@@ -1,9 +1,9 @@
 ---
 walden_schema_version: v1alpha1
 status: approved
-approved_at: 2026-08-01T09:10:17Z
-last_modified: 2026-08-01T09:10:17Z
-approved_fingerprint: sha256:9d7a86cb0435c9e87face9b1879020937311f8ad72543ac974be4a86bad87657
+approved_at: 2026-08-26T08:11:37Z
+last_modified: 2026-08-26T08:11:37Z
+approved_fingerprint: sha256:d14df41fae131cbca93a9213d19723ecb566673ba6b0daa2616e39fa0ba87cd3
 source_requirements_approved_at: 2026-08-01T08:45:29Z
 source_requirements_fingerprint: sha256:8674f24413fb506b85abe9bebb31125b9f993b8fcead42824ed9b83add21b42a
 ---
@@ -232,15 +232,15 @@ type KubeseerResult struct{}
 
 ## Testing Strategy
 
-### Unit Tests
+### Envtest-owned API contract checks
 
-- Register `Kubeseer` and `KubeseerList` into a fresh scheme and resolve their GVKs.
-- Serialize and deserialize representative objects, asserting API identity, lower-camel-case fields, omitted optional sources, zero/default behavior, conditions, and result presence.
-- Deep-copy objects containing sources and conditions, mutate the copy, and prove the original does not alias mutable fields.
+- Register `Kubeseer` and `KubeseerList` in the envtest client scheme and prove their GVKs through typed client operations.
+- Persist and retrieve representative objects through the local API server, asserting API identity, lower-camel-case fields, omitted optional sources, zero/default behavior, conditions, and result presence.
+- Read objects back through independent client values, mutate a copy, and prove cached or previously retrieved values do not alias mutable fields.
 
-### Generated Contract Tests
+### Installed CRD contract checks
 
-- Parse the committed CRD into the typed apiextensions API.
+- Read the CRD installed in envtest through the typed apiextensions client.
 - Assert group, plural, singular, kind, namespace scope, served/storage flags, structural schema, required `spec`, optional `sources`, source ID validation, status schema, and status subresource.
 - Assert that neither `spec` nor `status` enables unknown-field preservation and that no default values are emitted.
 
@@ -263,7 +263,7 @@ The suite will:
 
 ## Verification Plan
 
-- Requirement proof: Focused Go tests prove scheme registration, round-trip serialization, deep-copy isolation, and marker-derived CRD structure for `R1`–`R6`.
+- Requirement proof: The named `TestAPIContract` envtest suite proves scheme registration, persistence round trips, copy isolation, and installed marker-derived CRD structure for `R1`–`R6`.
 - Compatibility proof: The same envtest contract suite runs with pinned Kubernetes 1.35.6 and 1.36.2 assets for `R1`, `R2`, `R3`, `R4`, and `R7`.
 - Generation proof: `make verify` regenerates deep-copy and CRD artifacts outside the repository and fails on any diff for `R6` and `NFR3`.
 - Build proof: `go build ./...` demonstrates that the public Go API compiles without a controller binary.
@@ -278,7 +278,7 @@ The suite will:
 | `R2` | Spec And Source Envelope; Generated Contract Tests; Security Considerations |
 | `R3` | Spec And Source Envelope; Schema And Serialization Rules; Envtest Compatibility Tests |
 | `R4` | Status And Result Envelope; Generated CRD; status-subresource envtest cases |
-| `R5` | API Registration; API Evolution Strategy; round-trip unit tests |
+| `R5` | API Registration; API Evolution Strategy; envtest persistence and copy-isolation checks |
 | `R6` | Toolchain And Module Boundary; Versioned API Package; Generation proof |
 | `R7` | API Contract Test Harness; Envtest Compatibility Tests; Compatibility proof |
 | `NFR1` | Dependency baseline; pinned Kubernetes 1.35.6 and 1.36.2 matrix |

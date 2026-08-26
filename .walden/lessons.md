@@ -118,3 +118,12 @@ Review this file before non-trivial work when the current request matches past m
 - Trigger: Post-reconciliation diff check found trailing spaces in blank approval frontmatter emitted by Walden v0.10.1
 - Lesson: A deterministic workflow mutation can still introduce repository-formatting defects that validation does not report
 - Guardrail: Run git diff --check after reconciliation and normalize blank frontmatter values before opening review
+### 2026-08-26T07:59:06Z | resource-discovery | execute
+- Trigger: Walden verify found approved proofs to be obsolete after the migration to higher-layer testing and sandbox environmental limitations
+- Lesson: Re-verification cannot restore evidence when tasks point to removed package-local tests or when envtest and Go dependencies are blocked by the environment
+- Guardrail: Before verifying an approved feature, compare every proof with the current constitution and testing foundation; run envtest and controller-tools in an environment with sockets, a writable cache, and network access available
+
+### 2026-08-26T08:17:07Z | integration-testing-foundation | execute
+- Trigger: The goal scope explicitly excluded implementing tasks added or modified during the consistency recovery
+- Lesson: Walden reconciliation can update contracts and proofs without authorizing new code; planning approval and implementation remain separate boundaries
+- Guardrail: During consistency recoveries, always distinguish re-verifying completed tasks from implementing new work and stop if a proof requires code that does not exist

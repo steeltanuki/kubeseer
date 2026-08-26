@@ -1,9 +1,9 @@
 ---
 walden_schema_version: v1alpha1
 status: approved
-approved_at: 2026-08-01T11:47:16Z
-last_modified: 2026-08-01T11:47:16Z
-approved_fingerprint: sha256:3758e9ed57d131cec58d72b1d2e659fabdf35d9552eb5f1f4c482f606ab5ea68
+approved_at: 2026-08-26T08:11:37Z
+last_modified: 2026-08-26T08:11:37Z
+approved_fingerprint: sha256:c1091faf2b6ed1c8ae37f91667c75d6ed8be2babecde700633cf084cbf75182e
 source_requirements_approved_at: 2026-08-01T11:33:36Z
 source_requirements_fingerprint: sha256:3d227198f729edbadbff52f8885f0c9af6d35f19a2b2c761565dacc6ff3109c6
 ---
@@ -258,48 +258,39 @@ so callers cannot mutate cache state.
 
 ## Testing Strategy
 
-### Unit tests
+### Envtest discovery contract
 
-- Use a scripted fake implementing the narrow discovery interface.
-- Resolve core `v1` and grouped API versions, asserting exact GVR and scope.
-- Resolve a CRD-shaped group/version and assert identical behavior to a built-in
-  resource.
-- Assert namespaced and cluster-scoped results and reject scope conversion.
+- Use the shared envtest harness and the real local discovery endpoint; no
+  package-local unit-test layer is maintained.
+- Resolve core `v1`, grouped API versions, one cluster-scoped resource, and one
+  dynamically installed CRD, asserting exact GVR and scope.
+- Assert namespaced and cluster-scoped results and reject invalid scope use.
 - Assert unknown, unavailable, invalid, and ambiguous errors include source ID
   and stable reason.
 - Resolve a batch with one failure and one success, asserting independent
   outcomes.
-- Inject a fake clock and request counter to prove cache hits, expiry,
-  group/version invalidation, resource invalidation, and one retry.
-- Assert the fake has no resource-read method or calls, proving the boundary is
-  metadata-only.
-
-### Integration tests
-
-- Use the existing envtest assets from the API foundation to install the
-  Kubeseer CRD only when a later integration path needs it; discovery resolver
-  tests do not depend on a controller manager.
-- Add a Kubernetes API-server discovery smoke test for one built-in resource,
-  one cluster-scoped resource, and one dynamically installed CRD when the
-  implementation introduces that fixture.
+- Wrap the real discovery transport with a request counter and inject the clock
+  to prove cache hits, expiry, concurrent refresh, invalidation, and one retry.
+- Assert the narrow discovery boundary has no resource-read operation, proving
+  that the production resolver remains metadata-only.
 
 ### Static and quality checks
 
-- `go test ./internal/discovery/...` with named test output.
-- `go test -race ./internal/discovery/...` for cache synchronization.
+- `make test-api` with the named `API_CONTRACT=resource-discovery STATUS=passed` marker.
+- `make test-api GO_TEST_FLAGS=-race` for cache synchronization.
 - `go vet ./...` and `gofmt` on authored Go files.
 - No test reads a resource instance or relies on arbitrary sleeps.
 
 ## Verification Plan
 
-- Requirement proof: unit tests cover every resolution, scope, error, batch,
-  cache, metadata-only, and determinism criterion (`R1`–`R6`).
-- Cache proof: fake-clock/request-counter tests demonstrate fresh-hit,
+- Requirement proof: the envtest discovery contract covers every resolution,
+  scope, error, batch, cache, metadata-only, and determinism criterion (`R1`–`R6`).
+- Cache proof: injected-clock/counting-transport scenarios demonstrate fresh-hit,
   expiry-refresh, explicit invalidation, and one bounded stale retry (`R5`).
 - Compatibility proof: an envtest discovery smoke test demonstrates built-in,
   cluster-scoped, and CRD-backed discovery against the pinned Kubernetes matrix
   from `kubeseer-api-foundation` (`R2`, `R3`, `NFR1`).
-- Security proof: the fake discovery boundary and package dependency check show
+- Security proof: the narrow discovery boundary and package dependency check show
   that no resource client is called by the resolver (`R6`, `C2`, `NFR3`).
 - Operational evidence: test output names source IDs, stable reasons, and the
   discovery API version involved in failures; no observed data is emitted.
@@ -308,12 +299,12 @@ so callers cannot mutate cache state.
 
 | Requirement | Covered By |
 | --- | --- |
-| `R1` | Source descriptor; Discovery resolver; Resolution values; identity unit tests |
-| `R2` | Discovery client adapter; Discovery resolver; built-in and CRD-shaped tests |
-| `R3` | Resolution scope enum; invalid-scope handling; scope unit tests |
-| `R4` | ResolutionError; ResolveBatch; failure-isolation tests |
-| `R5` | TTL cache; invalidation operations; fake-clock cache tests |
-| `R6` | Metadata-only adapter; security boundary; fake call assertions |
+| `R1` | Source descriptor; Discovery resolver; Resolution values; envtest identity scenarios |
+| `R2` | Discovery client adapter; Discovery resolver; built-in and CRD-backed envtest scenarios |
+| `R3` | Resolution scope enum; invalid-scope handling; envtest scope scenarios |
+| `R4` | ResolutionError; ResolveBatch; envtest failure-isolation scenarios |
+| `R5` | TTL cache; invalidation operations; injected-clock/counting-transport scenarios |
+| `R6` | Metadata-only adapter; security boundary; dependency checks |
 | `NFR1` | REST timeout configuration; bounded refresh and retry behavior |
 | `NFR2` | Canonical keys, stable sorting, deterministic errors, repeatability tests |
-| `NFR3` | Narrow discovery interface, fake client, fake clock, request counters |
+| `NFR3` | Narrow discovery interface, real discovery endpoint, injected clock, request counters |
