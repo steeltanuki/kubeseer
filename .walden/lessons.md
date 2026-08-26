@@ -132,3 +132,7 @@ Review this file before non-trivial work when the current request matches past m
 - Trigger: Initial requirements replacement used delete and add operations on the same path, which the patch mechanism rejected
 - Lesson: A scaffold replacement must use one update operation when multiple operations cannot target the same file
 - Guardrail: Replace an existing Walden scaffold with a single Update File patch
+### 2026-08-26T14:51:32Z | field-extraction | execute
+- Trigger: Initial integration proof exposed empty-match and cancellation-fixture assumptions
+- Lesson: Extraction tests must distinguish absent nil matches from allocated empty slices, and synthetic cancellation contexts can interrupt a source when their checkpoint budget is calibrated to an internal call count.
+- Guardrail: Assert the explicit zero-match contract and design cancellation fixtures at the observable batch boundary; rerun the targeted higher-layer suite before recording task evidence.

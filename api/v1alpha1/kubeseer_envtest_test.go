@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,7 +99,7 @@ func TestAPIContract(t *testing.T) {
 	resources := clients.Dynamic.Resource(kubeseerResourceGVR).Namespace(namespace)
 	accessPolicies := clients.Dynamic.Resource(accessPolicyResourceGVR)
 	environment.AddCleanup("delete Kubeseer API contract fixtures", func(ctx context.Context) error {
-		for _, name := range []string{"minimal", "valid-source", "negative-generation", "status-isolation", "typed-persistence", "duplicate-source-ids", "missing-resource", "invalid-namespace", "duplicate-namespaces"} {
+		for _, name := range []string{"minimal", "valid-source", "negative-generation", "status-isolation", "typed-persistence", "duplicate-source-ids", "missing-resource", "invalid-namespace", "duplicate-namespaces", "missing-field-name", "missing-field-path", "invalid-field-name", "overlong-field-path", "duplicate-field-names"} {
 			err := resources.Delete(ctx, name, metav1.DeleteOptions{})
 			if err != nil && !apierrors.IsNotFound(err) {
 				return err
@@ -130,6 +131,7 @@ func TestAPIContract(t *testing.T) {
 
 	t.Logf("API contract passed with Kubernetes assets %s", environment.AssetsDirectory())
 	t.Log("API_CONTRACT=kubeseer-v1alpha1 STATUS=passed")
+	t.Log("API_CONTRACT=field-extraction-types STATUS=passed")
 	t.Log("API_CONTRACT=resource-selection-types STATUS=passed")
 	t.Log("API_CONTRACT=kubeseer-access-policy STATUS=passed")
 	t.Log("API_CONTRACT=kubeseer-access-policy-admission STATUS=passed")
@@ -176,6 +178,10 @@ func assertTypedSchemeAndClient(t *testing.T, ctx context.Context, resources dyn
 				}},
 				FieldSelector: "metadata.namespace=team-a",
 			},
+			Fields: []KubeseerField{
+				{Name: "resourceName", Path: "{.metadata.name}"},
+				{Name: "display-key", Path: "{.data['display-name']}"},
+			},
 		}}},
 		Status: KubeseerStatus{
 			ObservedGeneration: 7,
@@ -207,6 +213,9 @@ func assertTypedSchemeAndClient(t *testing.T, ctx context.Context, resources dyn
 	}
 	if decoded.Spec.Sources[0].Resource != original.Spec.Sources[0].Resource || decoded.Spec.Sources[0].Namespaces == nil || !reflect.DeepEqual(decoded.Spec.Sources[0].Namespaces.Names, original.Spec.Sources[0].Namespaces.Names) || decoded.Spec.Sources[0].Selector == nil || !reflect.DeepEqual(decoded.Spec.Sources[0].Selector, original.Spec.Sources[0].Selector) {
 		t.Fatalf("typed JSON round-trip changed source selection fields: original=%#v decoded=%#v", original.Spec.Sources[0], decoded.Spec.Sources[0])
+	}
+	if !reflect.DeepEqual(decoded.Spec.Sources[0].Fields, original.Spec.Sources[0].Fields) {
+		t.Fatalf("typed JSON round-trip changed source fields: original=%#v decoded=%#v", original.Spec.Sources[0].Fields, decoded.Spec.Sources[0].Fields)
 	}
 
 	emptyNamespaces := &Kubeseer{Spec: KubeseerSpec{Sources: []KubeseerSource{{ID: "empty-namespaces", Resource: ResourceReference{APIVersion: "v1", Kind: "Pod"}, Namespaces: &NamespaceSelection{Names: []string{}}}}}}
@@ -294,8 +303,10 @@ func assertTypedSchemeAndClient(t *testing.T, ctx context.Context, resources dyn
 	copy.Spec.Sources[0].Selector.MatchLabels["app"] = "changed"
 	copy.Spec.Sources[0].Selector.MatchExpressions[0].Values[0] = "changed"
 	copy.Spec.Sources[0].Selector.FieldSelector = "changed"
+	copy.Spec.Sources[0].Fields[0].Name = "changed"
+	copy.Spec.Sources[0].Fields[1].Path = "{.changed}"
 	copy.Status.Conditions[0].Reason = "Changed"
-	if persisted.Labels["contract"] != "typed" || persisted.Spec.Sources[0].ID != "typed-source" || persisted.Spec.Sources[0].Namespaces.Names[0] != "team-a" || persisted.Spec.Sources[0].Selector.MatchLabels["app"] != "demo" || persisted.Spec.Sources[0].Selector.MatchExpressions[0].Values[0] != "backend" || persisted.Spec.Sources[0].Selector.FieldSelector != "metadata.namespace=team-a" || persisted.Status.Conditions[0].Reason != "Available" {
+	if persisted.Labels["contract"] != "typed" || persisted.Spec.Sources[0].ID != "typed-source" || persisted.Spec.Sources[0].Namespaces.Names[0] != "team-a" || persisted.Spec.Sources[0].Selector.MatchLabels["app"] != "demo" || persisted.Spec.Sources[0].Selector.MatchExpressions[0].Values[0] != "backend" || persisted.Spec.Sources[0].Selector.FieldSelector != "metadata.namespace=team-a" || persisted.Spec.Sources[0].Fields[0].Name != "resourceName" || persisted.Spec.Sources[0].Fields[1].Path != "{.data['display-name']}" || persisted.Status.Conditions[0].Reason != "Available" {
 		t.Fatalf("generated typed DeepCopy aliases the API-derived object: %#v", persisted)
 	}
 
@@ -562,6 +573,22 @@ func assertInstalledCRDContract(t *testing.T, ctx context.Context, client apiext
 	if expressions, found := selector.Properties["matchExpressions"]; !found || expressions.Type != "array" || expressions.Items == nil || expressions.Items.Schema == nil || expressions.XListType == nil || *expressions.XListType != "atomic" {
 		t.Fatalf("installed CRD matchExpressions schema is incorrect: %#v", selector.Properties["matchExpressions"])
 	}
+	fields, found := source.Properties["fields"]
+	if !found || fields.Type != "array" || fields.Items == nil || fields.Items.Schema == nil || fields.XListType == nil || *fields.XListType != "map" || len(fields.XListMapKeys) != 1 || fields.XListMapKeys[0] != "name" {
+		t.Fatalf("installed CRD fields schema is incorrect: %#v", fields)
+	}
+	field := fields.Items.Schema
+	if field.Type != "object" || !apiContractContains(field.Required, "name") || !apiContractContains(field.Required, "path") {
+		t.Fatalf("installed CRD field declaration schema is incorrect: %#v", field)
+	}
+	fieldName, found := field.Properties["name"]
+	if !found || fieldName.Type != "string" || fieldName.MaxLength == nil || *fieldName.MaxLength != 63 || fieldName.Pattern != `^[a-z][A-Za-z0-9]*(?:-[a-z0-9]+)*$` {
+		t.Fatalf("installed CRD field name schema is incorrect: %#v", fieldName)
+	}
+	fieldPath, found := field.Properties["path"]
+	if !found || fieldPath.Type != "string" || fieldPath.MinLength == nil || *fieldPath.MinLength != 1 || fieldPath.MaxLength == nil || *fieldPath.MaxLength != 1024 {
+		t.Fatalf("installed CRD field path schema is incorrect: %#v", fieldPath)
+	}
 	status, found := root.Properties["status"]
 	if !found || status.Type != "object" {
 		t.Fatalf("installed CRD status schema is incorrect: %#v", status)
@@ -824,6 +851,59 @@ func assertSelectionSourceAdmissionRejected(t *testing.T, ctx context.Context, r
 				"sources": []interface{}{func() map[string]interface{} {
 					source := validSource("duplicate-namespaces")
 					source["namespaces"] = map[string]interface{}{"names": []interface{}{"team-a", "team-a"}}
+					return source
+				}()},
+			}),
+		},
+		{
+			name: "missing field name",
+			object: newKubeseer("missing-field-name", namespace, map[string]interface{}{
+				"sources": []interface{}{func() map[string]interface{} {
+					source := validSource("missing-field-name")
+					source["fields"] = []interface{}{map[string]interface{}{"path": "{.metadata.name}"}}
+					return source
+				}()},
+			}),
+		},
+		{
+			name: "missing field path",
+			object: newKubeseer("missing-field-path", namespace, map[string]interface{}{
+				"sources": []interface{}{func() map[string]interface{} {
+					source := validSource("missing-field-path")
+					source["fields"] = []interface{}{map[string]interface{}{"name": "resourceName"}}
+					return source
+				}()},
+			}),
+		},
+		{
+			name: "invalid field name",
+			object: newKubeseer("invalid-field-name", namespace, map[string]interface{}{
+				"sources": []interface{}{func() map[string]interface{} {
+					source := validSource("invalid-field-name")
+					source["fields"] = []interface{}{map[string]interface{}{"name": "Invalid_Name", "path": "{.metadata.name}"}}
+					return source
+				}()},
+			}),
+		},
+		{
+			name: "overlong field path",
+			object: newKubeseer("overlong-field-path", namespace, map[string]interface{}{
+				"sources": []interface{}{func() map[string]interface{} {
+					source := validSource("overlong-field-path")
+					source["fields"] = []interface{}{map[string]interface{}{"name": "resourceName", "path": strings.Repeat("a", 1025)}}
+					return source
+				}()},
+			}),
+		},
+		{
+			name: "duplicate field names",
+			object: newKubeseer("duplicate-field-names", namespace, map[string]interface{}{
+				"sources": []interface{}{func() map[string]interface{} {
+					source := validSource("duplicate-field-names")
+					source["fields"] = []interface{}{
+						map[string]interface{}{"name": "resourceName", "path": "{.metadata.name}"},
+						map[string]interface{}{"name": "resourceName", "path": "{.metadata.namespace}"},
+					}
 					return source
 				}()},
 			}),

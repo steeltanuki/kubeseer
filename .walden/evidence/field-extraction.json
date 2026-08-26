@@ -1,0 +1,191 @@
+{
+  "schema_version": "v1alpha1",
+  "feature": "field-extraction",
+  "tasks": {
+    "1.1": {
+      "task_fingerprint": "sha256:f72f849e618d5a72e14053bbf63c919628cdc8cb13b80beaa60d0415ccd7ef1d",
+      "requirements_fingerprint": "sha256:b8f6a3d692127affc45209de5bedd5c5a82a70eb4f0539b0214666af4430953b",
+      "design_fingerprint": "sha256:f0b276c47aee1be97d37cc9a0f3740aa2e9b62a7f70446c84c28abe39c80b999",
+      "tasks_fingerprint": "sha256:9a1261d5238d4d22e1da1dc2ba2a277ea2e8a58364cd82f10a57cd25b2af337e",
+      "code_identity": "sha256:f8859a9b4ec5d99d4160d975e48b469412bf47d7522892bf88e961938ee41b62",
+      "profile": {
+        "go": "go version go1.26.6-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-field-extraction-go-build GOMODCACHE=/tmp/kubeseer-field-extraction-go-mod make test-api"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:5eb435396d5964f3d7b37dc81ea5af23c12be91aca9bdd656de19b975cd439c9"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-26T14:50:25Z"
+    },
+    "2.1": {
+      "task_fingerprint": "sha256:6560f82272928ebe48950d64f44d9acd5535fd5a5156b3966904af8fe2e902cd",
+      "requirements_fingerprint": "sha256:b8f6a3d692127affc45209de5bedd5c5a82a70eb4f0539b0214666af4430953b",
+      "design_fingerprint": "sha256:f0b276c47aee1be97d37cc9a0f3740aa2e9b62a7f70446c84c28abe39c80b999",
+      "tasks_fingerprint": "sha256:9a1261d5238d4d22e1da1dc2ba2a277ea2e8a58364cd82f10a57cd25b2af337e",
+      "code_identity": "sha256:f8859a9b4ec5d99d4160d975e48b469412bf47d7522892bf88e961938ee41b62",
+      "profile": {
+        "go": "go version go1.26.6-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-field-extraction-go-build GOMODCACHE=/tmp/kubeseer-field-extraction-go-mod make test-integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:cb1c725a9ff08d3b7da09472e737abb71d61ff84a4d88552fbcf4fbc5570cf30"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-26T14:50:25Z"
+    },
+    "3.1": {
+      "task_fingerprint": "sha256:df38a8ba6030c87a69a7b9b571bc8ba280ecd382ab7cb5e66c0c80e4bd7456e2",
+      "requirements_fingerprint": "sha256:b8f6a3d692127affc45209de5bedd5c5a82a70eb4f0539b0214666af4430953b",
+      "design_fingerprint": "sha256:f0b276c47aee1be97d37cc9a0f3740aa2e9b62a7f70446c84c28abe39c80b999",
+      "tasks_fingerprint": "sha256:9a1261d5238d4d22e1da1dc2ba2a277ea2e8a58364cd82f10a57cd25b2af337e",
+      "code_identity": "sha256:f8859a9b4ec5d99d4160d975e48b469412bf47d7522892bf88e961938ee41b62",
+      "profile": {
+        "go": "go version go1.26.6-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-field-extraction-go-build GOMODCACHE=/tmp/kubeseer-field-extraction-go-mod make test-integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:cb1c725a9ff08d3b7da09472e737abb71d61ff84a4d88552fbcf4fbc5570cf30"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-26T14:50:25Z"
+    },
+    "4.1": {
+      "task_fingerprint": "sha256:c3fe2c72be386c228dbcbe36c9b13a2940283ea89bbf62b214395e9fa1bc59fe",
+      "requirements_fingerprint": "sha256:b8f6a3d692127affc45209de5bedd5c5a82a70eb4f0539b0214666af4430953b",
+      "design_fingerprint": "sha256:f0b276c47aee1be97d37cc9a0f3740aa2e9b62a7f70446c84c28abe39c80b999",
+      "tasks_fingerprint": "sha256:9a1261d5238d4d22e1da1dc2ba2a277ea2e8a58364cd82f10a57cd25b2af337e",
+      "code_identity": "sha256:f8859a9b4ec5d99d4160d975e48b469412bf47d7522892bf88e961938ee41b62",
+      "profile": {
+        "go": "go version go1.26.6-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "probe failed: exit 1",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-field-extraction-go-build GOMODCACHE=/tmp/kubeseer-field-extraction-go-mod make test-integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:e1abe6a724e29c1d8a36608fa99970e7b59c2da8a3c3384b4892c1c82dc9685a"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-26T14:48:18Z"
+    },
+    "5.1": {
+      "task_fingerprint": "sha256:c2af786df2338b45ece79cad74e09599585bacbdb634bc747f96dea037e9329d",
+      "requirements_fingerprint": "sha256:b8f6a3d692127affc45209de5bedd5c5a82a70eb4f0539b0214666af4430953b",
+      "design_fingerprint": "sha256:f0b276c47aee1be97d37cc9a0f3740aa2e9b62a7f70446c84c28abe39c80b999",
+      "tasks_fingerprint": "sha256:9a1261d5238d4d22e1da1dc2ba2a277ea2e8a58364cd82f10a57cd25b2af337e",
+      "code_identity": "sha256:f8859a9b4ec5d99d4160d975e48b469412bf47d7522892bf88e961938ee41b62",
+      "profile": {
+        "go": "go version go1.26.6-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-field-extraction-go-build GOMODCACHE=/tmp/kubeseer-field-extraction-go-mod make verify"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:2cfe8bfd9237a6c7c1ae09c6e6cff62b107e650add009277695fd4b339d2aff8"
+        },
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-field-extraction-go-build GOMODCACHE=/tmp/kubeseer-field-extraction-go-mod make test GO_TEST_FLAGS=-race"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:e127043b6a3212014f26702d13bbb857109b4aa1ab358ac0391a3c4defef50fa"
+        },
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-field-extraction-go-build GOMODCACHE=/tmp/kubeseer-field-extraction-go-mod make test-compatibility"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:da4ec867e4d47f8c8c2ff55aae28676874534d86497ce34679a3b89ae4f88a1f"
+        },
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-field-extraction-go-build GOMODCACHE=/tmp/kubeseer-field-extraction-go-mod go build ./..."
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-field-extraction-go-build GOMODCACHE=/tmp/kubeseer-field-extraction-go-mod go mod tidy -diff"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:9eeeb10f5d69e0a6deb0bad599e71bcdb14fedd57f48af4091789d199d9dbc6c"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-26T14:49:54Z"
+    }
+  }
+}

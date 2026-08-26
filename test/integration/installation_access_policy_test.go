@@ -65,6 +65,15 @@ func TestModuleIntegration(t *testing.T) {
 	t.Run("resource selection failures remain source-scoped and isolated", func(t *testing.T) {
 		assertResourceSelectionFailureScenarios(t, ctx, resolver)
 	})
+	t.Run("field extraction planning accepts only the approved grammar", func(t *testing.T) {
+		assertFieldExtractionPlanningScenarios(t)
+	})
+	t.Run("field extraction preserves native values and provenance", func(t *testing.T) {
+		assertFieldExtractionNativeValueScenarios(t)
+	})
+	t.Run("field extraction batches preserve source atomicity and cancellation", func(t *testing.T) {
+		assertFieldExtractionBatchScenarios(t)
+	})
 
 	t.Log("MODULE_INTEGRATION=discovery-access-policy-evaluation STATUS=passed")
 	t.Log("MODULE_INTEGRATION=discovery-access-policy-loader STATUS=passed")
@@ -73,6 +82,9 @@ func TestModuleIntegration(t *testing.T) {
 	t.Log("MODULE_INTEGRATION=resource-selection-execution-boundary STATUS=passed")
 	t.Log("MODULE_INTEGRATION=resource-selection-pagination STATUS=passed")
 	t.Log("MODULE_INTEGRATION=resource-selection-failures STATUS=passed")
+	t.Log("MODULE_INTEGRATION=field-extraction-planning STATUS=passed")
+	t.Log("MODULE_INTEGRATION=field-extraction-native-values STATUS=passed")
+	t.Log("MODULE_INTEGRATION=field-extraction-batch STATUS=passed")
 }
 
 func assertEvaluationScenarios(t *testing.T, ctx context.Context, resolver *discovery.Resolver) {

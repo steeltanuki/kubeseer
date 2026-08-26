@@ -66,6 +66,25 @@ type KubeseerSource struct {
 
 	// +optional
 	Selector *ResourceSelector `json:"selector,omitempty"`
+
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	Fields []KubeseerField `json:"fields,omitempty"`
+}
+
+// KubeseerField declares one named native-value extraction from a selected
+// resource.
+type KubeseerField struct {
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-z][A-Za-z0-9]*(?:-[a-z0-9]+)*$`
+	Name string `json:"name"`
+
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=1024
+	Path string `json:"path"`
 }
 
 // ResourceReference identifies the API version and Kind resolved through
