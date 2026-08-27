@@ -139,6 +139,7 @@ func TestAPIContract(t *testing.T) {
 	t.Log("API_CONTRACT=kubeseer-access-policy STATUS=passed")
 	t.Log("API_CONTRACT=kubeseer-access-policy-admission STATUS=passed")
 	t.Log("API_CONTRACT=typed-output-model-types STATUS=passed")
+	t.Log("API_CONTRACT=status-and-conditions-api STATUS=passed")
 }
 
 func assertTypedSchemeAndClient(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface, namespace string, config *rest.Config) {
@@ -197,7 +198,13 @@ func assertTypedSchemeAndClient(t *testing.T, ctx context.Context, resources dyn
 				Reason:             "Available",
 				Message:            "API contract is available",
 			}},
-			Result: &KubeseerResult{},
+			Summary: &KubeseerSummary{
+				SuccessfulSources: 2,
+				FailedSources:     1,
+				MatchedResources:  3,
+			},
+			ResultHash: "sha256:" + strings.Repeat("a", 64),
+			Result:     &KubeseerResult{},
 		},
 	}
 
@@ -212,7 +219,7 @@ func assertTypedSchemeAndClient(t *testing.T, ctx context.Context, resources dyn
 	if decoded.TypeMeta != original.TypeMeta || decoded.Name != original.Name || decoded.Namespace != original.Namespace || !reflect.DeepEqual(original.Labels, decoded.Labels) || !reflect.DeepEqual(original.Spec, decoded.Spec) {
 		t.Fatalf("typed JSON round-trip changed identity, metadata, or spec: original=%#v decoded=%#v", original, decoded)
 	}
-	if decoded.Status.ObservedGeneration != original.Status.ObservedGeneration || decoded.Status.Result == nil || len(decoded.Status.Conditions) != len(original.Status.Conditions) {
+	if decoded.Status.ObservedGeneration != original.Status.ObservedGeneration || decoded.Status.Result == nil || decoded.Status.Summary == nil || !reflect.DeepEqual(decoded.Status.Summary, original.Status.Summary) || decoded.Status.ResultHash != original.Status.ResultHash || len(decoded.Status.Conditions) != len(original.Status.Conditions) {
 		t.Fatalf("typed JSON round-trip changed the status envelope: original=%#v decoded=%#v", original.Status, decoded.Status)
 	}
 	if decoded.Spec.Sources[0].Resource != original.Spec.Sources[0].Resource || decoded.Spec.Sources[0].Namespaces == nil || !reflect.DeepEqual(decoded.Spec.Sources[0].Namespaces.Names, original.Spec.Sources[0].Namespaces.Names) || decoded.Spec.Sources[0].Selector == nil || !reflect.DeepEqual(decoded.Spec.Sources[0].Selector, original.Spec.Sources[0].Selector) {
@@ -311,7 +318,8 @@ func assertTypedSchemeAndClient(t *testing.T, ctx context.Context, resources dyn
 	copy.Spec.Sources[0].Fields[1].Path = "{.changed}"
 	copy.Spec.Sources[0].Fields[0].Type = ValueTypeInteger
 	copy.Status.Conditions[0].Reason = "Changed"
-	if persisted.Labels["contract"] != "typed" || persisted.Spec.Sources[0].ID != "typed-source" || persisted.Spec.Sources[0].Namespaces.Names[0] != "team-a" || persisted.Spec.Sources[0].Selector.MatchLabels["app"] != "demo" || persisted.Spec.Sources[0].Selector.MatchExpressions[0].Values[0] != "backend" || persisted.Spec.Sources[0].Selector.FieldSelector != "metadata.namespace=team-a" || persisted.Spec.Sources[0].Fields[0].Name != "resourceName" || persisted.Spec.Sources[0].Fields[0].Type != ValueTypeString || persisted.Spec.Sources[0].Fields[1].Path != "{.data['display-name']}" || persisted.Status.Conditions[0].Reason != "Available" {
+	copy.Status.Summary.SuccessfulSources = 99
+	if persisted.Labels["contract"] != "typed" || persisted.Spec.Sources[0].ID != "typed-source" || persisted.Spec.Sources[0].Namespaces.Names[0] != "team-a" || persisted.Spec.Sources[0].Selector.MatchLabels["app"] != "demo" || persisted.Spec.Sources[0].Selector.MatchExpressions[0].Values[0] != "backend" || persisted.Spec.Sources[0].Selector.FieldSelector != "metadata.namespace=team-a" || persisted.Spec.Sources[0].Fields[0].Name != "resourceName" || persisted.Spec.Sources[0].Fields[0].Type != ValueTypeString || persisted.Spec.Sources[0].Fields[1].Path != "{.data['display-name']}" || persisted.Status.Conditions[0].Reason != "Available" || persisted.Status.Summary == nil || persisted.Status.Summary.SuccessfulSources != 2 {
 		t.Fatalf("generated typed DeepCopy aliases the API-derived object: %#v", persisted)
 	}
 
@@ -821,6 +829,20 @@ func assertInstalledCRDContract(t *testing.T, ctx context.Context, client apiext
 	if !found || observedGeneration.Type != "integer" || observedGeneration.Format != "int64" || observedGeneration.Minimum == nil || *observedGeneration.Minimum != 0 {
 		t.Fatalf("installed CRD observedGeneration schema is incorrect: %#v", observedGeneration)
 	}
+	summary, found := status.Properties["summary"]
+	if !found || summary.Type != "object" || summary.AdditionalProperties != nil || len(summary.Properties) != 3 {
+		t.Fatalf("installed CRD summary schema is incorrect: %#v", summary)
+	}
+	for _, field := range []string{"successfulSources", "failedSources", "matchedResources"} {
+		count, found := summary.Properties[field]
+		if !found || count.Type != "integer" || count.Format != "int64" || count.Minimum == nil || *count.Minimum != 0 {
+			t.Fatalf("installed CRD summary field %q schema is incorrect: %#v", field, count)
+		}
+	}
+	resultHash, found := status.Properties["resultHash"]
+	if !found || resultHash.Type != "string" || resultHash.MaxLength == nil || *resultHash.MaxLength != 71 || resultHash.Pattern != `^sha256:[0-9a-f]{64}$` {
+		t.Fatalf("installed CRD resultHash schema is incorrect: %#v", resultHash)
+	}
 	result, found := status.Properties["result"]
 	if !found || result.Type != "object" || result.AdditionalProperties != nil || len(result.Properties) != 1 {
 		t.Fatalf("installed CRD result schema is incorrect: %#v", result)
@@ -1241,6 +1263,24 @@ func assertNegativeObservedGenerationRejected(t *testing.T, ctx context.Context,
 	if !apierrors.IsInvalid(err) {
 		t.Fatalf("negative observedGeneration was not rejected as invalid: %v", err)
 	}
+
+	statusUpdate = created.DeepCopy()
+	if err := unstructured.SetNestedField(statusUpdate.Object, int64(-1), "status", "summary", "successfulSources"); err != nil {
+		t.Fatalf("set negative successful source summary: %v", err)
+	}
+	_, err = resources.UpdateStatus(ctx, statusUpdate, metav1.UpdateOptions{})
+	if !apierrors.IsInvalid(err) {
+		t.Fatalf("negative successfulSources was not rejected as invalid: %v", err)
+	}
+
+	statusUpdate = created.DeepCopy()
+	if err := unstructured.SetNestedField(statusUpdate.Object, "sha256:"+strings.Repeat("A", 64), "status", "resultHash"); err != nil {
+		t.Fatalf("set invalid result hash: %v", err)
+	}
+	_, err = resources.UpdateStatus(ctx, statusUpdate, metav1.UpdateOptions{})
+	if !apierrors.IsInvalid(err) {
+		t.Fatalf("invalid resultHash was not rejected as invalid: %v", err)
+	}
 }
 
 func assertStatusUpdatePreservesSpec(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface, namespace string) {
@@ -1264,6 +1304,18 @@ func assertStatusUpdatePreservesSpec(t *testing.T, ctx context.Context, resource
 	if err := unstructured.SetNestedField(statusUpdate.Object, int64(1), "status", "observedGeneration"); err != nil {
 		t.Fatalf("set status observedGeneration: %v", err)
 	}
+	if err := unstructured.SetNestedField(statusUpdate.Object, int64(2), "status", "summary", "successfulSources"); err != nil {
+		t.Fatalf("set successful source summary: %v", err)
+	}
+	if err := unstructured.SetNestedField(statusUpdate.Object, int64(1), "status", "summary", "failedSources"); err != nil {
+		t.Fatalf("set failed source summary: %v", err)
+	}
+	if err := unstructured.SetNestedField(statusUpdate.Object, int64(3), "status", "summary", "matchedResources"); err != nil {
+		t.Fatalf("set matched resource summary: %v", err)
+	}
+	if err := unstructured.SetNestedField(statusUpdate.Object, "sha256:"+strings.Repeat("0", 64), "status", "resultHash"); err != nil {
+		t.Fatalf("set result hash: %v", err)
+	}
 	if _, err := resources.UpdateStatus(ctx, statusUpdate, metav1.UpdateOptions{}); err != nil {
 		t.Fatalf("update status subresource: %v", err)
 	}
@@ -1279,6 +1331,16 @@ func assertStatusUpdatePreservesSpec(t *testing.T, ctx context.Context, resource
 	observedGeneration, found, err := unstructured.NestedInt64(stored.Object, "status", "observedGeneration")
 	if err != nil || !found || observedGeneration != 1 {
 		t.Fatalf("status update was not persisted: generation=%d found=%t err=%v", observedGeneration, found, err)
+	}
+	for field, expected := range map[string]int64{"successfulSources": 2, "failedSources": 1, "matchedResources": 3} {
+		value, found, err := unstructured.NestedInt64(stored.Object, "status", "summary", field)
+		if err != nil || !found || value != expected {
+			t.Fatalf("status summary field %q was not persisted: value=%d found=%t err=%v", field, value, found, err)
+		}
+	}
+	resultHash, found, err := unstructured.NestedString(stored.Object, "status", "resultHash")
+	if err != nil || !found || resultHash != "sha256:"+strings.Repeat("0", 64) {
+		t.Fatalf("status resultHash was not persisted: value=%q found=%t err=%v", resultHash, found, err)
 	}
 }
 

@@ -31,6 +31,7 @@ import (
 	discoveryruntime "github.com/steeltanuki/kubeseer/internal/discovery"
 	"github.com/steeltanuki/kubeseer/internal/reconciliation"
 	"github.com/steeltanuki/kubeseer/internal/selection"
+	statuscontract "github.com/steeltanuki/kubeseer/internal/status"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -210,11 +211,24 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 
 	waitRuntimeSourceState(t, ctx, apiClient, existingKey, v1alpha1.SourceStateError)
 	waitRuntimeSourceState(t, ctx, apiClient, fanoutKey, v1alpha1.SourceStateError)
+	missingStatus := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, existingKey, missingStatus); err != nil {
+		t.Fatalf("read missing-policy status: %v", err)
+	}
+	assertRuntimeStatusSnapshot(t, missingStatus, missingStatus.Generation, true)
+	assertRuntimeCondition(t, missingStatus.Status, statuscontract.ConditionAuthorized, metav1.ConditionFalse, statuscontract.ReasonPolicyMissing)
 	if err := apiClient.Create(ctx, policy); err != nil {
 		t.Fatalf("create installation access policy: %v", err)
 	}
 	waitRuntimeSourceState(t, ctx, apiClient, existingKey, v1alpha1.SourceStateValues)
 	waitRuntimeSourceState(t, ctx, apiClient, fanoutKey, v1alpha1.SourceStateValues)
+	successStatus := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, existingKey, successStatus); err != nil {
+		t.Fatalf("read successful status snapshot: %v", err)
+	}
+	assertRuntimeStatusSnapshot(t, successStatus, successStatus.Generation, true)
+	assertRuntimeCondition(t, successStatus.Status, statuscontract.ConditionReady, metav1.ConditionTrue, statuscontract.ReasonEvaluationSucceeded)
+	assertRuntimeCondition(t, successStatus.Status, statuscontract.ConditionDegraded, metav1.ConditionFalse, statuscontract.ReasonEvaluationSucceeded)
 
 	newObject := runtimeEnvtestKubeseer(newKey, runtimeEnvtestPodSource("runtime-new-source", false))
 	if err := apiClient.Create(ctx, newObject); err != nil {
@@ -249,6 +263,11 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	}
 	waitRuntimeObservedState(t, ctx, apiClient, watchKey, 2, v1alpha1.SourceStateValues, 1, "observed-initial-value")
 	waitRuntimeObservedState(t, ctx, apiClient, watchPeerKey, 1, v1alpha1.SourceStateValues, 1, "observed-initial-value")
+	watchStatus := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, watchKey, watchStatus); err != nil {
+		t.Fatalf("read successful observed status snapshot: %v", err)
+	}
+	assertRuntimeStatusSnapshot(t, watchStatus, watchStatus.Generation, true)
 	observedRequests := requestRecorder.Requests()
 	firstWatch, firstList, watchCount := runtimeObservedRequestIndexes(observedRequests)
 	if watchCount != 1 {
@@ -330,6 +349,12 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	requestRecorder.SetPolicyUnavailable(true)
 	waitRuntimeObservedState(t, ctx, apiClient, watchKey, 2, v1alpha1.SourceStateError, -1, "")
 	waitRuntimeObservedState(t, ctx, apiClient, watchPeerKey, 1, v1alpha1.SourceStateError, -1, "")
+	policyUnavailableStatus := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, watchKey, policyUnavailableStatus); err != nil {
+		t.Fatalf("read unavailable-policy status snapshot: %v", err)
+	}
+	assertRuntimeStatusSnapshot(t, policyUnavailableStatus, policyUnavailableStatus.Generation, true)
+	assertRuntimeCondition(t, policyUnavailableStatus.Status, statuscontract.ConditionAuthorized, metav1.ConditionUnknown, statuscontract.ReasonAuthorizationUnavailable)
 	if err := WaitFor(ctx, 10*time.Second, func(context.Context) (bool, error) {
 		return requestRecorder.ActiveWatches() == 0, nil
 	}); err != nil {
@@ -454,9 +479,10 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	if !reflect.DeepEqual(statusBeforeResult, statusAfterGeneration.Status.Result) {
 		t.Fatalf("generation-only publication changed the semantic result: before=%#v after=%#v", statusBeforeResult, statusAfterGeneration.Status.Result)
 	}
-	if len(statusAfterGeneration.Status.Conditions) != 1 || statusAfterGeneration.Status.Conditions[0].Message != "must survive runtime publication" {
+	if len(statusAfterGeneration.Status.Conditions) != 6 || statusAfterGeneration.Status.Conditions[5].Type != "External" || statusAfterGeneration.Status.Conditions[5].Message != "must survive runtime publication" {
 		t.Fatalf("generation-only publication did not preserve conditions: %#v", statusAfterGeneration.Status.Conditions)
 	}
+	assertRuntimeStatusSnapshot(t, statusAfterGeneration, statusAfterGeneration.Generation, true)
 	if statusAfterGeneration.Spec.Sources[0].Selector == nil || statusAfterGeneration.Spec.Sources[0].Selector.Name != statusPodName {
 		t.Fatalf("generation-only publication did not preserve the latest spec: %#v", statusAfterGeneration.Spec.Sources[0].Selector)
 	}
@@ -495,6 +521,13 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 		t.Fatalf("create all-failed Kubeseer: %v", err)
 	}
 	waitRuntimeSourceStates(t, ctx, apiClient, allFailedKey, 2, v1alpha1.SourceStateError, 0, "")
+	allFailedStatus := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, allFailedKey, allFailedStatus); err != nil {
+		t.Fatalf("read all-failed status snapshot: %v", err)
+	}
+	assertRuntimeStatusSnapshot(t, allFailedStatus, allFailedStatus.Generation, true)
+	assertRuntimeCondition(t, allFailedStatus.Status, statuscontract.ConditionAccepted, metav1.ConditionFalse, statuscontract.ReasonInvalidConfiguration)
+	assertRuntimeCondition(t, allFailedStatus.Status, statuscontract.ConditionReady, metav1.ConditionFalse, statuscontract.ReasonEvaluationDegraded)
 	allFailedWrites := requestRecorder.StatusWrites(allFailedKey.Name)
 	assertRuntimeStatusWritesStable(t, ctx, requestRecorder, allFailedKey.Name, allFailedWrites, 150*time.Millisecond)
 
@@ -503,6 +536,14 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 		t.Fatalf("create zero-source Kubeseer: %v", err)
 	}
 	waitRuntimeEmptyResult(t, ctx, apiClient, emptyKey)
+	emptyStatus := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, emptyKey, emptyStatus); err != nil {
+		t.Fatalf("read zero-source status snapshot: %v", err)
+	}
+	assertRuntimeStatusSnapshot(t, emptyStatus, emptyStatus.Generation, true)
+	if emptyStatus.Status.Summary == nil || emptyStatus.Status.Summary.SuccessfulSources != 0 || emptyStatus.Status.Summary.FailedSources != 0 || emptyStatus.Status.Summary.MatchedResources != 0 {
+		t.Fatalf("zero-source summary = %#v", emptyStatus.Status.Summary)
+	}
 
 	updated := &v1alpha1.Kubeseer{}
 	if err := apiClient.Get(ctx, existingKey, updated); err != nil {
@@ -522,7 +563,7 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	if err := apiClient.Get(ctx, existingKey, statusOnly); err != nil {
 		t.Fatalf("read existing Kubeseer before status-only update: %v", err)
 	}
-	statusOnly.Status.Conditions = []metav1.Condition{{Type: "External", Status: metav1.ConditionTrue, LastTransitionTime: metav1.Now(), Reason: "Fixture", Message: "status-only event"}}
+	statusOnly.Status.Conditions = append(statusOnly.Status.Conditions, metav1.Condition{Type: "External", Status: metav1.ConditionTrue, LastTransitionTime: metav1.Now(), Reason: "Fixture", Message: "status-only event"})
 	if err := apiClient.Status().Update(ctx, statusOnly); err != nil {
 		t.Fatalf("update status-only condition: %v", err)
 	}
@@ -562,6 +603,8 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	t.Log("API_CONTRACT=reconciliation-runtime-lifecycle STATUS=passed")
 	t.Log("API_CONTRACT=reconciliation-runtime-watch-routing STATUS=passed")
 	t.Log("API_CONTRACT=reconciliation-runtime-status STATUS=passed")
+	t.Log("API_CONTRACT=status-and-conditions-snapshots STATUS=passed")
+	t.Log("API_CONTRACT=status-and-conditions-transitions STATUS=passed")
 }
 
 func runtimeEnvtestKubeseer(key types.NamespacedName, source v1alpha1.KubeseerSource) *v1alpha1.Kubeseer {
@@ -1177,6 +1220,70 @@ func runRuntimeEnvtestAdapterScenarios(t *testing.T, ctx context.Context, apiCli
 		t.Fatalf("deterministic failure hot-loop wrote status again: before=%d after=%d", deterministicWrites, statusWriter.Calls())
 	}
 
+	invalidPolicy := runtimeEnvtestPolicy(namespace)
+	invalidPolicy.Spec.Namespaces.Mode = v1alpha1.NamespaceMode("invalid")
+	invalidTracker := reconciliation.NewFreshnessTracker()
+	invalidPolicyRuntime, err := reconciliation.NewRuntime(reconciliation.Options{SafetyInterval: time.Hour}, reconciliation.Dependencies{
+		Reader:       store,
+		Lister:       store,
+		PolicySource: accesspolicy.PolicySourceFunc(func(context.Context) (*v1alpha1.KubeseerAccessPolicy, error) { return invalidPolicy.DeepCopy(), nil }),
+		Planner:      selection.NewPlanner(resolver),
+		Executor:     selection.NewExecutor(resourceLister),
+		Routes:       routes,
+		Publisher:    reconciliation.NewStatusPublisher(store, statusWriter, invalidTracker),
+		Tracker:      invalidTracker,
+	})
+	if err != nil {
+		t.Fatalf("construct invalid-policy runtime: %v", err)
+	}
+	if _, err := invalidPolicyRuntime.Reconcile(ctx, reconcile.Request{NamespacedName: deterministicKey}); err != nil {
+		t.Fatalf("invalid-policy reconciliation: %v", err)
+	}
+	invalidPolicyStatus := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, deterministicKey, invalidPolicyStatus); err != nil {
+		t.Fatalf("read invalid-policy status: %v", err)
+	}
+	assertRuntimeStatusSnapshot(t, invalidPolicyStatus, invalidPolicyStatus.Generation, true)
+	assertRuntimeCondition(t, invalidPolicyStatus.Status, statuscontract.ConditionAuthorized, metav1.ConditionFalse, statuscontract.ReasonPolicyInvalid)
+
+	denyingPolicy := runtimeEnvtestPolicy(namespace)
+	denyingPolicy.Spec.Namespaces.Include = nil
+	denialTracker := reconciliation.NewFreshnessTracker()
+	denialRuntime, err := reconciliation.NewRuntime(reconciliation.Options{SafetyInterval: time.Hour}, reconciliation.Dependencies{
+		Reader:       store,
+		Lister:       store,
+		PolicySource: accesspolicy.PolicySourceFunc(func(context.Context) (*v1alpha1.KubeseerAccessPolicy, error) { return denyingPolicy.DeepCopy(), nil }),
+		Planner:      selection.NewPlanner(resolver),
+		Executor:     selection.NewExecutor(resourceLister),
+		Routes:       routes,
+		Publisher:    reconciliation.NewStatusPublisher(store, statusWriter, denialTracker),
+		Tracker:      denialTracker,
+	})
+	if err != nil {
+		t.Fatalf("construct denying-policy runtime: %v", err)
+	}
+	if _, err := denialRuntime.Reconcile(ctx, reconcile.Request{NamespacedName: adapterKey}); err != nil {
+		t.Fatalf("denying-policy reconciliation: %v", err)
+	}
+	deniedPolicyStatus := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, adapterKey, deniedPolicyStatus); err != nil {
+		t.Fatalf("read denied-policy status: %v", err)
+	}
+	assertRuntimeStatusSnapshot(t, deniedPolicyStatus, deniedPolicyStatus.Generation, true)
+	assertRuntimeCondition(t, deniedPolicyStatus.Status, statuscontract.ConditionAuthorized, metav1.ConditionFalse, statuscontract.ReasonAuthorizationDenied)
+
+	resourceLister.ForbidNext()
+	if _, err := runtimeInstance.Reconcile(ctx, request); err != nil {
+		t.Fatalf("forbidden-read reconciliation: %v", err)
+	}
+	waitRuntimeSourceState(t, ctx, apiClient, adapterKey, v1alpha1.SourceStateError)
+	forbiddenStatus := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, adapterKey, forbiddenStatus); err != nil {
+		t.Fatalf("read forbidden status: %v", err)
+	}
+	assertRuntimeStatusSnapshot(t, forbiddenStatus, forbiddenStatus.Generation, true)
+	assertRuntimeCondition(t, forbiddenStatus.Status, statuscontract.ConditionAuthorized, metav1.ConditionFalse, statuscontract.ReasonReadForbidden)
+
 	busyObject := &v1alpha1.Kubeseer{
 		ObjectMeta: metav1.ObjectMeta{Namespace: busyKey.Namespace, Name: busyKey.Name},
 		Spec:       v1alpha1.KubeseerSpec{Sources: []v1alpha1.KubeseerSource{runtimeEnvtestPodFieldSource("busy-source")}},
@@ -1249,7 +1356,7 @@ func runRuntimeEnvtestAdapterScenarios(t *testing.T, ctx context.Context, apiCli
 		key:      adapterKey,
 	}
 	conflictPublisher := reconciliation.NewStatusPublisher(store, conflictWriter, conflictTracker)
-	conflictErr := conflictPublisher.Publish(conflictContext, conflictLease, conflictResult)
+	conflictErr := conflictPublisher.Publish(conflictContext, conflictLease, envtestStatusEvaluation(conflictResult))
 	releaseConflict()
 	if !reconciliation.IsRetryable(conflictErr) || conflictWriter.Calls() != 1 {
 		t.Fatalf("real status conflict = err=%v calls=%d, want one retryable attempt", conflictErr, conflictWriter.Calls())
@@ -1269,7 +1376,7 @@ func runRuntimeEnvtestAdapterScenarios(t *testing.T, ctx context.Context, apiCli
 	if err != nil {
 		t.Fatalf("acquire convergence lease after conflict: %v", err)
 	}
-	if err := reconciliation.NewStatusPublisher(store, reconciliation.NewClientStatusWriter(apiClient.Status()), conflictTracker).Publish(convergeContext, convergeLease, conflictResult); err != nil {
+	if err := reconciliation.NewStatusPublisher(store, reconciliation.NewClientStatusWriter(apiClient.Status()), conflictTracker).Publish(convergeContext, convergeLease, envtestStatusEvaluation(conflictResult)); err != nil {
 		releaseConverge()
 		t.Fatalf("status did not converge after conflict retry: %v", err)
 	}
@@ -1293,7 +1400,7 @@ func runRuntimeEnvtestAdapterScenarios(t *testing.T, ctx context.Context, apiCli
 		t.Fatalf("acquire zero-source semantic lease: %v", err)
 	}
 	emptyWriter := &runtimeEnvtestCountingStatusWriter{delegate: reconciliation.NewClientStatusWriter(apiClient.Status())}
-	if err := reconciliation.NewStatusPublisher(store, emptyWriter, emptyTracker).Publish(emptyContext, emptyLease, v1alpha1.KubeseerResult{}); err != nil {
+	if err := reconciliation.NewStatusPublisher(store, emptyWriter, emptyTracker).Publish(emptyContext, emptyLease, envtestStatusEvaluation(v1alpha1.KubeseerResult{})); err != nil {
 		releaseEmpty()
 		t.Fatalf("nil/empty semantic status suppression failed: %v", err)
 	}
@@ -1312,7 +1419,7 @@ func runRuntimeEnvtestAdapterScenarios(t *testing.T, ctx context.Context, apiCli
 	newer.Generation++
 	staleTracker.Observe(newer)
 	staleWriter := &runtimeEnvtestCountingStatusWriter{delegate: reconciliation.NewClientStatusWriter(apiClient.Status())}
-	if err := reconciliation.NewStatusPublisher(store, staleWriter, staleTracker).Publish(staleContext, staleLease, conflictResult); err == nil {
+	if err := reconciliation.NewStatusPublisher(store, staleWriter, staleTracker).Publish(staleContext, staleLease, envtestStatusEvaluation(conflictResult)); err == nil {
 		releaseStale()
 		t.Fatalf("stale lease unexpectedly published status")
 	}
@@ -1330,7 +1437,7 @@ func runRuntimeEnvtestAdapterScenarios(t *testing.T, ctx context.Context, apiCli
 		t.Fatalf("acquire canceled proof lease: %v", err)
 	}
 	canceledWriter := &runtimeEnvtestCountingStatusWriter{delegate: reconciliation.NewClientStatusWriter(apiClient.Status())}
-	if err := reconciliation.NewStatusPublisher(store, canceledWriter, canceledTracker).Publish(canceledContext, canceledLease, conflictResult); err == nil {
+	if err := reconciliation.NewStatusPublisher(store, canceledWriter, canceledTracker).Publish(canceledContext, canceledLease, envtestStatusEvaluation(conflictResult)); err == nil {
 		releaseCanceled()
 		t.Fatalf("canceled status publication unexpectedly succeeded")
 	}
@@ -1340,6 +1447,85 @@ func runRuntimeEnvtestAdapterScenarios(t *testing.T, ctx context.Context, apiCli
 	}
 
 	_ = namespace
+}
+
+func envtestStatusEvaluation(result v1alpha1.KubeseerResult) statuscontract.Evaluation {
+	return statuscontract.Evaluation{Result: result.DeepCopy()}
+}
+
+func assertRuntimeStatusSnapshot(t *testing.T, object *v1alpha1.Kubeseer, generation int64, wantResult bool) {
+	t.Helper()
+	if object.Status.ObservedGeneration != generation {
+		t.Fatalf("status observed generation = %d, want %d", object.Status.ObservedGeneration, generation)
+	}
+	wantTypes := []string{
+		statuscontract.ConditionAccepted,
+		statuscontract.ConditionAuthorized,
+		statuscontract.ConditionSourcesResolved,
+		statuscontract.ConditionReady,
+		statuscontract.ConditionDegraded,
+	}
+	if len(object.Status.Conditions) < len(wantTypes) {
+		t.Fatalf("status condition count = %d, want at least %d: %#v", len(object.Status.Conditions), len(wantTypes), object.Status.Conditions)
+	}
+	seen := make(map[string]int, len(object.Status.Conditions))
+	for index, condition := range object.Status.Conditions {
+		seen[condition.Type]++
+		if index < len(wantTypes) && condition.Type != wantTypes[index] {
+			t.Fatalf("canonical condition %d = %q, want %q: %#v", index, condition.Type, wantTypes[index], object.Status.Conditions)
+		}
+		if condition.Type == "" || condition.Reason == "" || condition.Message == "" || condition.LastTransitionTime.IsZero() || index < len(wantTypes) && condition.ObservedGeneration != generation {
+			t.Fatalf("incomplete condition = %#v", condition)
+		}
+	}
+	for _, conditionType := range wantTypes {
+		if seen[conditionType] != 1 {
+			t.Fatalf("canonical condition %s count = %d: %#v", conditionType, seen[conditionType], object.Status.Conditions)
+		}
+	}
+	ready := runtimeCondition(object.Status, statuscontract.ConditionReady)
+	degraded := runtimeCondition(object.Status, statuscontract.ConditionDegraded)
+	if ready.Status == metav1.ConditionTrue && degraded.Status == metav1.ConditionTrue {
+		t.Fatalf("Ready and Degraded are both true: %#v", object.Status.Conditions)
+	}
+	if wantResult {
+		if object.Status.Result == nil || object.Status.Summary == nil || object.Status.ResultHash == "" {
+			t.Fatalf("complete status snapshot omitted result-derived fields: %#v", object.Status)
+		}
+		derived, err := statuscontract.DeriveResult(object.Status.Result)
+		if err != nil {
+			t.Fatalf("derive persisted status result: %v", err)
+		}
+		if !reflect.DeepEqual(derived.Summary, object.Status.Summary) || derived.ResultHash != object.Status.ResultHash {
+			t.Fatalf("persisted derived fields drifted: derived=%#v status=%#v", derived, object.Status)
+		}
+	} else if object.Status.Result != nil || object.Status.Summary != nil || object.Status.ResultHash != "" {
+		t.Fatalf("status snapshot unexpectedly contains result-derived fields: %#v", object.Status)
+	}
+	for _, condition := range object.Status.Conditions {
+		for _, forbidden := range []string{"observed-initial-value", "observed-updated-value", "runtime-status-pod", "{.spec.value}", "{.metadata.name}", "secret-sentinel"} {
+			if strings.Contains(condition.Message, forbidden) {
+				t.Fatalf("condition message leaked %q: %#v", forbidden, condition)
+			}
+		}
+	}
+}
+
+func assertRuntimeCondition(t *testing.T, candidate v1alpha1.KubeseerStatus, conditionType string, conditionStatus metav1.ConditionStatus, reason string) {
+	t.Helper()
+	condition := runtimeCondition(candidate, conditionType)
+	if condition.Type == "" || condition.Status != conditionStatus || condition.Reason != reason {
+		t.Fatalf("condition %s = %#v, want status=%s reason=%s", conditionType, condition, conditionStatus, reason)
+	}
+}
+
+func runtimeCondition(candidate v1alpha1.KubeseerStatus, conditionType string) metav1.Condition {
+	for _, condition := range candidate.Conditions {
+		if condition.Type == conditionType {
+			return condition
+		}
+	}
+	return metav1.Condition{}
 }
 
 func runtimeEnvtestQueueGet(t *testing.T, ctx context.Context, queue workqueue.TypedRateLimitingInterface[reconcile.Request]) (reconcile.Request, bool) {
@@ -1389,10 +1575,11 @@ func (a *runtimeEnvtestDiscoveryAdapter) ServerResourcesForGroupVersion(groupVer
 }
 
 type runtimeEnvtestResourceListerAdapter struct {
-	delegate selection.ResourceLister
-	mu       sync.Mutex
-	failNext bool
-	block    *runtimeEnvtestListBlock
+	delegate   selection.ResourceLister
+	mu         sync.Mutex
+	failNext   bool
+	forbidNext bool
+	block      *runtimeEnvtestListBlock
 }
 
 type runtimeEnvtestListBlock struct {
@@ -1406,6 +1593,12 @@ func (a *runtimeEnvtestResourceListerAdapter) FailNext() {
 	a.mu.Unlock()
 }
 
+func (a *runtimeEnvtestResourceListerAdapter) ForbidNext() {
+	a.mu.Lock()
+	a.forbidNext = true
+	a.mu.Unlock()
+}
+
 func (a *runtimeEnvtestResourceListerAdapter) BlockNext(release <-chan struct{}, started chan<- struct{}) {
 	a.mu.Lock()
 	a.block = &runtimeEnvtestListBlock{release: release, started: started}
@@ -1416,11 +1609,16 @@ func (a *runtimeEnvtestResourceListerAdapter) List(ctx context.Context, target s
 	a.mu.Lock()
 	fail := a.failNext
 	a.failNext = false
+	forbid := a.forbidNext
+	a.forbidNext = false
 	block := a.block
 	a.block = nil
 	a.mu.Unlock()
 	if fail {
 		return nil, errors.New("simulated resource LIST unavailability")
+	}
+	if forbid {
+		return nil, apierrors.NewForbidden(schema.GroupResource{Group: "", Resource: "pods"}, target.SourceID, errors.New("simulated RBAC denial"))
 	}
 	if block != nil {
 		if block.started != nil {

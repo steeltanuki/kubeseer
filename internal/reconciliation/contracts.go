@@ -23,6 +23,7 @@ import (
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
 	"github.com/steeltanuki/kubeseer/internal/accesspolicy"
 	"github.com/steeltanuki/kubeseer/internal/selection"
+	statuscontract "github.com/steeltanuki/kubeseer/internal/status"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -98,7 +99,7 @@ type StatusWriter interface {
 
 // StatusPublisherPort publishes a candidate for one current lease.
 type StatusPublisherPort interface {
-	Publish(context.Context, Lease, v1alpha1.KubeseerResult) error
+	Publish(context.Context, Lease, statuscontract.Evaluation) error
 }
 
 // RouteManager owns only authorized source-event routing state.
@@ -288,12 +289,12 @@ func (w *ClientStatusWriter) Update(ctx context.Context, object *v1alpha1.Kubese
 }
 
 // StatusPublisherFunc adapts a function to StatusPublisherPort.
-type StatusPublisherFunc func(context.Context, Lease, v1alpha1.KubeseerResult) error
+type StatusPublisherFunc func(context.Context, Lease, statuscontract.Evaluation) error
 
 // Publish implements StatusPublisherPort.
-func (f StatusPublisherFunc) Publish(ctx context.Context, lease Lease, result v1alpha1.KubeseerResult) error {
+func (f StatusPublisherFunc) Publish(ctx context.Context, lease Lease, evaluation statuscontract.Evaluation) error {
 	if f == nil {
 		return fmt.Errorf("status publisher function is nil")
 	}
-	return f(ctx, lease, result)
+	return f(ctx, lease, evaluation)
 }

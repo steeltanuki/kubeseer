@@ -144,3 +144,8 @@ Review this file before non-trivial work when the current request matches past m
 - Trigger: Design recovery found design.md missing after a scaffold replacement was split into destructive steps
 - Lesson: After a combined replacement is rejected, deleting the existing Walden document alone can leave the approval chain structurally incomplete
 - Guardrail: Use one Update File patch while a document exists; if it is already missing, recreate it with one Add File patch before any review transition
+### 2026-08-27T08:34:26Z | status-and-conditions | tasks
+- Trigger: Initial task proofs exposed a wrapper-only envtest socket restriction and a bind-error path that overwrote an explicit denial assessment.
+- Lesson: Run the exact Walden proof wrapper and inspect unfiltered failures before retrying completion; preserve terminal assessments when later adaptation reports a related internal error.
+- Guardrail: Keep task-scoped caches and authorized envtest execution available, and add regression assertions for each terminal assessment before marking the task complete.
+

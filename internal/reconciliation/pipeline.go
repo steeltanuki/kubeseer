@@ -24,6 +24,7 @@ import (
 	"github.com/steeltanuki/kubeseer/internal/discovery"
 	"github.com/steeltanuki/kubeseer/internal/extraction"
 	"github.com/steeltanuki/kubeseer/internal/selection"
+	statuscontract "github.com/steeltanuki/kubeseer/internal/status"
 	"github.com/steeltanuki/kubeseer/internal/typedoutput"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -31,13 +32,15 @@ import (
 )
 
 type plannedSource struct {
-	source        v1alpha1.KubeseerSource
-	plan          selection.SelectionPlan
-	authorized    selection.AuthorizedPlan
-	selectionErr  *selection.SelectionError
-	canExecute    bool
-	retryableErr  error
-	authorizedSet []AuthorizedRoute
+	source          v1alpha1.KubeseerSource
+	plan            selection.SelectionPlan
+	authorized      selection.AuthorizedPlan
+	selectionErr    *selection.SelectionError
+	canExecute      bool
+	retryableErr    error
+	authorizedSet   []AuthorizedRoute
+	assessment      statuscontract.SourceAssessment
+	originalPlanErr error
 }
 
 // Reconcile implements controller-runtime's namespaced request boundary.
@@ -104,10 +107,20 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 		if child.Err() != nil || !r.deps.Tracker.IsCurrent(lease) {
 			return reconcile.Result{}, nil
 		}
-		entry := plannedSource{source: source}
+		entry := plannedSource{
+			source: source,
+			assessment: statuscontract.SourceAssessment{
+				Index:         index,
+				Configuration: configurationOutcome(source),
+				Authorization: statuscontract.AuthorizationNotEvaluatedOutcome,
+				Resolution:    statuscontract.ResolutionNotEvaluatedOutcome,
+			},
+		}
 		plan, planErr := r.deps.Planner.Plan(child, object.Namespace, source)
 		if planErr != nil {
+			entry.originalPlanErr = planErr
 			entry.selectionErr = mapPlanningError(source.ID, planErr)
+			entry.assessment = assessmentForPlanningError(entry.assessment, planErr)
 			if isDiscoveryUnavailable(planErr) {
 				entry.retryableErr = transientRuntimeError("discovery", source.ID, ReasonReadUnavailable, "source discovery is unavailable", nil)
 				retryable = append(retryable, entry.retryableErr)
@@ -116,6 +129,7 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 			continue
 		}
 		entry.plan = plan
+		entry.assessment.Resolution = statuscontract.ResolutionResolvedOutcome
 		authorizations := make([]selection.Authorization, 0, len(plan.Targets()))
 		for _, target := range plan.Targets() {
 			decision := snapshot.Evaluate(selection.RequestForTarget(target))
@@ -123,14 +137,24 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 				Request:  selection.RequestForTarget(target),
 				Decision: decision,
 			})
+			if decision.Allowed {
+				continue
+			}
+			entry.assessment.Authorization = authorizationOutcomeForDecision(decision)
 			if !decision.Allowed && entry.selectionErr == nil {
 				entry.selectionErr = selection.NewSelectionError(source.ID, selection.ReasonAuthorizationDenied, policyDecisionMessage(decision))
 			}
+		}
+		if entry.assessment.Authorization == statuscontract.AuthorizationNotEvaluatedOutcome {
+			entry.assessment.Authorization = statuscontract.AuthorizationAllowedOutcome
 		}
 		bound, bindErr := selection.Bind(plan, authorizations)
 		if bindErr != nil {
 			if entry.selectionErr == nil {
 				entry.selectionErr = mapBindingError(source.ID, bindErr)
+			}
+			if entry.assessment.Authorization == statuscontract.AuthorizationAllowedOutcome || entry.assessment.Authorization == statuscontract.AuthorizationNotEvaluatedOutcome {
+				entry.assessment.Authorization = statuscontract.AuthorizationUnavailableOutcome
 			}
 			planned[index] = entry
 			continue
@@ -185,6 +209,10 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 		}
 		selectionOutcomes[index] = r.deps.Executor.Execute(child, entry.authorized)
 		if selectionOutcomes[index].Err != nil {
+			if selection.HasReason(selectionOutcomes[index].Err, selection.ReasonReadForbidden) {
+				entry.assessment.Authorization = statuscontract.AuthorizationReadForbiddenOutcome
+				planned[index] = entry
+			}
 			if retryableSelectionError(selectionOutcomes[index].Err) {
 				retryable = append(retryable, transientRuntimeError("selection", entry.source.ID, ReasonReadUnavailable, "source selection is temporarily unavailable", selectionOutcomes[index].Err))
 			}
@@ -212,13 +240,30 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 	}
 	result, err := typedoutput.BuildResult(converted)
 	if err != nil {
-		return reconcile.Result{}, transientRuntimeError("result-build", "", ReasonBuildFailure, "candidate result construction failed", err)
+		buildErr := transientRuntimeError("result-build", "", ReasonBuildFailure, "candidate result construction failed", err)
+		unavailable := statuscontract.Evaluation{
+			Sources:             assessmentsForPlanned(planned),
+			GlobalAuthorization: globalAuthorizationOutcome(snapshot, len(sources)),
+			ResultUnavailable:   true,
+		}
+		if publishErr := r.deps.Publisher.Publish(child, lease, unavailable); publishErr != nil {
+			if errors.Is(publishErr, ErrStaleLease) || errors.Is(publishErr, context.Canceled) || errors.Is(publishErr, context.DeadlineExceeded) {
+				return reconcile.Result{}, buildErr
+			}
+			return reconcile.Result{}, errors.Join(buildErr, publishErr)
+		}
+		return reconcile.Result{}, buildErr
 	}
 	if child.Err() != nil || !r.deps.Tracker.IsCurrent(lease) {
 		return reconcile.Result{}, nil
 	}
 
-	if err := r.deps.Publisher.Publish(child, lease, result); err != nil {
+	evaluation := statuscontract.Evaluation{
+		Result:              &result,
+		Sources:             assessmentsForPlanned(planned),
+		GlobalAuthorization: globalAuthorizationOutcome(snapshot, len(sources)),
+	}
+	if err := r.deps.Publisher.Publish(child, lease, evaluation); err != nil {
 		if errors.Is(err, ErrStaleLease) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return reconcile.Result{}, nil
 		}
@@ -279,4 +324,99 @@ func retryableSelectionError(err error) bool {
 	default:
 		return false
 	}
+}
+
+func configurationOutcome(source v1alpha1.KubeseerSource) statuscontract.ConfigurationOutcome {
+	if _, err := extraction.CompileSource(source); err != nil {
+		return statuscontract.ConfigurationInvalidOutcome
+	}
+	if len(typedoutput.CompileSource(source).Failures()) != 0 {
+		return statuscontract.ConfigurationInvalidOutcome
+	}
+	return statuscontract.ConfigurationAcceptedOutcome
+}
+
+func assessmentForPlanningError(assessment statuscontract.SourceAssessment, err error) statuscontract.SourceAssessment {
+	var resolutionErr *discovery.ResolutionError
+	if errors.As(err, &resolutionErr) {
+		switch resolutionErr.Reason {
+		case discovery.ReasonDiscoveryUnavailable:
+			assessment.Authorization = statuscontract.AuthorizationUnavailableOutcome
+			assessment.Resolution = statuscontract.ResolutionUnavailableOutcome
+		case discovery.ReasonUnknownType, discovery.ReasonAmbiguousResource:
+			assessment.Authorization = statuscontract.AuthorizationNotEvaluatedOutcome
+			assessment.Resolution = statuscontract.ResolutionFailedOutcome
+		case discovery.ReasonInvalidDescriptor:
+			assessment.Configuration = statuscontract.ConfigurationInvalidOutcome
+			assessment.Authorization = statuscontract.AuthorizationNotEvaluatedOutcome
+			assessment.Resolution = statuscontract.ResolutionNotEvaluatedOutcome
+		default:
+			assessment.Configuration = statuscontract.ConfigurationInvalidOutcome
+			assessment.Authorization = statuscontract.AuthorizationNotEvaluatedOutcome
+			assessment.Resolution = statuscontract.ResolutionNotEvaluatedOutcome
+		}
+		return assessment
+	}
+
+	var selectionErr *selection.SelectionError
+	if errors.As(err, &selectionErr) {
+		switch selectionErr.Reason {
+		case selection.ReasonInvalidSelector, selection.ReasonInvalidNamespaceScope:
+			assessment.Configuration = statuscontract.ConfigurationInvalidOutcome
+			assessment.Authorization = statuscontract.AuthorizationNotEvaluatedOutcome
+			assessment.Resolution = statuscontract.ResolutionResolvedOutcome
+		default:
+			assessment.Configuration = statuscontract.ConfigurationInvalidOutcome
+			assessment.Authorization = statuscontract.AuthorizationNotEvaluatedOutcome
+			assessment.Resolution = statuscontract.ResolutionNotEvaluatedOutcome
+		}
+		return assessment
+	}
+
+	assessment.Configuration = statuscontract.ConfigurationInvalidOutcome
+	assessment.Authorization = statuscontract.AuthorizationNotEvaluatedOutcome
+	assessment.Resolution = statuscontract.ResolutionNotEvaluatedOutcome
+	return assessment
+}
+
+func authorizationOutcomeForDecision(decision accesspolicy.Decision) statuscontract.AuthorizationOutcome {
+	if decision.Allowed && decision.Reason == accesspolicy.ReasonAllowed {
+		return statuscontract.AuthorizationAllowedOutcome
+	}
+	switch decision.Reason {
+	case accesspolicy.ReasonPolicyMissing:
+		return statuscontract.AuthorizationPolicyMissingOutcome
+	case accesspolicy.ReasonPolicyInvalid:
+		return statuscontract.AuthorizationPolicyInvalidOutcome
+	case accesspolicy.ReasonPolicyUnavailable:
+		return statuscontract.AuthorizationUnavailableOutcome
+	default:
+		return statuscontract.AuthorizationDeniedOutcome
+	}
+}
+
+func globalAuthorizationOutcome(snapshot accesspolicy.Snapshot, sourceCount int) *statuscontract.AuthorizationOutcome {
+	if sourceCount == 0 {
+		return nil
+	}
+	var outcome statuscontract.AuthorizationOutcome
+	switch snapshot.TerminalReason() {
+	case accesspolicy.ReasonPolicyMissing:
+		outcome = statuscontract.AuthorizationPolicyMissingOutcome
+	case accesspolicy.ReasonPolicyInvalid:
+		outcome = statuscontract.AuthorizationPolicyInvalidOutcome
+	case accesspolicy.ReasonPolicyUnavailable:
+		outcome = statuscontract.AuthorizationUnavailableOutcome
+	default:
+		return nil
+	}
+	return &outcome
+}
+
+func assessmentsForPlanned(planned []plannedSource) []statuscontract.SourceAssessment {
+	assessments := make([]statuscontract.SourceAssessment, len(planned))
+	for index, entry := range planned {
+		assessments[index] = entry.assessment
+	}
+	return assessments
 }

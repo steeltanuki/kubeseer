@@ -431,6 +431,31 @@ spec:
                     type: array
                     x-kubernetes-list-type: atomic
                 type: object
+              resultHash:
+                maxLength: 71
+                pattern: ^sha256:[0-9a-f]{64}$
+                type: string
+              summary:
+                description: KubeseerSummary contains compact counts derived from
+                  the structural result.
+                properties:
+                  failedSources:
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  matchedResources:
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  successfulSources:
+                    format: int64
+                    minimum: 0
+                    type: integer
+                required:
+                - failedSources
+                - matchedResources
+                - successfulSources
+                type: object
             type: object
         required:
         - spec

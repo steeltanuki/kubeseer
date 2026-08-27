@@ -28,6 +28,7 @@ import (
 	"github.com/steeltanuki/kubeseer/internal/discovery"
 	"github.com/steeltanuki/kubeseer/internal/reconciliation"
 	"github.com/steeltanuki/kubeseer/internal/selection"
+	statuscontract "github.com/steeltanuki/kubeseer/internal/status"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -564,8 +565,9 @@ func (r *runtimePipelineRoutes) LastRouteCount() int {
 }
 
 type runtimePipelinePublication struct {
-	Lease  reconciliation.Lease
-	Result v1alpha1.KubeseerResult
+	Lease      reconciliation.Lease
+	Evaluation statuscontract.Evaluation
+	Result     v1alpha1.KubeseerResult
 }
 
 type runtimePipelinePublisher struct {
@@ -578,7 +580,7 @@ type runtimePipelinePublisher struct {
 	blockOnce    sync.Once
 }
 
-func (p *runtimePipelinePublisher) Publish(ctx context.Context, lease reconciliation.Lease, result v1alpha1.KubeseerResult) error {
+func (p *runtimePipelinePublisher) Publish(ctx context.Context, lease reconciliation.Lease, evaluation statuscontract.Evaluation) error {
 	if lease.Key == p.blockKey && p.blockStarted != nil {
 		p.blockOnce.Do(func() { close(p.blockStarted) })
 		select {
@@ -588,10 +590,27 @@ func (p *runtimePipelinePublisher) Publish(ctx context.Context, lease reconcilia
 		}
 	}
 	p.mu.Lock()
-	p.publications = append(p.publications, runtimePipelinePublication{Lease: lease, Result: *result.DeepCopy()})
+	publication := runtimePipelinePublication{Lease: lease, Evaluation: cloneStatusEvaluation(evaluation)}
+	if evaluation.Result != nil {
+		publication.Result = *evaluation.Result.DeepCopy()
+	}
+	p.publications = append(p.publications, publication)
 	p.order = append(p.order, "publish")
 	p.mu.Unlock()
 	return nil
+}
+
+func cloneStatusEvaluation(evaluation statuscontract.Evaluation) statuscontract.Evaluation {
+	copy := evaluation
+	if evaluation.Result != nil {
+		copy.Result = evaluation.Result.DeepCopy()
+	}
+	copy.Sources = append([]statuscontract.SourceAssessment(nil), evaluation.Sources...)
+	if evaluation.GlobalAuthorization != nil {
+		value := *evaluation.GlobalAuthorization
+		copy.GlobalAuthorization = &value
+	}
+	return copy
 }
 
 func (p *runtimePipelinePublisher) Publications() []runtimePipelinePublication {

@@ -165,7 +165,27 @@ type KubeseerStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
 	// +optional
+	Summary *KubeseerSummary `json:"summary,omitempty"`
+
+	// +optional
+	// +kubebuilder:validation:MaxLength=71
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	ResultHash string `json:"resultHash,omitempty"`
+
+	// +optional
 	Result *KubeseerResult `json:"result,omitempty"`
+}
+
+// KubeseerSummary contains compact counts derived from the structural result.
+type KubeseerSummary struct {
+	// +kubebuilder:validation:Minimum=0
+	SuccessfulSources int64 `json:"successfulSources"`
+
+	// +kubebuilder:validation:Minimum=0
+	FailedSources int64 `json:"failedSources"`
+
+	// +kubebuilder:validation:Minimum=0
+	MatchedResources int64 `json:"matchedResources"`
 }
 
 // KubeseerResult is the structural, ordered typed-output snapshot published

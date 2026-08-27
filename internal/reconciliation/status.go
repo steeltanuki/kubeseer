@@ -20,29 +20,41 @@ import (
 	"reflect"
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
+	statuscontract "github.com/steeltanuki/kubeseer/internal/status"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// StatusProjection contains exactly the status fields authored by this
-// feature. Conditions are deliberately excluded because this runtime preserves
-// them byte-for-byte from the latest persisted object.
+// StatusProjection contains the complete semantic status projection authored
+// by this feature. Canonical condition order and API-equivalent result
+// collection representations are normalized before comparison.
 type StatusProjection struct {
 	ObservedGeneration int64
+	Conditions         []metav1.Condition
+	Summary            *v1alpha1.KubeseerSummary
+	ResultHash         string
 	Result             *v1alpha1.KubeseerResult
 }
 
-// ProjectStatus creates a pure normalized semantic projection. Nil and empty
-// result collections compare equal, while a nil result pointer remains
+// ProjectStatus creates a complete normalized semantic projection. Nil and
+// empty result collections compare equal, while a nil result pointer remains
 // distinct from a present empty result.
 func ProjectStatus(status v1alpha1.KubeseerStatus) StatusProjection {
+	var summary *v1alpha1.KubeseerSummary
+	if status.Summary != nil {
+		summary = status.Summary.DeepCopy()
+	}
 	return StatusProjection{
 		ObservedGeneration: status.ObservedGeneration,
-		Result:             normalizeResult(status.Result),
+		Conditions:         statuscontract.NormalizeConditions(status.Conditions),
+		Summary:            summary,
+		ResultHash:         status.ResultHash,
+		Result:             statuscontract.NormalizeResult(status.Result),
 	}
 }
 
-// SemanticallyEqualStatus compares the result and observed generation using
-// the runtime's recursive normalization rules.
+// SemanticallyEqualStatus compares the complete status projection using the
+// runtime's recursive normalization rules.
 func SemanticallyEqualStatus(left, right v1alpha1.KubeseerStatus) bool {
 	return statusProjectionEqual(ProjectStatus(left), ProjectStatus(right))
 }
@@ -50,70 +62,11 @@ func SemanticallyEqualStatus(left, right v1alpha1.KubeseerStatus) bool {
 // SemanticallyEqualResult compares two structural results while treating nil
 // and empty collection representations as equivalent.
 func SemanticallyEqualResult(left, right *v1alpha1.KubeseerResult) bool {
-	return statusProjectionEqual(
-		StatusProjection{Result: normalizeResult(left)},
-		StatusProjection{Result: normalizeResult(right)},
-	)
+	return statuscontract.SemanticResultEqual(left, right)
 }
 
 func statusProjectionEqual(left, right StatusProjection) bool {
-	if left.ObservedGeneration != right.ObservedGeneration {
-		return false
-	}
-	if left.Result == nil || right.Result == nil {
-		return left.Result == nil && right.Result == nil
-	}
-	return equalResult(*left.Result, *right.Result)
-}
-
-func equalResult(left, right v1alpha1.KubeseerResult) bool {
-	// DeepEqual is sufficient after every optional collection has been
-	// normalized; it preserves declaration order and all scalar/pointer states.
-	return deepEqualNormalized(left, right)
-}
-
-func deepEqualNormalized(left, right v1alpha1.KubeseerResult) bool {
-	leftCopy := normalizeResult(&left)
-	rightCopy := normalizeResult(&right)
-	return resultsEqual(leftCopy, rightCopy)
-}
-
-func resultsEqual(left, right *v1alpha1.KubeseerResult) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
-	}
-	return reflect.DeepEqual(*left, *right)
-}
-
-func normalizeResult(result *v1alpha1.KubeseerResult) *v1alpha1.KubeseerResult {
-	if result == nil {
-		return nil
-	}
-	copy := result.DeepCopy()
-	if len(copy.Sources) == 0 {
-		copy.Sources = nil
-	}
-	for sourceIndex := range copy.Sources {
-		source := &copy.Sources[sourceIndex]
-		if len(source.FieldErrors) == 0 {
-			source.FieldErrors = nil
-		}
-		if len(source.Resources) == 0 {
-			source.Resources = nil
-		}
-		for resourceIndex := range source.Resources {
-			resource := &source.Resources[resourceIndex]
-			if len(resource.Fields) == 0 {
-				resource.Fields = nil
-			}
-			for fieldIndex := range resource.Fields {
-				if len(resource.Fields[fieldIndex].Matches) == 0 {
-					resource.Fields[fieldIndex].Matches = nil
-				}
-			}
-		}
-	}
-	return copy
+	return reflect.DeepEqual(left, right)
 }
 
 // StatusPublisher performs one guarded status-subresource update at most.
@@ -132,7 +85,7 @@ func NewStatusPublisher(reader KubeseerReader, writer StatusWriter, tracker *Fre
 
 // Publish re-reads the current Kubeseer, preserves spec and conditions, and
 // writes the status subresource only when the normalized projection changes.
-func (p *StatusPublisher) Publish(ctx context.Context, lease Lease, result v1alpha1.KubeseerResult) error {
+func (p *StatusPublisher) Publish(ctx context.Context, lease Lease, evaluation statuscontract.Evaluation) error {
 	if p == nil || p.reader == nil || p.writer == nil {
 		return errors.New("status publisher dependencies are not configured")
 	}
@@ -166,9 +119,12 @@ func (p *StatusPublisher) Publish(ctx context.Context, lease Lease, result v1alp
 		return staleRuntimeError("status-publish")
 	}
 
+	composed, err := statuscontract.Compose(lease.Generation, current.Status.Conditions, evaluation)
+	if err != nil {
+		return &RuntimeError{Stage: "status-compose", Reason: ReasonBuildFailure, Message: "status composition failed", Cause: err}
+	}
 	candidate := current.DeepCopy()
-	candidate.Status.ObservedGeneration = lease.Generation
-	candidate.Status.Result = result.DeepCopy()
+	candidate.Status = composed
 	if SemanticallyEqualStatus(current.Status, candidate.Status) {
 		return nil
 	}

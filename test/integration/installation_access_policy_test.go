@@ -98,6 +98,18 @@ func TestModuleIntegration(t *testing.T) {
 	t.Run("reconciliation runtime publishes guarded semantic status", func(t *testing.T) {
 		assertReconciliationRuntimeStatusScenarios(t, ctx)
 	})
+	t.Run("status result projection derives deterministic summary and hash", func(t *testing.T) {
+		assertStatusAndConditionsResultScenarios(t)
+	})
+	t.Run("status conditions compose deterministic terminal outcomes", func(t *testing.T) {
+		assertStatusAndConditionsConditionScenarios(t)
+	})
+	t.Run("status pipeline carries typed terminal assessments", func(t *testing.T) {
+		assertStatusAndConditionsPipelineScenarios(t, ctx, resolver)
+	})
+	t.Run("status publisher writes only complete semantic snapshots", func(t *testing.T) {
+		assertStatusAndConditionsPublisherScenarios(t, ctx)
+	})
 
 	t.Log("MODULE_INTEGRATION=discovery-access-policy-evaluation STATUS=passed")
 	t.Log("MODULE_INTEGRATION=discovery-access-policy-loader STATUS=passed")
@@ -117,6 +129,10 @@ func TestModuleIntegration(t *testing.T) {
 	t.Log("MODULE_INTEGRATION=reconciliation-runtime-watch-routing STATUS=passed")
 	t.Log("MODULE_INTEGRATION=reconciliation-runtime-pipeline STATUS=passed")
 	t.Log("MODULE_INTEGRATION=reconciliation-runtime-status STATUS=passed")
+	t.Log("MODULE_INTEGRATION=status-and-conditions-result STATUS=passed")
+	t.Log("MODULE_INTEGRATION=status-and-conditions-conditions STATUS=passed")
+	t.Log("MODULE_INTEGRATION=status-and-conditions-pipeline STATUS=passed")
+	t.Log("MODULE_INTEGRATION=status-and-conditions-publisher STATUS=passed")
 }
 
 func assertEvaluationScenarios(t *testing.T, ctx context.Context, resolver *discovery.Resolver) {

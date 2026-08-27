@@ -24,6 +24,7 @@ import (
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
 	"github.com/steeltanuki/kubeseer/internal/reconciliation"
+	statuscontract "github.com/steeltanuki/kubeseer/internal/status"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -84,20 +85,25 @@ func assertReconciliationRuntimeStatusScenarios(t *testing.T, ctx context.Contex
 		left := runtimeStatusObject(key, "status-uid", 1, &result)
 		right := left.DeepCopy()
 		right.Status.Conditions[0].Message = "condition changed outside this feature"
-		if !reconciliation.SemanticallyEqualStatus(left.Status, right.Status) {
-			t.Fatal("condition-only change affected the feature status projection")
+		if reconciliation.SemanticallyEqualStatus(left.Status, right.Status) {
+			t.Fatal("condition-only change did not affect the complete status projection")
 		}
 	})
 
 	t.Run("equivalent status performs no write and meaningful status preserves spec and conditions", func(t *testing.T) {
 		current := runtimeStatusObject(key, "status-uid", 1, &result)
+		composed, err := statuscontract.Compose(current.Generation, current.Status.Conditions, statusEvaluation(result))
+		if err != nil {
+			t.Fatalf("compose equivalent status fixture: %v", err)
+		}
+		current.Status = composed
 		current.Status.Result.Sources[0].FieldErrors = nil
 		writer := &runtimeStatusWriter{}
 		tracker := reconciliation.NewFreshnessTracker()
 		lease, release := runtimeStatusLease(t, tracker, current)
 		defer release()
 		publisher := reconciliation.NewStatusPublisher(newRuntimeStatusReader(current), writer, tracker)
-		if err := publisher.Publish(ctx, lease, *result.DeepCopy()); err != nil {
+		if err := publisher.Publish(ctx, lease, statusEvaluation(*result.DeepCopy())); err != nil {
 			t.Fatalf("equivalent status publish: %v", err)
 		}
 		if writer.Calls() != 0 {
@@ -113,15 +119,18 @@ func assertReconciliationRuntimeStatusScenarios(t *testing.T, ctx context.Contex
 		lease, release = runtimeStatusLease(t, tracker, changed)
 		defer release()
 		publisher = reconciliation.NewStatusPublisher(reader, writer, tracker)
-		if err := publisher.Publish(ctx, lease, *result.DeepCopy()); err != nil {
+		if err := publisher.Publish(ctx, lease, statusEvaluation(*result.DeepCopy())); err != nil {
 			t.Fatalf("meaningful status publish: %v", err)
 		}
 		if writer.Calls() != 1 || writer.Last() == nil {
 			t.Fatalf("meaningful status writes = %d last=%#v", writer.Calls(), writer.Last())
 		}
 		last := writer.Last()
-		if last.Status.ObservedGeneration != 1 || !reconciliation.SemanticallyEqualResult(last.Status.Result, &result) || !reflect.DeepEqual(last.Spec, changed.Spec) || !reflect.DeepEqual(last.Status.Conditions, changed.Status.Conditions) || last.ResourceVersion != changed.ResourceVersion {
+		if last.Status.ObservedGeneration != 1 || !reconciliation.SemanticallyEqualResult(last.Status.Result, &result) || !reflect.DeepEqual(last.Spec, changed.Spec) || last.ResourceVersion != changed.ResourceVersion {
 			t.Fatalf("status update did not preserve current object fields: %#v", last)
+		}
+		if len(last.Status.Conditions) != 6 || last.Status.Conditions[5].Type != "Observed" || last.Status.Conditions[5].Message != "condition survives status publication" {
+			t.Fatalf("status update did not preserve non-canonical condition: %#v", last.Status.Conditions)
 		}
 	})
 
@@ -132,7 +141,7 @@ func assertReconciliationRuntimeStatusScenarios(t *testing.T, ctx context.Contex
 		tracker := reconciliation.NewFreshnessTracker()
 		lease, release := runtimeStatusLease(t, tracker, current)
 		defer release()
-		if err := reconciliation.NewStatusPublisher(newRuntimeStatusReader(current), writer, tracker).Publish(ctx, lease, *result.DeepCopy()); err != nil {
+		if err := reconciliation.NewStatusPublisher(newRuntimeStatusReader(current), writer, tracker).Publish(ctx, lease, statusEvaluation(*result.DeepCopy())); err != nil {
 			t.Fatalf("generation-only publish: %v", err)
 		}
 		if writer.Calls() != 1 || writer.Last().Status.ObservedGeneration != 2 {
@@ -146,7 +155,7 @@ func assertReconciliationRuntimeStatusScenarios(t *testing.T, ctx context.Contex
 		tracker := reconciliation.NewFreshnessTracker()
 		lease, release := runtimeStatusLease(t, tracker, current)
 		defer release()
-		err := reconciliation.NewStatusPublisher(newRuntimeStatusReader(current), writer, tracker).Publish(ctx, lease, result)
+		err := reconciliation.NewStatusPublisher(newRuntimeStatusReader(current), writer, tracker).Publish(ctx, lease, statusEvaluation(result))
 		if err == nil || !reconciliation.IsRetryable(err) || writer.Calls() != 1 {
 			t.Fatalf("conflict result = err=%v writes=%d", err, writer.Calls())
 		}
@@ -159,7 +168,7 @@ func assertReconciliationRuntimeStatusScenarios(t *testing.T, ctx context.Contex
 		readTracker := reconciliation.NewFreshnessTracker()
 		readLease, readRelease := runtimeStatusLease(t, readTracker, current)
 		defer readRelease()
-		readErr := reconciliation.NewStatusPublisher(&runtimeStatusReader{err: apierrors.NewServiceUnavailable("status body must remain private")}, readWriter, readTracker).Publish(ctx, readLease, result)
+		readErr := reconciliation.NewStatusPublisher(&runtimeStatusReader{err: apierrors.NewServiceUnavailable("status body must remain private")}, readWriter, readTracker).Publish(ctx, readLease, statusEvaluation(result))
 		if readErr == nil || !reconciliation.IsRetryable(readErr) || readWriter.Calls() != 0 {
 			t.Fatalf("transient status read result = err=%v writes=%d", readErr, readWriter.Calls())
 		}
@@ -177,7 +186,7 @@ func assertReconciliationRuntimeStatusScenarios(t *testing.T, ctx context.Contex
 					replaced := current.DeepCopy()
 					replaced.UID = "new-uid"
 					writer := &runtimeStatusWriter{}
-					err := reconciliation.NewStatusPublisher(newRuntimeStatusReader(replaced), writer, tracker).Publish(ctx, lease, result)
+					err := reconciliation.NewStatusPublisher(newRuntimeStatusReader(replaced), writer, tracker).Publish(ctx, lease, statusEvaluation(result))
 					if err == nil || writer.Calls() != 0 {
 						t.Fatalf("UID replacement result = err=%v writes=%d", err, writer.Calls())
 					}
@@ -189,7 +198,7 @@ func assertReconciliationRuntimeStatusScenarios(t *testing.T, ctx context.Contex
 					deleting := current.DeepCopy()
 					deleting.DeletionTimestamp = &metav1.Time{Time: time.Now()}
 					writer := &runtimeStatusWriter{}
-					err := reconciliation.NewStatusPublisher(newRuntimeStatusReader(deleting), writer, tracker).Publish(ctx, lease, result)
+					err := reconciliation.NewStatusPublisher(newRuntimeStatusReader(deleting), writer, tracker).Publish(ctx, lease, statusEvaluation(result))
 					if err != nil || writer.Calls() != 0 {
 						t.Fatalf("deletion result = err=%v writes=%d", err, writer.Calls())
 					}
@@ -202,7 +211,7 @@ func assertReconciliationRuntimeStatusScenarios(t *testing.T, ctx context.Contex
 					updated.Generation = 2
 					tracker.Observe(updated)
 					writer := &runtimeStatusWriter{}
-					err := reconciliation.NewStatusPublisher(newRuntimeStatusReader(current), writer, tracker).Publish(ctx, lease, result)
+					err := reconciliation.NewStatusPublisher(newRuntimeStatusReader(current), writer, tracker).Publish(ctx, lease, statusEvaluation(result))
 					if err == nil || writer.Calls() != 0 {
 						t.Fatalf("stale generation result = err=%v writes=%d", err, writer.Calls())
 					}
@@ -213,7 +222,7 @@ func assertReconciliationRuntimeStatusScenarios(t *testing.T, ctx context.Contex
 				run: func(t *testing.T, current *v1alpha1.Kubeseer, tracker *reconciliation.FreshnessTracker, lease reconciliation.Lease) {
 					tracker.InvalidateAll()
 					writer := &runtimeStatusWriter{}
-					err := reconciliation.NewStatusPublisher(newRuntimeStatusReader(current), writer, tracker).Publish(ctx, lease, result)
+					err := reconciliation.NewStatusPublisher(newRuntimeStatusReader(current), writer, tracker).Publish(ctx, lease, statusEvaluation(result))
 					if err == nil || writer.Calls() != 0 {
 						t.Fatalf("stale policy result = err=%v writes=%d", err, writer.Calls())
 					}
@@ -237,11 +246,15 @@ func assertReconciliationRuntimeStatusScenarios(t *testing.T, ctx context.Contex
 		writer := &runtimeStatusWriter{}
 		canceled, cancel := context.WithCancel(ctx)
 		cancel()
-		err := reconciliation.NewStatusPublisher(newRuntimeStatusReader(current), writer, tracker).Publish(canceled, lease, result)
+		err := reconciliation.NewStatusPublisher(newRuntimeStatusReader(current), writer, tracker).Publish(canceled, lease, statusEvaluation(result))
 		if !errors.Is(err, context.Canceled) || writer.Calls() != 0 {
 			t.Fatalf("canceled status result = err=%v writes=%d", err, writer.Calls())
 		}
 	})
+}
+
+func statusEvaluation(result v1alpha1.KubeseerResult) statuscontract.Evaluation {
+	return statuscontract.Evaluation{Result: result.DeepCopy()}
 }
 
 func runtimeStatusResult() v1alpha1.KubeseerResult {
