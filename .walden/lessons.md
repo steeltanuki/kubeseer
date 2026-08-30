@@ -149,3 +149,8 @@ Review this file before non-trivial work when the current request matches past m
 - Lesson: Run the exact Walden proof wrapper and inspect unfiltered failures before retrying completion; preserve terminal assessments when later adaptation reports a related internal error.
 - Guardrail: Keep task-scoped caches and authorized envtest execution available, and add regression assertions for each terminal assessment before marking the task complete.
 
+### 2026-08-27T09:24:41Z | authorization-enforcement | requirements
+- Trigger: The initial scaffold replacement repeated a rejected delete-and-add patch shape for one path
+- Lesson: Reviewing a known patch guardrail is insufficient unless it becomes a pre-edit operation check
+- Guardrail: Before replacing any Walden scaffold, use exactly one Update File operation and verify that no patch targets the same path twice
+
