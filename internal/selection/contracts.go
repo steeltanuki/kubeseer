@@ -18,7 +18,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/steeltanuki/kubeseer/internal/accesspolicy"
+	"github.com/steeltanuki/kubeseer/internal/authorization"
 	"github.com/steeltanuki/kubeseer/internal/discovery"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -36,6 +36,7 @@ const (
 	ReasonAuthorizationMissing  SelectionErrorReason = "AuthorizationMissing"
 	ReasonAuthorizationDenied   SelectionErrorReason = "AuthorizationDenied"
 	ReasonAuthorizationMismatch SelectionErrorReason = "AuthorizationMismatch"
+	ReasonAuthorizationStale    SelectionErrorReason = "AuthorizationStale"
 	ReasonReadForbidden         SelectionErrorReason = "ReadForbidden"
 	ReasonUnsupportedSelector   SelectionErrorReason = "UnsupportedSelector"
 	ReasonReadInterrupted       SelectionErrorReason = "ReadInterrupted"
@@ -130,23 +131,45 @@ func (p SelectionPlan) LabelSelector() string { return p.labelSelector }
 // FieldSelector returns the canonical Kubernetes field selector query.
 func (p SelectionPlan) FieldSelector() string { return p.fieldSelector }
 
-// Authorization pairs an exact target request with the logical policy result
-// supplied by the composition root.
-type Authorization struct {
-	Request  accesspolicy.Request
-	Decision accesspolicy.Decision
+// AuthorizedRead is the private I/O permit for one exact target. Its fields
+// are private so callers can pass only a capability produced by the
+// authorization enforcement boundary to a ResourceLister.
+type AuthorizedRead struct {
+	target     ReadTarget
+	capability authorization.Capability
+}
+
+// Target returns a defensive copy of the exact target paired with the
+// capability.
+func (r AuthorizedRead) Target() ReadTarget { return r.target }
+
+// Capability returns the opaque capability paired with the target.
+func (r AuthorizedRead) Capability() authorization.Capability { return r.capability }
+
+// Valid reports whether the read permit contains a current-independent exact
+// target/capability pairing. Freshness is checked by the executor immediately
+// before each network request.
+func (r AuthorizedRead) Valid() bool {
+	return r.target.Scope.Valid() && r.capability.Valid() && r.capability.Request() == RequestForTarget(r.target)
 }
 
 // AuthorizedPlan is the only plan type accepted by the resource executor. Its
 // fields are private so an unbound plan cannot be assembled accidentally.
 type AuthorizedPlan struct {
-	plan SelectionPlan
+	plan  SelectionPlan
+	reads []AuthorizedRead
 }
 
 // Plan returns the immutable source plan after authorization binding. It is
 // intentionally exposed for batch orchestration and diagnostics, while the
 // executor receives the capability itself.
 func (p AuthorizedPlan) Plan() SelectionPlan { return clonePlan(p.plan) }
+
+// Reads returns defensive value copies of the private target permits for
+// adapters and integration fixtures that need to inspect execution shape.
+func (p AuthorizedPlan) Reads() []AuthorizedRead {
+	return append([]AuthorizedRead(nil), p.reads...)
+}
 
 // Provenance identifies the selected Kubernetes object without copying object
 // contents into diagnostics.

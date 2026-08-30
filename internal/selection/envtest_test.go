@@ -22,6 +22,7 @@ import (
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
 	"github.com/steeltanuki/kubeseer/internal/accesspolicy"
+	"github.com/steeltanuki/kubeseer/internal/authorization"
 	"github.com/steeltanuki/kubeseer/internal/discovery"
 	"github.com/steeltanuki/kubeseer/internal/selection"
 	harness "github.com/steeltanuki/kubeseer/test/envtest"
@@ -31,6 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 )
 
@@ -86,8 +88,11 @@ func TestEnvtestSelection(t *testing.T) {
 	})
 
 	resolver := discovery.NewResolver(clients.Discovery)
-	lister := selection.NewDynamicResourceLister(clients.Dynamic)
-	executor := selection.NewExecutor(lister)
+	verifier := authorization.VerifierFunc(func(subject authorization.Subject) bool {
+		return subject.Validate() == nil
+	})
+	lister := selection.NewDynamicResourceLister(clients.Dynamic, verifier)
+	executor := selection.NewExecutor(lister, selection.WithVerifier(verifier))
 
 	t.Run("exact name and labels use server-side AND selection", func(t *testing.T) {
 		source := v1alpha1.KubeseerSource{
@@ -139,7 +144,7 @@ func TestEnvtestSelection(t *testing.T) {
 
 	t.Run("server pagination completes with a bounded page limit", func(t *testing.T) {
 		source := v1alpha1.KubeseerSource{ID: "pagination-api-source", Resource: v1alpha1.ResourceReference{APIVersion: "v1", Kind: "ConfigMap"}}
-		paginatedOutcome := executeSource(t, ctx, resolver, selection.NewExecutor(lister, selection.WithPageLimit(1)), ownerNamespace, source)
+		paginatedOutcome := executeSource(t, ctx, resolver, selection.NewExecutor(lister, selection.WithPageLimit(1), selection.WithVerifier(verifier)), ownerNamespace, source)
 		if paginatedOutcome.Err != nil || len(paginatedOutcome.Resources) != 3 {
 			t.Fatalf("server-paginated outcome = %#v", paginatedOutcome)
 		}
@@ -208,19 +213,38 @@ func executeSource(t *testing.T, ctx context.Context, resolver *discovery.Resolv
 	if err != nil {
 		t.Fatalf("plan %q: %v", source.ID, err)
 	}
-	authorizations := make([]selection.Authorization, 0, len(plan.Targets()))
+	requests := make([]accesspolicy.Request, 0, len(plan.Targets()))
 	for _, target := range plan.Targets() {
-		authorizations = append(authorizations, selection.Authorization{Request: selection.RequestForTarget(target), Decision: allowedDecision()})
+		requests = append(requests, selection.RequestForTarget(target))
 	}
-	authorized, err := selection.Bind(plan, authorizations)
+	subject := authorization.Subject{Key: types.NamespacedName{Namespace: ownerNamespace, Name: "selection-envtest"}, UID: types.UID("selection-envtest-uid"), Generation: 1}
+	snapshot := selectionFixtureSnapshot(t)
+	batch, err := authorization.NewEnforcer(nil).EvaluateBatch(ctx, subject, snapshot, requests)
+	if err != nil {
+		t.Fatalf("evaluate authorization fixture %q: %v", source.ID, err)
+	}
+	authorized, err := selection.BindCapabilities(plan, batch.Outcomes())
 	if err != nil {
 		t.Fatalf("bind %q: %v", source.ID, err)
 	}
 	return executor.Execute(ctx, authorized)
 }
 
-func allowedDecision() accesspolicy.Decision {
-	return accesspolicy.Decision{Allowed: true, Reason: accesspolicy.ReasonAllowed, Message: "request is allowed by the installation policy"}
+func selectionFixtureSnapshot(t *testing.T) accesspolicy.Snapshot {
+	t.Helper()
+	policy := &v1alpha1.KubeseerAccessPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: v1alpha1.InstallationAccessCeilingName, UID: types.UID("selection-policy-uid"), Generation: 1},
+		Spec: v1alpha1.KubeseerAccessPolicySpec{
+			Namespaces:         v1alpha1.NamespacePolicy{Mode: v1alpha1.NamespaceModeAllNonSystem},
+			Resources:          []v1alpha1.ResourceRule{{APIGroups: []string{"", "selection.kubeseer.io"}, Kinds: []string{"ConfigMap", "Node", "Widget"}}},
+			AllowClusterScoped: true,
+		},
+	}
+	compiled, err := accesspolicy.Compile(policy)
+	if err != nil {
+		t.Fatalf("compile envtest selection policy: %v", err)
+	}
+	return compiled.Snapshot()
 }
 
 func createConfigMaps(t *testing.T, ctx context.Context, clients harness.Clients, ownerNamespace, otherNamespace string) {

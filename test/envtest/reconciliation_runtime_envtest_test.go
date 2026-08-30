@@ -28,6 +28,7 @@ import (
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
 	"github.com/steeltanuki/kubeseer/internal/accesspolicy"
+	"github.com/steeltanuki/kubeseer/internal/authorization"
 	discoveryruntime "github.com/steeltanuki/kubeseer/internal/discovery"
 	"github.com/steeltanuki/kubeseer/internal/reconciliation"
 	"github.com/steeltanuki/kubeseer/internal/selection"
@@ -366,6 +367,41 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	waitRuntimeObservedState(t, ctx, apiClient, watchKey, 2, v1alpha1.SourceStateValues, 1, "observed-updated-value")
 	waitRuntimeObservedState(t, ctx, apiClient, watchPeerKey, 1, v1alpha1.SourceStateValues, 1, "observed-updated-value")
 
+	policyCurrent = &v1alpha1.KubeseerAccessPolicy{}
+	if err := apiClient.Get(ctx, types.NamespacedName{Name: v1alpha1.InstallationAccessCeilingName}, policyCurrent); err != nil {
+		t.Fatalf("read policy before deletion state proof: %v", err)
+	}
+	requestRecorder.Reset()
+	if err := apiClient.Delete(ctx, policyCurrent); err != nil {
+		t.Fatalf("delete installation policy: %v", err)
+	}
+	waitRuntimeObservedState(t, ctx, apiClient, watchKey, 2, v1alpha1.SourceStateError, -1, "")
+	waitRuntimeObservedState(t, ctx, apiClient, watchPeerKey, 1, v1alpha1.SourceStateError, -1, "")
+	missingObservedStatus := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, watchKey, missingObservedStatus); err != nil {
+		t.Fatalf("read missing-policy observed status: %v", err)
+	}
+	assertRuntimeCondition(t, missingObservedStatus.Status, statuscontract.ConditionAuthorized, metav1.ConditionFalse, statuscontract.ReasonPolicyMissing)
+	if err := WaitFor(ctx, 10*time.Second, func(context.Context) (bool, error) {
+		return requestRecorder.ActiveWatches() == 0, nil
+	}); err != nil {
+		t.Fatalf("deleted policy did not stop observed-resource WATCH: %v", err)
+	}
+	requestRecorder.Reset()
+	assertRuntimeObservedRequestsAbsent(t, ctx, requestRecorder, 150*time.Millisecond)
+
+	policy = runtimeEnvtestPolicy(namespace)
+	if err := apiClient.Create(ctx, policy); err != nil {
+		t.Fatalf("re-create installation policy: %v", err)
+	}
+	waitRuntimeObservedState(t, ctx, apiClient, watchKey, 2, v1alpha1.SourceStateValues, 1, "observed-updated-value")
+	waitRuntimeObservedState(t, ctx, apiClient, watchPeerKey, 1, v1alpha1.SourceStateValues, 1, "observed-updated-value")
+	if err := WaitFor(ctx, 10*time.Second, func(context.Context) (bool, error) {
+		return requestRecorder.ActiveWatches() > 0, nil
+	}); err != nil {
+		t.Fatalf("re-created policy did not reconstruct observed-resource WATCH: %v", err)
+	}
+
 	watchCountBeforeClose := requestRecorder.WatchRequestCount()
 	if !requestRecorder.CloseOneWatch() {
 		t.Fatalf("expected an active observed-resource WATCH to close")
@@ -600,6 +636,7 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	stopAndWaitManager()
 	runRuntimeEnvtestAdapterScenarios(t, ctx, apiClient, clients, namespace, adapterKey, busyKey, freeKey, deterministicKey, emptyKey)
 
+	t.Log("API_CONTRACT=authorization-enforcement STATUS=passed")
 	t.Log("API_CONTRACT=reconciliation-runtime-lifecycle STATUS=passed")
 	t.Log("API_CONTRACT=reconciliation-runtime-watch-routing STATUS=passed")
 	t.Log("API_CONTRACT=reconciliation-runtime-status STATUS=passed")
@@ -1133,7 +1170,10 @@ func runRuntimeEnvtestAdapterScenarios(t *testing.T, ctx context.Context, apiCli
 	store := reconciliation.NewClientKubeseerStore(apiClient)
 	discoveryClient := &runtimeEnvtestDiscoveryAdapter{delegate: clients.Discovery}
 	resolver := discoveryruntime.NewResolver(discoveryClient)
-	resourceLister := &runtimeEnvtestResourceListerAdapter{delegate: selection.NewDynamicResourceLister(clients.Dynamic)}
+	verifier := authorization.VerifierFunc(func(subject authorization.Subject) bool {
+		return subject.Validate() == nil
+	})
+	resourceLister := &runtimeEnvtestResourceListerAdapter{delegate: selection.NewDynamicResourceLister(clients.Dynamic, verifier)}
 	tracker := reconciliation.NewFreshnessTracker()
 	routes := &runtimeEnvtestRouteManager{}
 	statusWriter := &runtimeEnvtestCountingStatusWriter{delegate: reconciliation.NewClientStatusWriter(apiClient.Status())}
@@ -1141,8 +1181,9 @@ func runRuntimeEnvtestAdapterScenarios(t *testing.T, ctx context.Context, apiCli
 		Reader:       store,
 		Lister:       store,
 		PolicySource: accesspolicy.NewClientPolicySource(apiClient),
+		Enforcer:     authorization.NewEnforcer(nil),
 		Planner:      selection.NewPlanner(resolver),
-		Executor:     selection.NewExecutor(resourceLister),
+		Executor:     selection.NewExecutor(resourceLister, selection.WithVerifier(verifier)),
 		Routes:       routes,
 		Publisher:    reconciliation.NewStatusPublisher(store, statusWriter, tracker),
 		Tracker:      tracker,
@@ -1227,8 +1268,9 @@ func runRuntimeEnvtestAdapterScenarios(t *testing.T, ctx context.Context, apiCli
 		Reader:       store,
 		Lister:       store,
 		PolicySource: accesspolicy.PolicySourceFunc(func(context.Context) (*v1alpha1.KubeseerAccessPolicy, error) { return invalidPolicy.DeepCopy(), nil }),
+		Enforcer:     authorization.NewEnforcer(nil),
 		Planner:      selection.NewPlanner(resolver),
-		Executor:     selection.NewExecutor(resourceLister),
+		Executor:     selection.NewExecutor(resourceLister, selection.WithVerifier(verifier)),
 		Routes:       routes,
 		Publisher:    reconciliation.NewStatusPublisher(store, statusWriter, invalidTracker),
 		Tracker:      invalidTracker,
@@ -1253,8 +1295,9 @@ func runRuntimeEnvtestAdapterScenarios(t *testing.T, ctx context.Context, apiCli
 		Reader:       store,
 		Lister:       store,
 		PolicySource: accesspolicy.PolicySourceFunc(func(context.Context) (*v1alpha1.KubeseerAccessPolicy, error) { return denyingPolicy.DeepCopy(), nil }),
+		Enforcer:     authorization.NewEnforcer(nil),
 		Planner:      selection.NewPlanner(resolver),
-		Executor:     selection.NewExecutor(resourceLister),
+		Executor:     selection.NewExecutor(resourceLister, selection.WithVerifier(verifier)),
 		Routes:       routes,
 		Publisher:    reconciliation.NewStatusPublisher(store, statusWriter, denialTracker),
 		Tracker:      denialTracker,
@@ -1446,7 +1489,93 @@ func runRuntimeEnvtestAdapterScenarios(t *testing.T, ctx context.Context, apiCli
 		t.Fatalf("canceled publication attempted %d status writes", canceledWriter.Calls())
 	}
 
-	_ = namespace
+	runRuntimeEnvtestAuthorizationPaginationScenario(t, ctx, apiClient, clients, resolver, namespace, adapterKey)
+}
+
+func runRuntimeEnvtestAuthorizationPaginationScenario(t *testing.T, ctx context.Context, apiClient crclient.Client, clients Clients, resolver *discoveryruntime.Resolver, namespace string, key types.NamespacedName) {
+	t.Helper()
+	source := runtimeEnvtestObservedSource("authorization-pagination")
+	plan, err := selection.NewPlanner(resolver).Plan(ctx, namespace, source)
+	if err != nil {
+		t.Fatalf("plan real pagination source: %v", err)
+	}
+	owner := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, key, owner); err != nil {
+		t.Fatalf("read pagination owner: %v", err)
+	}
+	tracker := reconciliation.NewFreshnessTracker()
+	tracker.Observe(owner)
+	lease, child, release, err := tracker.Acquire(ctx, key, owner.UID, owner.Generation)
+	if err != nil {
+		t.Fatalf("acquire pagination lease: %v", err)
+	}
+	defer release()
+	subject, err := authorization.NewSubject(key, lease.UID, lease.Generation, lease.PolicyEpoch)
+	if err != nil {
+		t.Fatalf("construct pagination subject: %v", err)
+	}
+	snapshot := accesspolicy.Load(ctx, accesspolicy.NewClientPolicySource(apiClient))
+	if snapshot.IsTerminal() {
+		t.Fatalf("pagination policy snapshot is terminal: %s", snapshot.TerminalReason())
+	}
+	requests := make([]accesspolicy.Request, 0, len(plan.Targets()))
+	for _, target := range plan.Targets() {
+		requests = append(requests, selection.RequestForTarget(target))
+	}
+	batch, err := authorization.NewEnforcer(nil).EvaluateBatch(child, subject, snapshot, requests)
+	if err != nil {
+		t.Fatalf("evaluate real pagination source: %v", err)
+	}
+	authorized, err := selection.BindCapabilities(plan, batch.Outcomes())
+	if err != nil {
+		t.Fatalf("bind real pagination source: %v", err)
+	}
+	observedResources := clients.Dynamic.Resource(schema.GroupVersionResource{Group: "runtime.kubeseer.io", Version: "v1", Resource: "observations"}).Namespace(namespace)
+	for index := 0; index < 3; index++ {
+		fixture := runtimeEnvtestObservation("authorization-pagination-"+string(rune('a'+index)), namespace, "yes", "pagination-value-"+string(rune('a'+index)))
+		if _, err := observedResources.Create(ctx, fixture, metav1.CreateOptions{}); err != nil {
+			t.Fatalf("create pagination fixture %s: %v", fixture.GetName(), err)
+		}
+	}
+	dynamicLister := selection.NewDynamicResourceLister(clients.Dynamic, tracker)
+	outcome := selection.NewExecutor(dynamicLister, selection.WithPageLimit(1), selection.WithVerifier(tracker)).Execute(child, authorized)
+	if outcome.Err != nil || len(outcome.Resources) != 3 {
+		t.Fatalf("real paginated LIST outcome = %#v, want three resources", outcome)
+	}
+
+	current := true
+	verifier := authorization.VerifierFunc(func(candidate authorization.Subject) bool {
+		return current && tracker.IsCurrent(candidate)
+	})
+	staleDynamicLister := selection.NewDynamicResourceLister(clients.Dynamic, verifier)
+	calls := 0
+	staleLister := runtimeEnvtestResourceListerFunc(func(ctx context.Context, read selection.AuthorizedRead, options metav1.ListOptions) (*unstructured.UnstructuredList, error) {
+		calls++
+		response, err := staleDynamicLister.List(ctx, read, options)
+		if calls == 1 {
+			if err != nil {
+				t.Fatalf("first stale-pagination page: %v", err)
+			}
+			if response == nil || response.GetContinue() == "" {
+				t.Fatalf("real API did not return a continuation page for the stale barrier")
+			}
+			current = false
+		}
+		return response, err
+	})
+	staleOutcome := selection.NewExecutor(staleLister, selection.WithPageLimit(1), selection.WithVerifier(verifier)).Execute(child, authorized)
+	if !selection.HasReason(staleOutcome.Err, selection.ReasonAuthorizationStale) || calls != 1 || len(staleOutcome.Resources) != 0 {
+		t.Fatalf("stale real pagination outcome = %#v calls=%d, want one page and no continuation request", staleOutcome, calls)
+	}
+}
+
+type runtimeEnvtestResourceListerFunc func(context.Context, selection.AuthorizedRead, metav1.ListOptions) (*unstructured.UnstructuredList, error)
+
+func (f runtimeEnvtestResourceListerFunc) List(ctx context.Context, read selection.AuthorizedRead, options metav1.ListOptions) (*unstructured.UnstructuredList, error) {
+	if f == nil {
+		return nil, errors.New("resource lister function is not configured")
+	}
+	return f(ctx, read, options)
 }
 
 func envtestStatusEvaluation(result v1alpha1.KubeseerResult) statuscontract.Evaluation {
@@ -1605,7 +1734,8 @@ func (a *runtimeEnvtestResourceListerAdapter) BlockNext(release <-chan struct{},
 	a.mu.Unlock()
 }
 
-func (a *runtimeEnvtestResourceListerAdapter) List(ctx context.Context, target selection.ReadTarget, options metav1.ListOptions) (*unstructured.UnstructuredList, error) {
+func (a *runtimeEnvtestResourceListerAdapter) List(ctx context.Context, read selection.AuthorizedRead, options metav1.ListOptions) (*unstructured.UnstructuredList, error) {
+	target := read.Target()
 	a.mu.Lock()
 	fail := a.failNext
 	a.failNext = false
@@ -1630,7 +1760,7 @@ func (a *runtimeEnvtestResourceListerAdapter) List(ctx context.Context, target s
 			return nil, ctx.Err()
 		}
 	}
-	return a.delegate.List(ctx, target, options)
+	return a.delegate.List(ctx, read, options)
 }
 
 type runtimeEnvtestRouteManager struct{}

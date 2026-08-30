@@ -22,6 +22,7 @@ import (
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
 	"github.com/steeltanuki/kubeseer/internal/accesspolicy"
+	"github.com/steeltanuki/kubeseer/internal/authorization"
 	"github.com/steeltanuki/kubeseer/internal/selection"
 	statuscontract "github.com/steeltanuki/kubeseer/internal/status"
 	"k8s.io/apimachinery/pkg/types"
@@ -117,6 +118,7 @@ type Dependencies struct {
 	Reader       KubeseerReader
 	Lister       KubeseerLister
 	PolicySource accesspolicy.PolicySource
+	Enforcer     *authorization.Enforcer
 	Planner      *selection.Planner
 	Executor     *selection.Executor
 	Routes       RouteManager
@@ -168,6 +170,9 @@ func NewRuntime(options Options, dependencies Dependencies) (*Runtime, error) {
 	}
 	if dependencies.PolicySource == nil {
 		return nil, errors.New("reconciliation policy source is required")
+	}
+	if dependencies.Enforcer == nil {
+		return nil, errors.New("reconciliation authorization enforcer is required")
 	}
 	if dependencies.Planner == nil {
 		return nil, errors.New("reconciliation selection planner is required")

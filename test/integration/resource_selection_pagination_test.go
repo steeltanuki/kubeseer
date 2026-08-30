@@ -45,7 +45,8 @@ type scriptedResourceLister struct {
 	onCall     func(int, context.Context)
 }
 
-func (l *scriptedResourceLister) List(ctx context.Context, target selection.ReadTarget, options metav1.ListOptions) (*unstructured.UnstructuredList, error) {
+func (l *scriptedResourceLister) List(ctx context.Context, read selection.AuthorizedRead, options metav1.ListOptions) (*unstructured.UnstructuredList, error) {
+	target := read.Target()
 	if l.contextKey != nil && (ctx == nil || ctx.Value(l.contextKey) != l.contextVal) {
 		return nil, errors.New("selection context was not propagated")
 	}
@@ -96,7 +97,7 @@ func assertResourceSelectionPaginationScenarios(t *testing.T, ctx context.Contex
 				{list: listWithContinue(alpha, "")},
 			},
 		}
-		outcome := selection.NewExecutor(lister, selection.WithPageLimit(2)).Execute(markerCtx, authorized)
+		outcome := newSelectionExecutor(lister, selection.WithPageLimit(2)).Execute(markerCtx, authorized)
 		if outcome.Err != nil || len(outcome.Resources) != 2 {
 			t.Fatalf("paginated outcome = %#v", outcome)
 		}
@@ -142,8 +143,8 @@ func assertResourceSelectionPaginationScenarios(t *testing.T, ctx context.Contex
 		second := &scriptedResourceLister{responses: []scriptedListResponse{
 			{list: listWithContinue(alpha, beta, "")},
 		}}
-		firstOutcome := selection.NewExecutor(first, selection.WithPageLimit(1)).Execute(ctx, authorized)
-		secondOutcome := selection.NewExecutor(second, selection.WithPageLimit(1)).Execute(ctx, authorized)
+		firstOutcome := newSelectionExecutor(first, selection.WithPageLimit(1)).Execute(ctx, authorized)
+		secondOutcome := newSelectionExecutor(second, selection.WithPageLimit(1)).Execute(ctx, authorized)
 		if firstOutcome.Err != nil || secondOutcome.Err != nil {
 			t.Fatalf("equivalent boundary errors = %#v / %#v", firstOutcome.Err, secondOutcome.Err)
 		}
@@ -153,7 +154,7 @@ func assertResourceSelectionPaginationScenarios(t *testing.T, ctx context.Contex
 
 		duplicate := paginationObject(ownerNamespace, "alpha", "uid-alpha")
 		dedup := &scriptedResourceLister{responses: []scriptedListResponse{{list: listWithContinue(alpha, "next")}, {list: listWithContinue(duplicate, "")}}}
-		dedupOutcome := selection.NewExecutor(dedup).Execute(ctx, authorized)
+		dedupOutcome := newSelectionExecutor(dedup).Execute(ctx, authorized)
 		if dedupOutcome.Err != nil || len(dedupOutcome.Resources) != 1 || dedupOutcome.Resources[0].Provenance.UID != "uid-alpha" {
 			t.Fatalf("UID deduplication outcome = %#v", dedupOutcome)
 		}
@@ -165,7 +166,7 @@ func assertResourceSelectionPaginationScenarios(t *testing.T, ctx context.Contex
 			{err: apierrors.NewResourceExpired("expired continuation")},
 			{list: listWithContinue(alpha, "")},
 		}}
-		outcome := selection.NewExecutor(expired).Execute(ctx, authorized)
+		outcome := newSelectionExecutor(expired).Execute(ctx, authorized)
 		if outcome.Err != nil || len(outcome.Resources) != 1 || len(expired.calls) != 2 {
 			t.Fatalf("single-restart outcome = %#v calls=%d", outcome, len(expired.calls))
 		}
@@ -183,7 +184,7 @@ func assertResourceSelectionPaginationScenarios(t *testing.T, ctx context.Contex
 			{list: listWithContinue(alpha, "next")},
 			{err: expiredError},
 		}}
-		outcome := selection.NewExecutor(secondExpired).Execute(ctx, authorized)
+		outcome := newSelectionExecutor(secondExpired).Execute(ctx, authorized)
 		if !selection.HasReason(outcome.Err, selection.ReasonListExpired) || !errors.Is(outcome.Err, expiredError) || len(outcome.Resources) != 0 {
 			t.Fatalf("second-expiration outcome = %#v", outcome)
 		}
@@ -199,11 +200,7 @@ func planAndAuthorizeSelection(t *testing.T, ctx context.Context, resolver *disc
 	if err != nil {
 		t.Fatalf("plan %q: %v", source.ID, err)
 	}
-	authorizations := make([]selection.Authorization, 0, len(plan.Targets()))
-	for _, target := range plan.Targets() {
-		authorizations = append(authorizations, selection.Authorization{Request: selection.RequestForTarget(target), Decision: allowedDecision()})
-	}
-	authorized, err := selection.Bind(plan, authorizations)
+	authorized, err := selection.BindCapabilities(plan, authorizationOutcomesForPlan(t, plan, mustSnapshot(t, basePolicy())))
 	if err != nil {
 		t.Fatalf("bind %q: %v", source.ID, err)
 	}

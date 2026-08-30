@@ -20,6 +20,7 @@ import (
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
 	"github.com/steeltanuki/kubeseer/internal/accesspolicy"
+	"github.com/steeltanuki/kubeseer/internal/authorization"
 	discoveryruntime "github.com/steeltanuki/kubeseer/internal/discovery"
 	"github.com/steeltanuki/kubeseer/internal/selection"
 	k8sdiscovery "k8s.io/client-go/discovery"
@@ -66,6 +67,7 @@ func SetupWithManager(mgr manager.Manager, options Options) error {
 	}
 
 	tracker := NewFreshnessTracker()
+	enforcer := authorization.NewEnforcer(nil)
 	store := NewClientKubeseerStore(apiReader)
 	routes := NewRouteRegistry(
 		NewClientMetadataWatcher(metadataClient),
@@ -76,8 +78,9 @@ func SetupWithManager(mgr manager.Manager, options Options) error {
 		Reader:       store,
 		Lister:       store,
 		PolicySource: accesspolicy.NewClientPolicySource(apiReader),
+		Enforcer:     enforcer,
 		Planner:      selection.NewPlanner(discoveryruntime.NewResolver(discoveryClient)),
-		Executor:     selection.NewExecutor(selection.NewDynamicResourceLister(dynamicClient)),
+		Executor:     selection.NewExecutor(selection.NewDynamicResourceLister(dynamicClient, tracker), selection.WithVerifier(tracker)),
 		Routes:       routes,
 		Publisher:    NewStatusPublisher(store, NewClientStatusWriter(managerClient.Status()), tracker),
 		Tracker:      tracker,

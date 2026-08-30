@@ -25,6 +25,7 @@ import (
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
 	"github.com/steeltanuki/kubeseer/internal/accesspolicy"
+	"github.com/steeltanuki/kubeseer/internal/authorization"
 	"github.com/steeltanuki/kubeseer/internal/discovery"
 	"github.com/steeltanuki/kubeseer/internal/reconciliation"
 	"github.com/steeltanuki/kubeseer/internal/selection"
@@ -395,11 +396,14 @@ func mustRuntimePipelineWithPolicy(t *testing.T, resolver *discovery.Resolver, r
 		Reader:       reader,
 		Lister:       reader,
 		PolicySource: policy,
+		Enforcer:     authorization.NewEnforcer(nil),
 		Planner:      selection.NewPlanner(resolver),
-		Executor:     selection.NewExecutor(lister),
-		Routes:       routes,
-		Publisher:    publisher,
-		Tracker:      tracker,
+		Executor: selection.NewExecutor(lister, selection.WithVerifier(authorization.VerifierFunc(func(subject authorization.Subject) bool {
+			return subject.Validate() == nil
+		}))),
+		Routes:    routes,
+		Publisher: publisher,
+		Tracker:   tracker,
 	})
 	if err != nil {
 		t.Fatalf("construct reconciliation runtime: %v", err)
@@ -507,7 +511,8 @@ func (l *runtimePipelineLister) SetHook(hook func(context.Context, selection.Rea
 	l.hook = hook
 }
 
-func (l *runtimePipelineLister) List(ctx context.Context, target selection.ReadTarget, options metav1.ListOptions) (*unstructured.UnstructuredList, error) {
+func (l *runtimePipelineLister) List(ctx context.Context, read selection.AuthorizedRead, options metav1.ListOptions) (*unstructured.UnstructuredList, error) {
+	target := read.Target()
 	l.mu.Lock()
 	l.calls = append(l.calls, runtimePipelineListCall{Target: target, Options: options})
 	hook := l.hook

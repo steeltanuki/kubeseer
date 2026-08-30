@@ -14,7 +14,10 @@
 
 package selection
 
-import "github.com/steeltanuki/kubeseer/internal/accesspolicy"
+import (
+	"github.com/steeltanuki/kubeseer/internal/accesspolicy"
+	"github.com/steeltanuki/kubeseer/internal/authorization"
+)
 
 // RequestForTarget converts one exact target into the policy request consumed
 // by the existing installation-policy evaluator.
@@ -28,23 +31,29 @@ func RequestForTarget(target ReadTarget) accesspolicy.Request {
 	}
 }
 
-// Bind validates complete, exact authorization coverage for a plan. No
-// executable capability is returned unless every target has exactly one
-// allowed matching decision.
-func Bind(plan SelectionPlan, authorizations []Authorization) (AuthorizedPlan, error) {
+// BindCapabilities validates complete, exact authorization coverage for a
+// plan. No executable capability is returned unless every target has exactly
+// one matching allowed capability outcome.
+func BindCapabilities(plan SelectionPlan, outcomes []authorization.DecisionOutcome) (AuthorizedPlan, error) {
 	targets := plan.Targets()
 	targetKeys := make(map[accesspolicy.Request]struct{}, len(targets))
 	for _, target := range targets {
-		targetKeys[RequestForTarget(target)] = struct{}{}
+		request := RequestForTarget(target)
+		if _, exists := targetKeys[request]; exists {
+			return AuthorizedPlan{}, NewSelectionError(plan.SourceID(), ReasonAuthorizationMismatch, "selection plan contains duplicate exact read targets")
+		}
+		targetKeys[request] = struct{}{}
 	}
-	authorizationIndexes := make(map[accesspolicy.Request][]int, len(authorizations))
-	for index, authorization := range authorizations {
-		if _, exists := targetKeys[authorization.Request]; !exists {
+	authorizationIndexes := make(map[accesspolicy.Request][]int, len(outcomes))
+	for index, outcome := range outcomes {
+		request := outcome.Request()
+		if _, exists := targetKeys[request]; !exists {
 			return AuthorizedPlan{}, NewSelectionError(plan.SourceID(), ReasonAuthorizationMismatch, "authorization contains a target that does not match the selection plan")
 		}
-		authorizationIndexes[authorization.Request] = append(authorizationIndexes[authorization.Request], index)
+		authorizationIndexes[request] = append(authorizationIndexes[request], index)
 	}
 
+	reads := make([]AuthorizedRead, len(targets))
 	for _, target := range targets {
 		want := RequestForTarget(target)
 		indexes := authorizationIndexes[want]
@@ -54,11 +63,22 @@ func Bind(plan SelectionPlan, authorizations []Authorization) (AuthorizedPlan, e
 		if len(indexes) > 1 {
 			return AuthorizedPlan{}, NewSelectionError(plan.SourceID(), ReasonAuthorizationMismatch, "multiple authorization decisions match one exact read target")
 		}
-		decision := authorizations[indexes[0]].Decision
+		outcome := outcomes[indexes[0]]
+		decision := outcome.Decision()
 		if !decision.Allowed || decision.Reason != accesspolicy.ReasonAllowed {
 			return AuthorizedPlan{}, NewSelectionError(plan.SourceID(), ReasonAuthorizationDenied, "exact read target is not allowed by the installation policy")
 		}
+		capability, ok := outcome.Capability()
+		if !ok || !capability.Valid() || capability.Request() != want {
+			return AuthorizedPlan{}, NewSelectionError(plan.SourceID(), ReasonAuthorizationMismatch, "allowed decision has no matching authorization capability")
+		}
+		for index := range targets {
+			if targets[index] == target {
+				reads[index] = AuthorizedRead{target: target, capability: capability}
+				break
+			}
+		}
 	}
 
-	return AuthorizedPlan{plan: clonePlan(plan)}, nil
+	return AuthorizedPlan{plan: clonePlan(plan), reads: reads}, nil
 }

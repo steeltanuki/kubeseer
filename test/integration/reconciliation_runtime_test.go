@@ -169,7 +169,7 @@ func assertReconciliationRuntimeSchedulingScenarios(t *testing.T) {
 		}
 		defer firstRelease()
 		defer secondRelease()
-		if !tracker.IsCurrent(first) || !tracker.IsCurrent(second) {
+		if !tracker.IsLeaseCurrent(first) || !tracker.IsLeaseCurrent(second) {
 			t.Fatal("independent leases were not current")
 		}
 		if firstContext.Err() != nil || secondContext.Err() != nil {

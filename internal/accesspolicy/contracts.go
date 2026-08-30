@@ -17,7 +17,18 @@ package accesspolicy
 import (
 	"errors"
 	"fmt"
+
+	"k8s.io/apimachinery/pkg/types"
 )
+
+// PolicyIdentity identifies the policy object that produced an evaluation
+// snapshot. It is diagnostic context only and never participates in policy
+// matching.
+type PolicyIdentity struct {
+	Name       string
+	UID        types.UID
+	Generation int64
+}
 
 // PolicyReason is the stable reason category used by policy validation and
 // later policy loading/evaluation boundaries.

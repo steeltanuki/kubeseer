@@ -21,8 +21,10 @@ import (
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
 	"github.com/steeltanuki/kubeseer/internal/accesspolicy"
+	"github.com/steeltanuki/kubeseer/internal/authorization"
 	"github.com/steeltanuki/kubeseer/internal/discovery"
 	"github.com/steeltanuki/kubeseer/internal/selection"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 func assertResourceSelectionAuthorizationScenarios(t *testing.T, ctx context.Context, resolver *discovery.Resolver) {
@@ -38,10 +40,10 @@ func assertResourceSelectionAuthorizationScenarios(t *testing.T, ctx context.Con
 		t.Fatalf("plan authorization fixture: %v", err)
 	}
 	snapshot := mustSnapshot(t, basePolicy())
-	authorizations := authorizationsForPlan(plan, snapshot)
+	authorizations := authorizationOutcomesForPlan(t, plan, snapshot)
 
 	t.Run("all exact allowed targets produce an opaque capability", func(t *testing.T) {
-		authorized, err := selection.Bind(plan, authorizations)
+		authorized, err := selection.BindCapabilities(plan, authorizations)
 		if err != nil {
 			t.Fatalf("bind allowed plan: %v", err)
 		}
@@ -51,7 +53,7 @@ func assertResourceSelectionAuthorizationScenarios(t *testing.T, ctx context.Con
 	})
 
 	t.Run("missing decision is rejected before capability creation", func(t *testing.T) {
-		_, err := selection.Bind(plan, authorizations[:1])
+		_, err := selection.BindCapabilities(plan, authorizations[:1])
 		if !selection.HasReason(err, selection.ReasonAuthorizationMissing) || !strings.Contains(err.Error(), "authorization is missing") {
 			t.Fatalf("missing authorization error = %v", err)
 		}
@@ -59,30 +61,35 @@ func assertResourceSelectionAuthorizationScenarios(t *testing.T, ctx context.Con
 
 	tests := []struct {
 		name       string
-		mutate     func([]selection.Authorization)
+		outcomes   func() []authorization.DecisionOutcome
 		wantReason selection.SelectionErrorReason
 		wantText   string
 	}{
 		{
 			name: "denied decision",
-			mutate: func(values []selection.Authorization) {
-				values[1].Decision = accesspolicy.Decision{Reason: accesspolicy.ReasonNamespaceDenied, Message: "namespace is denied"}
+			outcomes: func() []authorization.DecisionOutcome {
+				denyingPolicy := basePolicy()
+				denyingPolicy.Spec.Resources = nil
+				return authorizationOutcomesForPlan(t, plan, mustSnapshot(t, denyingPolicy))
 			},
 			wantReason: selection.ReasonAuthorizationDenied,
 			wantText:   "exact read target is not allowed",
 		},
 		{
 			name: "mismatched source identity",
-			mutate: func(values []selection.Authorization) {
-				values[0].Request.SourceID = "other-source"
+			outcomes: func() []authorization.DecisionOutcome {
+				request := selection.RequestForTarget(plan.Targets()[0])
+				request.SourceID = "other-source"
+				return authorizationOutcomesForRequests(t, snapshot, []accesspolicy.Request{request})
 			},
 			wantReason: selection.ReasonAuthorizationMismatch,
 			wantText:   "does not match the selection plan",
 		},
 		{
 			name: "duplicate target decisions",
-			mutate: func(values []selection.Authorization) {
-				values[1].Request = values[0].Request
+			outcomes: func() []authorization.DecisionOutcome {
+				request := selection.RequestForTarget(plan.Targets()[0])
+				return authorizationOutcomesForRequests(t, snapshot, []accesspolicy.Request{request, request})
 			},
 			wantReason: selection.ReasonAuthorizationMismatch,
 			wantText:   "multiple authorization decisions",
@@ -90,31 +97,53 @@ func assertResourceSelectionAuthorizationScenarios(t *testing.T, ctx context.Con
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			values := append([]selection.Authorization(nil), authorizations...)
-			test.mutate(values)
-			_, err := selection.Bind(plan, values)
+			_, err := selection.BindCapabilities(plan, test.outcomes())
 			if !selection.HasReason(err, test.wantReason) || !strings.Contains(err.Error(), test.wantText) {
-				t.Fatalf("Bind error = %v, want reason=%q containing %q", err, test.wantReason, test.wantText)
+				t.Fatalf("BindCapabilities error = %v, want reason=%q containing %q", err, test.wantReason, test.wantText)
 			}
 		})
 	}
 
 	t.Run("extra decisions are rejected without leaking object data", func(t *testing.T) {
-		extra := append([]selection.Authorization(nil), authorizations...)
-		extra = append(extra, selection.Authorization{Request: selection.RequestForTarget(plan.Targets()[0]), Decision: accesspolicy.Decision{Allowed: true, Reason: accesspolicy.ReasonAllowed}})
-		_, err := selection.Bind(plan, extra)
+		extraRequest := selection.RequestForTarget(plan.Targets()[0])
+		extraRequest.SourceID = "extra-source"
+		extra := append([]authorization.DecisionOutcome(nil), authorizations...)
+		extra = append(extra, authorizationOutcomesForRequests(t, snapshot, []accesspolicy.Request{extraRequest})...)
+		_, err := selection.BindCapabilities(plan, extra)
 		if !selection.HasReason(err, selection.ReasonAuthorizationMismatch) || strings.Contains(err.Error(), "secret-object-value") {
 			t.Fatalf("extra authorization error = %v", err)
 		}
 	})
 }
 
-func authorizationsForPlan(plan selection.SelectionPlan, snapshot accesspolicy.Snapshot) []selection.Authorization {
+func authorizationOutcomesForPlan(t *testing.T, plan selection.SelectionPlan, snapshot accesspolicy.Snapshot) []authorization.DecisionOutcome {
+	t.Helper()
 	targets := plan.Targets()
-	values := make([]selection.Authorization, 0, len(targets))
+	requests := make([]accesspolicy.Request, 0, len(targets))
 	for _, target := range targets {
-		request := selection.RequestForTarget(target)
-		values = append(values, selection.Authorization{Request: request, Decision: snapshot.Evaluate(request)})
+		requests = append(requests, selection.RequestForTarget(target))
 	}
-	return values
+	return authorizationOutcomesForRequests(t, snapshot, requests)
+}
+
+func authorizationOutcomesForRequests(t *testing.T, snapshot accesspolicy.Snapshot, requests []accesspolicy.Request) []authorization.DecisionOutcome {
+	t.Helper()
+	subject := authorization.Subject{
+		Key:        types.NamespacedName{Namespace: "selection-test", Name: "selection-owner"},
+		UID:        types.UID("selection-owner-uid"),
+		Generation: 1,
+	}
+	batch, err := authorization.NewEnforcer(nil).EvaluateBatch(context.Background(), subject, snapshot, requests)
+	if err != nil {
+		t.Fatalf("evaluate authorization fixture: %v", err)
+	}
+	return batch.Outcomes()
+}
+
+func newSelectionExecutor(lister selection.ResourceLister, options ...selection.ExecutorOption) *selection.Executor {
+	configured := append([]selection.ExecutorOption(nil), options...)
+	configured = append(configured, selection.WithVerifier(authorization.VerifierFunc(func(subject authorization.Subject) bool {
+		return subject.Validate() == nil
+	})))
+	return selection.NewExecutor(lister, configured...)
 }

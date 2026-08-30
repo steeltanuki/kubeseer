@@ -20,6 +20,7 @@ import (
 	"sync"
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
+	"github.com/steeltanuki/kubeseer/internal/authorization"
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -200,9 +201,10 @@ func (t *FreshnessTracker) Acquire(ctx context.Context, key types.NamespacedName
 	return lease, child, release, nil
 }
 
-// IsCurrent reports whether a lease still owns the tracked identity and policy
-// epoch. It is safe to call from concurrent event handlers and publishers.
-func (t *FreshnessTracker) IsCurrent(lease Lease) bool {
+// IsLeaseCurrent reports whether a lease still owns the tracked identity and
+// policy epoch. It is safe to call from concurrent event handlers and
+// publishers.
+func (t *FreshnessTracker) IsLeaseCurrent(lease Lease) bool {
 	if t == nil {
 		return false
 	}
@@ -211,6 +213,22 @@ func (t *FreshnessTracker) IsCurrent(lease Lease) bool {
 	state := t.states[lease.Key]
 	return state != nil && state.uid == lease.UID && state.generation == lease.Generation && !state.deleting && !state.absent && state.policyEpoch == lease.PolicyEpoch && t.epoch == lease.PolicyEpoch
 }
+
+// IsCurrent implements authorization.Verifier for capability and WATCH
+// freshness checks.
+func (t *FreshnessTracker) IsCurrent(subject authorization.Subject) bool {
+	if subject.Validate() != nil {
+		return false
+	}
+	return t.IsLeaseCurrent(Lease{
+		Key:         subject.Key,
+		UID:         subject.UID,
+		Generation:  subject.Generation,
+		PolicyEpoch: subject.PolicyEpoch,
+	})
+}
+
+var _ authorization.Verifier = (*FreshnessTracker)(nil)
 
 // TrackedState is a read-only lifecycle snapshot useful for diagnostics and
 // deterministic higher-layer tests.

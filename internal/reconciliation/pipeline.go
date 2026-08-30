@@ -21,6 +21,7 @@ import (
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
 	"github.com/steeltanuki/kubeseer/internal/accesspolicy"
+	"github.com/steeltanuki/kubeseer/internal/authorization"
 	"github.com/steeltanuki/kubeseer/internal/discovery"
 	"github.com/steeltanuki/kubeseer/internal/extraction"
 	"github.com/steeltanuki/kubeseer/internal/selection"
@@ -39,6 +40,7 @@ type plannedSource struct {
 	canExecute      bool
 	retryableErr    error
 	authorizedSet   []AuthorizedRoute
+	authorizations  []authorization.DecisionOutcome
 	assessment      statuscontract.SourceAssessment
 	originalPlanErr error
 }
@@ -85,26 +87,36 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 	}
 	defer releaseLease()
 
-	if child.Err() != nil || !r.deps.Tracker.IsCurrent(lease) {
+	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
 		return reconcile.Result{}, nil
 	}
-	snapshot := accesspolicy.Load(child, r.deps.PolicySource)
-	if child.Err() != nil || !r.deps.Tracker.IsCurrent(lease) {
-		return reconcile.Result{}, nil
-	}
-
 	sources := object.Spec.Sources
 	// A source-free object has no observation target. It receives the present
-	// empty result even while the policy singleton is absent, but still follows
+	// empty result without loading or evaluating the policy, but still follows
 	// the same route replacement and publication guards.
+	var snapshot accesspolicy.Snapshot
+	if len(sources) > 0 {
+		snapshot = accesspolicy.Load(child, r.deps.PolicySource)
+		if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
+			return reconcile.Result{}, nil
+		}
+	}
 	planned := make([]plannedSource, len(sources))
 	var retryable []error
 	if len(sources) > 0 && snapshot.TerminalReason() == accesspolicy.ReasonPolicyUnavailable {
 		retryable = append(retryable, transientRuntimeError("policy-load", "", ReasonPolicyUnavailable, "installation policy is unavailable", nil))
 	}
+	var subject authorization.Subject
+	if len(sources) > 0 {
+		var subjectErr error
+		subject, subjectErr = authorization.NewSubject(key, lease.UID, lease.Generation, lease.PolicyEpoch)
+		if subjectErr != nil {
+			return reconcile.Result{}, nil
+		}
+	}
 
 	for index, source := range sources {
-		if child.Err() != nil || !r.deps.Tracker.IsCurrent(lease) {
+		if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
 			return reconcile.Result{}, nil
 		}
 		entry := plannedSource{
@@ -130,13 +142,22 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 		}
 		entry.plan = plan
 		entry.assessment.Resolution = statuscontract.ResolutionResolvedOutcome
-		authorizations := make([]selection.Authorization, 0, len(plan.Targets()))
+		requests := make([]accesspolicy.Request, 0, len(plan.Targets()))
 		for _, target := range plan.Targets() {
-			decision := snapshot.Evaluate(selection.RequestForTarget(target))
-			authorizations = append(authorizations, selection.Authorization{
-				Request:  selection.RequestForTarget(target),
-				Decision: decision,
-			})
+			requests = append(requests, selection.RequestForTarget(target))
+		}
+		batch, evaluateErr := r.deps.Enforcer.EvaluateBatch(child, subject, snapshot, requests)
+		if evaluateErr != nil {
+			if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
+				return reconcile.Result{}, nil
+			}
+			entry.selectionErr = selection.NewSelectionError(source.ID, selection.ReasonAuthorizationMismatch, "source authorization could not be evaluated")
+			planned[index] = entry
+			continue
+		}
+		entry.authorizations = batch.Outcomes()
+		for _, outcome := range entry.authorizations {
+			decision := outcome.Decision()
 			if decision.Allowed {
 				continue
 			}
@@ -148,7 +169,7 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 		if entry.assessment.Authorization == statuscontract.AuthorizationNotEvaluatedOutcome {
 			entry.assessment.Authorization = statuscontract.AuthorizationAllowedOutcome
 		}
-		bound, bindErr := selection.Bind(plan, authorizations)
+		bound, bindErr := selection.BindCapabilities(plan, entry.authorizations)
 		if bindErr != nil {
 			if entry.selectionErr == nil {
 				entry.selectionErr = mapBindingError(source.ID, bindErr)
@@ -161,13 +182,14 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 		}
 		entry.authorized = bound
 		entry.canExecute = true
-		for _, target := range plan.Targets() {
-			decision := snapshot.Evaluate(selection.RequestForTarget(target))
-			if !decision.Allowed {
+		for targetIndex, target := range plan.Targets() {
+			capability, ok := entry.authorizations[targetIndex].Capability()
+			if !ok {
+				entry.selectionErr = selection.NewSelectionError(source.ID, selection.ReasonAuthorizationMismatch, "authorized route has no matching capability")
 				entry.canExecute = false
 				break
 			}
-			route, routeErr := NewAuthorizedRouteForLease(lease, target, decision)
+			route, routeErr := NewAuthorizedRoute(target, capability)
 			if routeErr != nil {
 				entry.selectionErr = selection.NewSelectionError(source.ID, selection.ReasonAuthorizationMismatch, "authorized route could not be constructed")
 				entry.canExecute = false
@@ -178,7 +200,7 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 		planned[index] = entry
 	}
 
-	if child.Err() != nil || !r.deps.Tracker.IsCurrent(lease) {
+	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
 		return reconcile.Result{}, nil
 	}
 	routes := make([]AuthorizedRoute, 0)
@@ -188,12 +210,12 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 		}
 	}
 	if err := r.deps.Routes.Replace(lease, routes); err != nil {
-		if errors.Is(err, ErrStaleLease) || IsRetryable(err) == false && !r.deps.Tracker.IsCurrent(lease) {
+		if errors.Is(err, ErrStaleLease) || IsRetryable(err) == false && !r.deps.Tracker.IsLeaseCurrent(lease) {
 			return reconcile.Result{}, nil
 		}
 		return reconcile.Result{}, err
 	}
-	if child.Err() != nil || !r.deps.Tracker.IsCurrent(lease) {
+	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
 		return reconcile.Result{}, nil
 	}
 
@@ -218,7 +240,7 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 			}
 		}
 	}
-	if child.Err() != nil || !r.deps.Tracker.IsCurrent(lease) {
+	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
 		return reconcile.Result{}, nil
 	}
 
@@ -227,7 +249,7 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 		extractionInputs[index] = extraction.SourceInput{Source: source, Selection: selectionOutcomes[index]}
 	}
 	extracted := extraction.ExtractBatch(child, extractionInputs)
-	if child.Err() != nil || !r.deps.Tracker.IsCurrent(lease) {
+	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
 		return reconcile.Result{}, nil
 	}
 	typedInputs := make([]typedoutput.SourceInput, len(sources))
@@ -235,7 +257,7 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 		typedInputs[index] = typedoutput.SourceInput{Source: source, Extraction: extracted[index]}
 	}
 	converted := typedoutput.ConvertBatch(child, typedInputs)
-	if child.Err() != nil || !r.deps.Tracker.IsCurrent(lease) {
+	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
 		return reconcile.Result{}, nil
 	}
 	result, err := typedoutput.BuildResult(converted)
@@ -254,7 +276,7 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 		}
 		return reconcile.Result{}, buildErr
 	}
-	if child.Err() != nil || !r.deps.Tracker.IsCurrent(lease) {
+	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
 		return reconcile.Result{}, nil
 	}
 

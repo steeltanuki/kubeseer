@@ -45,6 +45,7 @@ type Snapshot struct {
 	policy          *CompiledPolicy
 	terminalReason  PolicyReason
 	terminalMessage string
+	policyIdentity  *PolicyIdentity
 }
 
 // NewSnapshot wraps a compiled policy for pure evaluation. A nil policy is
@@ -53,18 +54,45 @@ func NewSnapshot(policy *CompiledPolicy) Snapshot {
 	if policy == nil {
 		return NewDenyAllSnapshot(ReasonPolicyInvalid, "compiled policy is unavailable")
 	}
-	return Snapshot{policy: policy}
+	snapshot := Snapshot{policy: policy}
+	if policy.hasPolicyIdentity {
+		identity := policy.policyIdentity
+		snapshot.policyIdentity = &identity
+	}
+	return snapshot
+}
+
+// NewSnapshotWithIdentity wraps a compiled policy and explicitly associates
+// the identity of the object that produced it. The identity is copied so the
+// resulting snapshot remains immutable to callers.
+func NewSnapshotWithIdentity(policy *CompiledPolicy, identity PolicyIdentity) Snapshot {
+	snapshot := NewSnapshot(policy)
+	identityCopy := identity
+	snapshot.policyIdentity = &identityCopy
+	return snapshot
 }
 
 // NewDenyAllSnapshot constructs a terminal snapshot that cannot produce an
 // allow decision. Unknown terminal reasons degrade to PolicyUnavailable.
 func NewDenyAllSnapshot(reason PolicyReason, message string) Snapshot {
+	return denyAllSnapshot(reason, message, nil)
+}
+
+// NewDenyAllSnapshotWithIdentity constructs a terminal snapshot while
+// retaining the identity of a present policy object, such as an invalid
+// installation policy. The identity never changes the deny-all result.
+func NewDenyAllSnapshotWithIdentity(reason PolicyReason, message string, identity PolicyIdentity) Snapshot {
+	identityCopy := identity
+	return denyAllSnapshot(reason, message, &identityCopy)
+}
+
+func denyAllSnapshot(reason PolicyReason, message string, identity *PolicyIdentity) Snapshot {
 	switch reason {
 	case ReasonPolicyMissing, ReasonPolicyInvalid, ReasonPolicyUnavailable:
 	default:
 		reason = ReasonPolicyUnavailable
 	}
-	return Snapshot{terminalReason: reason, terminalMessage: message}
+	return Snapshot{terminalReason: reason, terminalMessage: message, policyIdentity: identity}
 }
 
 // Snapshot returns an evaluation snapshot for this compiled policy.
@@ -145,6 +173,16 @@ func (s Snapshot) TerminalMessage() string {
 // a compiled policy.
 func (s Snapshot) IsTerminal() bool {
 	return s.terminalReason != ""
+}
+
+// PolicyIdentity returns a defensive copy of the policy identity associated
+// with this snapshot. Missing and unavailable policy snapshots have no
+// identity; invalid present policy objects retain theirs.
+func (s Snapshot) PolicyIdentity() (PolicyIdentity, bool) {
+	if s.policyIdentity == nil {
+		return PolicyIdentity{}, false
+	}
+	return *s.policyIdentity, true
 }
 
 // Evaluate is the function form of Snapshot.Evaluate for callers that prefer

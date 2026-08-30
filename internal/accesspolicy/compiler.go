@@ -46,6 +46,8 @@ type CompiledPolicy struct {
 	systemNamespaces   map[string]struct{}
 	allowedResources   map[resourceKey]struct{}
 	allowClusterScoped bool
+	policyIdentity     PolicyIdentity
+	hasPolicyIdentity  bool
 }
 
 type validationIssue struct {
@@ -84,6 +86,12 @@ func Compile(policy *v1alpha1.KubeseerAccessPolicy) (*CompiledPolicy, error) {
 		systemNamespaces:   copyStringSet(systemNamespaces),
 		allowedResources:   make(map[resourceKey]struct{}),
 		allowClusterScoped: policy.Spec.AllowClusterScoped,
+		policyIdentity: PolicyIdentity{
+			Name:       policy.Name,
+			UID:        policy.UID,
+			Generation: policy.Generation,
+		},
+		hasPolicyIdentity: true,
 	}
 	for _, rule := range policy.Spec.Resources {
 		for _, apiGroup := range rule.APIGroups {

@@ -1,0 +1,249 @@
+{
+  "schema_version": "v1alpha1",
+  "feature": "authorization-enforcement",
+  "tasks": {
+    "1.1": {
+      "task_fingerprint": "sha256:251f8518173fd093e87efb9bcee7709061dc687770b78e88ce62bbadb3a09ad9",
+      "requirements_fingerprint": "sha256:938416c4cd20919d2a8a3bd1abd3379b056a0de06d5eb872fa47b042310bf23e",
+      "design_fingerprint": "sha256:3e8e73f7fcbc3691b15f488e263fd3cae5b50b80a2886bf3cfba5bc3b77cdaef",
+      "tasks_fingerprint": "sha256:0ae8ee71c83dc2b16413be772d41050d0da07fe2b8794b2ca2b452c5d34d8039",
+      "code_identity": "sha256:5ee3f6434e1fa8fb03a0d9777d13c4d6d914df3e0fec561f6abc20568f607db4",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "probe failed: exit 1",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-authorization-enforcement-go-build GOMODCACHE=/tmp/kubeseer-authorization-enforcement-go-mod make test-integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:c234fc84a1155318faccd0aae37d0c36ffca830b491d6b0963ca417a8aa6e245"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-30T11:39:01Z"
+    },
+    "2.1": {
+      "task_fingerprint": "sha256:54457d0076a0aeed32b71127848ba4be63da634b8372fe15483fa8561a8298ee",
+      "requirements_fingerprint": "sha256:938416c4cd20919d2a8a3bd1abd3379b056a0de06d5eb872fa47b042310bf23e",
+      "design_fingerprint": "sha256:3e8e73f7fcbc3691b15f488e263fd3cae5b50b80a2886bf3cfba5bc3b77cdaef",
+      "tasks_fingerprint": "sha256:0ae8ee71c83dc2b16413be772d41050d0da07fe2b8794b2ca2b452c5d34d8039",
+      "code_identity": "sha256:ed2363b9070126590328e6617331c862f362e69fbbc5836dca8ced2d2e21f385",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "probe failed: exit 1",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-authorization-enforcement-go-build GOMODCACHE=/tmp/kubeseer-authorization-enforcement-go-mod make test-integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:471f6ec668a02f4b0f7b04bc2719c6d1812fd7e4f8dfe4a9681309b8f0749206"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-30T11:50:58Z"
+    },
+    "3.1": {
+      "task_fingerprint": "sha256:3687a988026a9635f583dd80fc86f83e8cfc0e27865d81e64cd36768ce0884a1",
+      "requirements_fingerprint": "sha256:938416c4cd20919d2a8a3bd1abd3379b056a0de06d5eb872fa47b042310bf23e",
+      "design_fingerprint": "sha256:3e8e73f7fcbc3691b15f488e263fd3cae5b50b80a2886bf3cfba5bc3b77cdaef",
+      "tasks_fingerprint": "sha256:0ae8ee71c83dc2b16413be772d41050d0da07fe2b8794b2ca2b452c5d34d8039",
+      "code_identity": "sha256:58870129301fee289a4e52051ad7a6d688212937d8f6be75f4ab5a388ca01716",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "probe failed: exit 1",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-authorization-enforcement-go-build GOMODCACHE=/tmp/kubeseer-authorization-enforcement-go-mod make test-integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:cb7936d350cd2a68b0876e4412206a64b783a3aa5a9190b56fde1d873e54e416"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-30T11:59:48Z"
+    },
+    "4.1": {
+      "task_fingerprint": "sha256:b2a96413fc2620fd2856257fec1947e9d353517ac1c5d0c1c5a3066389585e67",
+      "requirements_fingerprint": "sha256:938416c4cd20919d2a8a3bd1abd3379b056a0de06d5eb872fa47b042310bf23e",
+      "design_fingerprint": "sha256:3e8e73f7fcbc3691b15f488e263fd3cae5b50b80a2886bf3cfba5bc3b77cdaef",
+      "tasks_fingerprint": "sha256:0ae8ee71c83dc2b16413be772d41050d0da07fe2b8794b2ca2b452c5d34d8039",
+      "code_identity": "sha256:c133f4b28207d78e520d72d6b07ddbbbff7300b52d90299ed8132b28792992a8",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "probe failed: exit 1",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-authorization-enforcement-go-build GOMODCACHE=/tmp/kubeseer-authorization-enforcement-go-mod make test-integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:b16d9cb87eaaea2bae58f0c18ee30aa355b8c80fd853cc08db2e12aaf303f5c9"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-30T12:10:48Z"
+    },
+    "5.1": {
+      "task_fingerprint": "sha256:03228552f59cc19d174ed63905b26d8694af54a9ebbcf8d289febfe4f8edd866",
+      "requirements_fingerprint": "sha256:938416c4cd20919d2a8a3bd1abd3379b056a0de06d5eb872fa47b042310bf23e",
+      "design_fingerprint": "sha256:3e8e73f7fcbc3691b15f488e263fd3cae5b50b80a2886bf3cfba5bc3b77cdaef",
+      "tasks_fingerprint": "sha256:0ae8ee71c83dc2b16413be772d41050d0da07fe2b8794b2ca2b452c5d34d8039",
+      "code_identity": "sha256:a10952e0919734c1f6202a726b0dc78389b06aa581e2d81de2ebda58180ce74e",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "probe failed: exit 1",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-authorization-enforcement-go-build GOMODCACHE=/tmp/kubeseer-authorization-enforcement-go-mod make test-integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:8defdbf12e3e29d9fe81265a9b25ac5deba4b3084c659364b1f27591f34999fc"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-30T12:11:42Z"
+    },
+    "6.1": {
+      "task_fingerprint": "sha256:5e51cee39c22989efadc7d551fa2169a0cd809d5942581065a8ef0ae8fe8a5eb",
+      "requirements_fingerprint": "sha256:938416c4cd20919d2a8a3bd1abd3379b056a0de06d5eb872fa47b042310bf23e",
+      "design_fingerprint": "sha256:3e8e73f7fcbc3691b15f488e263fd3cae5b50b80a2886bf3cfba5bc3b77cdaef",
+      "tasks_fingerprint": "sha256:0ae8ee71c83dc2b16413be772d41050d0da07fe2b8794b2ca2b452c5d34d8039",
+      "code_identity": "sha256:763b7218b0b086c2c24736706440d25ddcfa46afdac190dd570ad722d7d923e6",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "probe failed: exit 1",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-authorization-enforcement-go-build GOMODCACHE=/tmp/kubeseer-authorization-enforcement-go-mod make test-api"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:e3b1e191911813dab3ecdbf0307582ce0bb8ea24c45fffe4e62423d5aef10014"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-30T12:17:51Z"
+    },
+    "7.1": {
+      "task_fingerprint": "sha256:073c02e98300c0fd86f20ae5f39162e8354b0003140bdfac4869f537320888a9",
+      "requirements_fingerprint": "sha256:938416c4cd20919d2a8a3bd1abd3379b056a0de06d5eb872fa47b042310bf23e",
+      "design_fingerprint": "sha256:3e8e73f7fcbc3691b15f488e263fd3cae5b50b80a2886bf3cfba5bc3b77cdaef",
+      "tasks_fingerprint": "sha256:0ae8ee71c83dc2b16413be772d41050d0da07fe2b8794b2ca2b452c5d34d8039",
+      "code_identity": "sha256:37c1ed7300ffb303fef6d6dcdc43ef52bc73f6bb9768c7d1d3d4ba56d4002ecd",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-authorization-enforcement-go-build GOMODCACHE=/tmp/kubeseer-authorization-enforcement-go-mod make verify"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:67a594a0beddcc5590ac11be1051a8641c188b7da123cd1dc05f17bafec599b7"
+        },
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-authorization-enforcement-go-build GOMODCACHE=/tmp/kubeseer-authorization-enforcement-go-mod make test GO_TEST_FLAGS=-race"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:127c528192e47fef4ea08e42bcde771d00a456edae35e8347cf2228f11464982"
+        },
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-authorization-enforcement-go-build GOMODCACHE=/tmp/kubeseer-authorization-enforcement-go-mod make test-compatibility"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:4af6e0fc76751a5720d5b66d9df63022bc8ebaa780e6c162fa1443de1c7b430b"
+        },
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-authorization-enforcement-go-build GOMODCACHE=/tmp/kubeseer-authorization-enforcement-go-mod go build ./..."
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-authorization-enforcement-go-build GOMODCACHE=/tmp/kubeseer-authorization-enforcement-go-mod go mod tidy -diff"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-30T12:26:17Z"
+    }
+  }
+}

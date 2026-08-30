@@ -95,7 +95,7 @@ func (p *StatusPublisher) Publish(ctx context.Context, lease Lease, evaluation s
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	if p.tracker != nil && !p.tracker.IsCurrent(lease) {
+	if p.tracker != nil && !p.tracker.IsLeaseCurrent(lease) {
 		return staleRuntimeError("status-publish")
 	}
 
@@ -115,7 +115,7 @@ func (p *StatusPublisher) Publish(ctx context.Context, lease Lease, evaluation s
 	if current.Generation != lease.Generation {
 		return staleRuntimeError("status-publish")
 	}
-	if p.tracker != nil && !p.tracker.IsCurrent(lease) {
+	if p.tracker != nil && !p.tracker.IsLeaseCurrent(lease) {
 		return staleRuntimeError("status-publish")
 	}
 
@@ -131,7 +131,7 @@ func (p *StatusPublisher) Publish(ctx context.Context, lease Lease, evaluation s
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	if p.tracker != nil && !p.tracker.IsCurrent(lease) {
+	if p.tracker != nil && !p.tracker.IsLeaseCurrent(lease) {
 		return staleRuntimeError("status-publish")
 	}
 	if err := p.writer.Update(ctx, candidate); err != nil {

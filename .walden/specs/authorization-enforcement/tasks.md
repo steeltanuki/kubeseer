@@ -1,17 +1,17 @@
 ---
 walden_schema_version: v1alpha1
-status: draft
-approved_at:
-last_modified: 2026-08-27T10:44:53Z
-approved_fingerprint:
-source_design_approved_at:
-source_design_fingerprint:
+status: approved
+approved_at: 2026-08-30T11:26:53Z
+last_modified: 2026-08-30T12:25:56Z
+approved_fingerprint: sha256:0ae8ee71c83dc2b16413be772d41050d0da07fe2b8794b2ca2b452c5d34d8039
+source_design_approved_at: 2026-08-27T10:44:01Z
+source_design_fingerprint: sha256:3e8e73f7fcbc3691b15f488e263fd3cae5b50b80a2886bf3cfba5bc3b77cdaef
 ---
 
 # Implementation Plan
 
-- [ ] 1. Establish the capability and evidence boundary
-  - [ ] 1.1 Add policy identity, authorization subjects, deterministic records, and opaque capabilities
+- [x] 1. Establish the capability and evidence boundary
+  - [x] 1.1 Add policy identity, authorization subjects, deterministic records, and opaque capabilities
     - Enrich `accesspolicy.Snapshot` with the canonical policy name, UID, and
       generation without changing evaluator precedence. Preserve identity for
       invalid present policies and omit it for missing or unavailable policy
@@ -34,8 +34,8 @@ source_design_fingerprint:
         timeout: 25m
         covers: ["R1.AC1", "R1.AC2", "R1.AC3", "R1.AC4", "R1.AC5", "R1.AC6", "R1.AC7", "R2.AC2", "R2.AC3", "R2.AC4", "R2.AC5", "R2.AC7", "R3.AC1", "R3.AC2", "R3.AC3", "R3.AC4", "R6.AC1", "R6.AC2", "R6.AC3", "R6.AC6", "R6.AC7", "R6.AC8", "R7.AC1", "R7.AC2", "R7.AC3", "R7.AC4", "R7.AC5", "R7.AC7", "R7.AC8", "R7.AC9", "R7.AC10", "NFR3", "NFR4", "C2", "C5", "C6", "C7", "C9"]
 
-- [ ] 2. Make resource LIST capability-only
-  - [ ] 2.1 Bind exact capabilities into selection plans and guard every LIST request
+- [x] 2. Make resource LIST capability-only
+  - [x] 2.1 Bind exact capabilities into selection plans and guard every LIST request
     - Replace raw decision binding with `BindCapabilities`, remove the
       compatibility bypass, and keep one private `AuthorizedRead` for every
       exact planned target. Reject missing, denied, mismatched, duplicate, and
@@ -58,8 +58,8 @@ source_design_fingerprint:
         timeout: 25m
         covers: ["R3.AC5", "R3.AC6", "R3.AC7", "R3.AC8", "R3.AC9", "R3.AC10", "R4.AC1", "R4.AC2", "R4.AC3", "R4.AC6", "R4.AC7", "R4.AC9", "R4.AC10", "R6.AC4", "R6.AC5", "R6.AC9", "R7.AC6", "R8.AC1", "R8.AC7", "R8.AC8", "R8.AC10", "R8.AC11", "R8.AC12", "NFR1", "NFR3", "NFR5", "C3", "C8", "C9"]
 
-- [ ] 3. Make metadata WATCH capability-only
-  - [ ] 3.1 Retain exact route bindings and mint fresh private WATCH permits per attempt
+- [x] 3. Make metadata WATCH capability-only
+  - [x] 3.1 Retain exact route bindings and mint fresh private WATCH permits per attempt
     - Construct authorized routes only from exact target capabilities and keep
       the full subject in each route binding. Refactor the route index to prune
       stale bindings before every start or restart and to stop a shared
@@ -80,8 +80,8 @@ source_design_fingerprint:
         timeout: 25m
         covers: ["R3.AC10", "R4.AC4", "R4.AC5", "R4.AC6", "R4.AC8", "R5.AC3", "R5.AC5", "R5.AC9", "R7.AC6", "NFR1", "NFR2", "C3", "C4", "C8", "C9"]
 
-- [ ] 4. Compose enforcement into reconciliation and existing status
-  - [ ] 4.1 Evaluate fresh ordered batches, revoke stale work, and preserve public outcomes
+- [x] 4. Compose enforcement into reconciliation and existing status
+  - [x] 4.1 Evaluate fresh ordered batches, revoke stale work, and preserve public outcomes
     - Convert each live lease to one authorization subject, skip policy work for
       zero sources, load one fresh snapshot per reconciliation, evaluate targets
       in declaration order, bind capabilities, and derive LIST and route access
@@ -107,8 +107,8 @@ source_design_fingerprint:
         timeout: 30m
         covers: ["R2.AC1", "R2.AC6", "R2.AC8", "R4.AC9", "R5.AC1", "R5.AC2", "R5.AC3", "R5.AC4", "R5.AC5", "R5.AC6", "R5.AC7", "R5.AC8", "R5.AC9", "R5.AC10", "R8.AC1", "R8.AC2", "R8.AC3", "R8.AC4", "R8.AC5", "R8.AC6", "R8.AC7", "R8.AC8", "R8.AC9", "R8.AC10", "R8.AC11", "R8.AC12", "R8.AC13", "NFR2", "NFR3", "NFR5", "NFR6", "C1", "C4", "C5", "C6", "C8", "C9"]
 
-- [ ] 5. Prove the complete cross-module security contract
-  - [ ] 5.1 Add a non-vacuous end-to-end module-integration scenario matrix
+- [x] 5. Prove the complete cross-module security contract
+  - [x] 5.1 Add a non-vacuous end-to-end module-integration scenario matrix
     - Complete `TestModuleIntegration` with production collaborations covering
       every exact-target decision, capability construction and rejection path,
       LIST/WATCH freshness checkpoint, revocation event, RBAC separation,
@@ -126,8 +126,8 @@ source_design_fingerprint:
         timeout: 30m
         covers: ["R1.AC1", "R1.AC2", "R1.AC3", "R1.AC4", "R1.AC5", "R1.AC6", "R1.AC7", "R2.AC1", "R2.AC2", "R2.AC3", "R2.AC4", "R2.AC5", "R2.AC6", "R2.AC7", "R2.AC8", "R3.AC1", "R3.AC2", "R3.AC3", "R3.AC4", "R3.AC5", "R3.AC6", "R3.AC7", "R3.AC8", "R3.AC9", "R3.AC10", "R4.AC1", "R4.AC2", "R4.AC3", "R4.AC4", "R4.AC5", "R4.AC6", "R4.AC7", "R4.AC8", "R4.AC9", "R4.AC10", "R5.AC1", "R5.AC2", "R5.AC3", "R5.AC4", "R5.AC5", "R5.AC6", "R5.AC7", "R5.AC8", "R5.AC9", "R5.AC10", "R6.AC1", "R6.AC2", "R6.AC3", "R6.AC4", "R6.AC5", "R6.AC6", "R6.AC7", "R6.AC8", "R6.AC9", "R7.AC1", "R7.AC2", "R7.AC3", "R7.AC4", "R7.AC5", "R7.AC6", "R7.AC7", "R7.AC8", "R7.AC9", "R7.AC10", "R8.AC1", "R8.AC2", "R8.AC3", "R8.AC4", "R8.AC5", "R8.AC6", "R8.AC7", "R8.AC8", "R8.AC9", "R8.AC10", "R8.AC11", "R8.AC12", "R8.AC13", "NFR1", "NFR2", "NFR3", "NFR4", "NFR5", "NFR6", "NFR7", "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9"]
 
-- [ ] 6. Prove policy changes and I/O enforcement against a real API server
-  - [ ] 6.1 Extend envtest with revocation, pagination, watch, RBAC, and status barriers
+- [x] 6. Prove policy changes and I/O enforcement against a real API server
+  - [x] 6.1 Extend envtest with revocation, pagination, watch, RBAC, and status barriers
     - Extend `TestEnvtestReconciliationRuntime` through the generated CRDs,
       real manager/API server, production dynamic client, policy handler,
       tracker, route registry, pipeline, and status publisher. Exercise allowed,
@@ -147,8 +147,8 @@ source_design_fingerprint:
         timeout: 35m
         covers: ["R2.AC1", "R2.AC2", "R2.AC3", "R2.AC4", "R2.AC5", "R2.AC6", "R2.AC8", "R4.AC1", "R4.AC2", "R4.AC3", "R4.AC4", "R4.AC5", "R4.AC6", "R4.AC8", "R5.AC1", "R5.AC2", "R5.AC3", "R5.AC4", "R5.AC5", "R5.AC6", "R5.AC7", "R5.AC8", "R5.AC9", "R5.AC10", "R6.AC2", "R6.AC4", "R6.AC5", "R8.AC2", "R8.AC3", "R8.AC4", "R8.AC5", "R8.AC7", "R8.AC8", "R8.AC9", "R8.AC10", "R8.AC11", "R8.AC12", "R8.AC13", "NFR1", "NFR2", "NFR3", "NFR5", "NFR6", "NFR7", "C1", "C3", "C4", "C5", "C6", "C8", "C9"]
 
-- [ ] 7. Complete repository-wide verification
-  - [ ] 7.1 Verify boundaries, generated state, race safety, compatibility, build, and module tidiness
+- [x] 7. Complete repository-wide verification
+  - [x] 7.1 Verify boundaries, generated state, race safety, compatibility, build, and module tidiness
     - Register any new integration files in the approved test-layer policy and
       update only repository boundary checks required by the new internal
       package. Confirm that no package-local unit suite, API field, RBAC

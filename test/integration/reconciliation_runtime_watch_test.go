@@ -16,6 +16,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
 	"github.com/steeltanuki/kubeseer/internal/accesspolicy"
+	"github.com/steeltanuki/kubeseer/internal/authorization"
 	"github.com/steeltanuki/kubeseer/internal/discovery"
 	"github.com/steeltanuki/kubeseer/internal/reconciliation"
 	"github.com/steeltanuki/kubeseer/internal/selection"
@@ -91,7 +93,7 @@ func assertReconciliationRuntimeWatchRoutingScenarios(t *testing.T, ctx context.
 		if deniedDecision.Allowed || deniedDecision.Reason != accesspolicy.ReasonNamespaceDenied {
 			t.Fatalf("real policy denied-target decision = %#v", deniedDecision)
 		}
-		if _, err := reconciliation.NewAuthorizedRoute(ownerA, "uid-a", 1, deniedTarget, deniedDecision); err == nil {
+		if _, err := reconciliation.NewAuthorizedRoute(deniedTarget, authorization.Capability{}); err == nil {
 			t.Fatal("denied target produced an authorized route")
 		}
 		if got := len(watcher.Calls()); got != 0 {
@@ -105,7 +107,7 @@ func assertReconciliationRuntimeWatchRoutingScenarios(t *testing.T, ctx context.
 			t.Fatalf("acquire owner A lease: %v", err)
 		}
 		defer releaseA()
-		routeA, err := reconciliation.NewAuthorizedRouteForLease(leaseA, namespacedTargetA, snapshot.Evaluate(selection.RequestForTarget(namespacedTargetA)))
+		routeA, err := mustRuntimeAuthorizedRoute(t, leaseA, namespacedTargetA, snapshot)
 		if err != nil {
 			t.Fatalf("authorize owner A route: %v", err)
 		}
@@ -132,7 +134,7 @@ func assertReconciliationRuntimeWatchRoutingScenarios(t *testing.T, ctx context.
 			t.Fatalf("acquire owner B lease: %v", err)
 		}
 		defer releaseB()
-		routeB, err := reconciliation.NewAuthorizedRouteForLease(leaseB, namespacedTargetB, snapshot.Evaluate(selection.RequestForTarget(namespacedTargetB)))
+		routeB, err := mustRuntimeAuthorizedRoute(t, leaseB, namespacedTargetB, snapshot)
 		if err != nil {
 			t.Fatalf("authorize owner B route: %v", err)
 		}
@@ -202,7 +204,7 @@ func assertReconciliationRuntimeWatchRoutingScenarios(t *testing.T, ctx context.
 			t.Fatalf("acquire updated owner A lease: %v", err)
 		}
 		defer releaseA2()
-		clusterRoute, err := reconciliation.NewAuthorizedRouteForLease(leaseA2, clusterTarget, clusterDecision)
+		clusterRoute, err := mustRuntimeAuthorizedRoute(t, leaseA2, clusterTarget, clusterSnapshot)
 		if err != nil {
 			t.Fatalf("authorize updated cluster route: %v", err)
 		}
@@ -246,7 +248,7 @@ func assertReconciliationRuntimeWatchRoutingScenarios(t *testing.T, ctx context.
 			t.Fatalf("acquire restart lease: %v", err)
 		}
 		defer release()
-		route, err := reconciliation.NewAuthorizedRouteForLease(lease, namespacedTargetA, snapshot.Evaluate(selection.RequestForTarget(namespacedTargetA)))
+		route, err := mustRuntimeAuthorizedRoute(t, lease, namespacedTargetA, snapshot)
 		if err != nil {
 			t.Fatalf("authorize restart route: %v", err)
 		}
@@ -279,28 +281,58 @@ func assertReconciliationRuntimeWatchRoutingScenarios(t *testing.T, ctx context.
 
 	t.Run("metadata adapter addresses exact scope without selectors", func(t *testing.T) {
 		client := &runtimeRecordingMetadataClient{}
-		adapter := reconciliation.NewClientMetadataWatcher(client)
+		tracker := reconciliation.NewFreshnessTracker()
+		registry := reconciliation.NewRouteRegistry(reconciliation.NewClientMetadataWatcher(client), tracker, reconciliation.WithRouteWatchBackoff(time.Millisecond, 4*time.Millisecond))
+		queue := newRuntimeQueue()
+		defer queue.ShutDown()
+		watchContext, cancel := context.WithCancel(ctx)
+		defer cancel()
+		if err := registry.Start(watchContext, queue); err != nil {
+			t.Fatalf("start metadata adapter registry: %v", err)
+		}
 		addresses := []struct {
 			address   reconciliation.WatchAddress
 			gvr       schema.GroupVersionResource
+			kind      string
 			namespace string
 		}{
 			{
 				address:   reconciliation.WatchAddress{GVR: schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, Scope: discovery.ScopeNamespaced, Namespace: "team-a"},
 				gvr:       schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"},
+				kind:      "Deployment",
 				namespace: "team-a",
 			},
 			{
 				address: reconciliation.WatchAddress{GVR: schema.GroupVersionResource{Version: "v1", Resource: "nodes"}, Scope: discovery.ScopeCluster},
 				gvr:     schema.GroupVersionResource{Version: "v1", Resource: "nodes"},
+				kind:    "Node",
 			},
 		}
-		for _, test := range addresses {
-			stream, err := adapter.Watch(ctx, test.address, "rv-adapter")
+		for index, test := range addresses {
+			owner := types.NamespacedName{Namespace: "team-a", Name: fmt.Sprintf("adapter-owner-%d", index)}
+			object := newRuntimeKubeseer(owner, types.UID(fmt.Sprintf("adapter-owner-uid-%d", index)), 1)
+			tracker.Observe(object)
+			lease, _, release, err := tracker.Acquire(ctx, owner, object.UID, object.Generation)
 			if err != nil {
-				t.Fatalf("metadata adapter watch: %v", err)
+				t.Fatalf("acquire metadata adapter lease: %v", err)
 			}
-			stream.Stop()
+			target := selection.ReadTarget{SourceID: fmt.Sprintf("adapter-source-%d", index), GVR: test.gvr, Kind: test.kind, Scope: test.address.Scope, Namespace: test.namespace}
+			policy := basePolicy()
+			if test.address.Scope == discovery.ScopeCluster {
+				policy.Spec.AllowClusterScoped = true
+			}
+			route, err := mustRuntimeAuthorizedRoute(t, lease, target, mustSnapshot(t, policy))
+			if err != nil {
+				release()
+				t.Fatalf("authorize metadata adapter route: %v", err)
+			}
+			if err := registry.Replace(lease, []reconciliation.AuthorizedRoute{route}); err != nil {
+				release()
+				t.Fatalf("replace metadata adapter route: %v", err)
+			}
+			waitForRuntimeWatchCondition(t, func() bool { return len(client.Calls()) >= index+1 })
+			registry.RemoveOwner(owner)
+			release()
 		}
 		gotRequests := client.Calls()
 		if len(gotRequests) != len(addresses) {
@@ -310,7 +342,7 @@ func assertReconciliationRuntimeWatchRoutingScenarios(t *testing.T, ctx context.
 			if request.GVR != addresses[index].gvr || request.Namespace != addresses[index].namespace {
 				t.Fatalf("metadata request = %#v, want GVR=%#v namespace=%q", request, addresses[index].gvr, addresses[index].namespace)
 			}
-			if request.Options.ResourceVersion != "rv-adapter" || !request.Options.AllowWatchBookmarks || request.Options.LabelSelector != "" || request.Options.FieldSelector != "" {
+			if request.Options.ResourceVersion != "" || !request.Options.AllowWatchBookmarks || request.Options.LabelSelector != "" || request.Options.FieldSelector != "" {
 				t.Fatalf("metadata watch options = %#v, want only resume bookmark options", request.Options)
 			}
 		}
@@ -330,9 +362,33 @@ func mustRuntimeTarget(t *testing.T, ctx context.Context, planner *selection.Pla
 	return targets[0]
 }
 
+func mustRuntimeAuthorizedRoute(t *testing.T, lease reconciliation.Lease, target selection.ReadTarget, snapshot accesspolicy.Snapshot) (reconciliation.AuthorizedRoute, error) {
+	return runtimeAuthorizedRouteWithRecorder(t, lease, target, snapshot, nil)
+}
+
+func runtimeAuthorizedRouteWithRecorder(t *testing.T, lease reconciliation.Lease, target selection.ReadTarget, snapshot accesspolicy.Snapshot, recorder authorization.Recorder) (reconciliation.AuthorizedRoute, error) {
+	t.Helper()
+	subject := authorization.Subject{Key: lease.Key, UID: lease.UID, Generation: lease.Generation, PolicyEpoch: lease.PolicyEpoch}
+	request := selection.RequestForTarget(target)
+	batch, err := authorization.NewEnforcer(recorder).EvaluateBatch(context.Background(), subject, snapshot, []accesspolicy.Request{request})
+	if err != nil {
+		return reconciliation.AuthorizedRoute{}, err
+	}
+	outcomes := batch.Outcomes()
+	if len(outcomes) != 1 {
+		return reconciliation.AuthorizedRoute{}, errors.New("route authorization produced no exact outcome")
+	}
+	capability, ok := outcomes[0].Capability()
+	if !ok {
+		return reconciliation.AuthorizedRoute{}, errors.New("route authorization was denied")
+	}
+	return reconciliation.NewAuthorizedRoute(target, capability)
+}
+
 type runtimeWatchCall struct {
 	Address         reconciliation.WatchAddress
 	ResourceVersion string
+	PermitSubjects  []authorization.Subject
 }
 
 type runtimeWatchResponse struct {
@@ -351,10 +407,15 @@ func newRuntimeScriptedMetadataWatcher(responses ...runtimeWatchResponse) *runti
 	return &runtimeScriptedMetadataWatcher{responses: append([]runtimeWatchResponse(nil), responses...)}
 }
 
-func (w *runtimeScriptedMetadataWatcher) Watch(_ context.Context, address reconciliation.WatchAddress, resourceVersion string) (watch.Interface, error) {
+func (w *runtimeScriptedMetadataWatcher) Watch(_ context.Context, permit reconciliation.WatchPermit, resourceVersion string) (watch.Interface, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.calls = append(w.calls, runtimeWatchCall{Address: address, ResourceVersion: resourceVersion})
+	capabilities := permit.Capabilities()
+	subjects := make([]authorization.Subject, 0, len(capabilities))
+	for _, capability := range capabilities {
+		subjects = append(subjects, capability.Subject())
+	}
+	w.calls = append(w.calls, runtimeWatchCall{Address: permit.Address(), ResourceVersion: resourceVersion, PermitSubjects: subjects})
 	response := runtimeWatchResponse{}
 	if len(w.responses) != 0 {
 		response = w.responses[0]

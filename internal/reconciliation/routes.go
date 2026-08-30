@@ -22,7 +22,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/steeltanuki/kubeseer/internal/accesspolicy"
+	"github.com/steeltanuki/kubeseer/internal/authorization"
 	"github.com/steeltanuki/kubeseer/internal/discovery"
 	"github.com/steeltanuki/kubeseer/internal/selection"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -77,33 +77,47 @@ func AddressForTarget(target selection.ReadTarget) (WatchAddress, error) {
 	return address, nil
 }
 
-// RouteBinding retains the source identity and owner generation while the
-// address remains shareable.
+// RouteBinding retains the source identity, full authorization subject, and
+// owner generation while the address remains shareable. The capability is
+// private and can only be installed through NewAuthorizedRoute.
 type RouteBinding struct {
 	Address    WatchAddress
 	SourceID   string
 	Owner      types.NamespacedName
 	OwnerUID   types.UID
 	Generation int64
+	Subject    authorization.Subject
+	capability authorization.Capability
+}
+
+type routeBindingKey struct {
+	Address     WatchAddress
+	SourceID    string
+	Owner       types.NamespacedName
+	OwnerUID    types.UID
+	Generation  int64
+	PolicyEpoch uint64
 }
 
 // AuthorizedRoute is an opaque capability created only from an exact allowed
-// selection target and policy decision.
+// selection target and authorization capability.
 type AuthorizedRoute struct {
 	binding RouteBinding
 }
 
-// NewAuthorizedRoute constructs a route only when the exact target has an
-// allow decision. The returned value contains no selector or resource data.
-func NewAuthorizedRoute(owner types.NamespacedName, ownerUID types.UID, generation int64, target selection.ReadTarget, decision accesspolicy.Decision) (AuthorizedRoute, error) {
-	if owner.Name == "" || owner.Namespace == "" {
-		return AuthorizedRoute{}, errors.New("authorized route owner is incomplete")
+// NewAuthorizedRoute constructs a route only from an exact target and opaque
+// allowed capability. The returned value contains no selector or resource
+// data.
+func NewAuthorizedRoute(target selection.ReadTarget, capability authorization.Capability) (AuthorizedRoute, error) {
+	subject := capability.Subject()
+	if err := subject.Validate(); err != nil {
+		return AuthorizedRoute{}, errors.New("authorized route subject is incomplete")
 	}
 	if target.SourceID == "" {
 		return AuthorizedRoute{}, errors.New("authorized route source identity is empty")
 	}
-	if !decision.Allowed || decision.Reason != accesspolicy.ReasonAllowed {
-		return AuthorizedRoute{}, errors.New("authorized route requires an allowed policy decision")
+	if !capability.Valid() || capability.Request() != selection.RequestForTarget(target) {
+		return AuthorizedRoute{}, errors.New("authorized route requires a matching allowed capability")
 	}
 	address, err := AddressForTarget(target)
 	if err != nil {
@@ -112,15 +126,12 @@ func NewAuthorizedRoute(owner types.NamespacedName, ownerUID types.UID, generati
 	return AuthorizedRoute{binding: RouteBinding{
 		Address:    address,
 		SourceID:   target.SourceID,
-		Owner:      owner,
-		OwnerUID:   ownerUID,
-		Generation: generation,
+		Owner:      subject.Key,
+		OwnerUID:   subject.UID,
+		Generation: subject.Generation,
+		Subject:    subject,
+		capability: capability,
 	}}, nil
-}
-
-// NewAuthorizedRouteForLease is the lease-oriented form used by the pipeline.
-func NewAuthorizedRouteForLease(lease Lease, target selection.ReadTarget, decision accesspolicy.Decision) (AuthorizedRoute, error) {
-	return NewAuthorizedRoute(lease.Key, lease.UID, lease.Generation, target, decision)
 }
 
 // Binding returns an immutable copy of the route identity.
@@ -129,10 +140,40 @@ func (r AuthorizedRoute) Binding() RouteBinding { return r.binding }
 // Address returns the shared watch address.
 func (r AuthorizedRoute) Address() WatchAddress { return r.binding.Address }
 
+// WatchPermit is the private exact-address authorization permit passed to a
+// metadata watcher. It contains only current capabilities for the shared
+// address and has no public constructor.
+type WatchPermit struct {
+	address      WatchAddress
+	capabilities []authorization.Capability
+}
+
+// Address returns the exact shared watch address.
+func (p WatchPermit) Address() WatchAddress { return p.address }
+
+// Capabilities returns defensive copies of the capabilities attached to the
+// permit. It is useful to adapters that emit linked enforcement evidence.
+func (p WatchPermit) Capabilities() []authorization.Capability {
+	return append([]authorization.Capability(nil), p.capabilities...)
+}
+
+func (p WatchPermit) valid() bool {
+	if p.address.Validate() != nil || len(p.capabilities) == 0 {
+		return false
+	}
+	for _, capability := range p.capabilities {
+		request := capability.Request()
+		if !capability.Valid() || request.APIGroup != p.address.GVR.Group || request.Scope != p.address.Scope || request.Namespace != p.address.Namespace {
+			return false
+		}
+	}
+	return true
+}
+
 // MetadataWatcher is the only source-watch I/O port. It never performs a
-// resource-instance LIST.
+// resource-instance LIST and receives only an opaque private permit.
 type MetadataWatcher interface {
-	Watch(context.Context, WatchAddress, string) (watch.Interface, error)
+	Watch(context.Context, WatchPermit, string) (watch.Interface, error)
 }
 
 // ClientMetadataWatcher adapts client-go's metadata client to MetadataWatcher.
@@ -148,10 +189,14 @@ func NewClientMetadataWatcher(client metadata.Interface) *ClientMetadataWatcher 
 // Watch addresses exactly the discovered GVR and namespace. It deliberately
 // supplies no label or field selector; selector membership is re-evaluated by
 // the normal selection LIST path.
-func (w *ClientMetadataWatcher) Watch(ctx context.Context, address WatchAddress, resourceVersion string) (watch.Interface, error) {
+func (w *ClientMetadataWatcher) Watch(ctx context.Context, permit WatchPermit, resourceVersion string) (watch.Interface, error) {
 	if w == nil || w.client == nil {
 		return nil, errors.New("metadata watcher client is not configured")
 	}
+	if !permit.valid() {
+		return nil, errors.New("metadata watch permit is invalid")
+	}
+	address := permit.address
 	if err := address.Validate(); err != nil {
 		return nil, err
 	}
@@ -194,8 +239,8 @@ type RouteRegistry struct {
 	options routeRegistryOptions
 
 	mu       sync.RWMutex
-	byOwner  map[types.NamespacedName]map[RouteBinding]struct{}
-	byTarget map[WatchAddress]map[types.NamespacedName]int
+	byOwner  map[types.NamespacedName]map[routeBindingKey]RouteBinding
+	byTarget map[WatchAddress]map[routeBindingKey]RouteBinding
 	watches  map[WatchAddress]*watchSupervisor
 	started  bool
 	ctx      context.Context
@@ -220,8 +265,8 @@ func NewRouteRegistry(watcher MetadataWatcher, tracker *FreshnessTracker, option
 		watcher:  watcher,
 		tracker:  tracker,
 		options:  settings,
-		byOwner:  make(map[types.NamespacedName]map[RouteBinding]struct{}),
-		byTarget: make(map[WatchAddress]map[types.NamespacedName]int),
+		byOwner:  make(map[types.NamespacedName]map[routeBindingKey]RouteBinding),
+		byTarget: make(map[WatchAddress]map[routeBindingKey]RouteBinding),
 		watches:  make(map[WatchAddress]*watchSupervisor),
 	}
 }
@@ -235,6 +280,9 @@ func (r *RouteRegistry) Start(ctx context.Context, queue workqueue.TypedRateLimi
 	}
 	if r.watcher == nil {
 		return errors.New("route registry metadata watcher is required")
+	}
+	if r.tracker == nil {
+		return errors.New("route registry freshness tracker is required")
 	}
 	if queue == nil {
 		return errors.New("route registry queue is required")
@@ -267,14 +315,18 @@ func (r *RouteRegistry) Replace(lease Lease, routes []AuthorizedRoute) error {
 	if r == nil {
 		return errors.New("route registry is nil")
 	}
-	if r.tracker != nil && !r.tracker.IsCurrent(lease) {
+	if r.tracker != nil && !r.tracker.IsLeaseCurrent(lease) {
 		return staleRuntimeError("route-replace")
 	}
-	newBindings := make(map[RouteBinding]struct{}, len(routes))
+	newBindings := make(map[routeBindingKey]RouteBinding, len(routes))
 	for _, route := range routes {
 		binding := route.binding
-		if binding.Owner != lease.Key || binding.OwnerUID != lease.UID || binding.Generation != lease.Generation {
+		expectedSubject := authorization.Subject{Key: lease.Key, UID: lease.UID, Generation: lease.Generation, PolicyEpoch: lease.PolicyEpoch}
+		if binding.Owner != lease.Key || binding.OwnerUID != lease.UID || binding.Generation != lease.Generation || binding.Subject != expectedSubject {
 			return errors.New("authorized route does not match freshness lease")
+		}
+		if !binding.capability.Valid() || binding.capability.Subject() != binding.Subject || binding.capability.Request().SourceID != binding.SourceID || binding.capability.Request().Scope != binding.Address.Scope || binding.capability.Request().Namespace != binding.Address.Namespace || binding.capability.Request().APIGroup != binding.Address.GVR.Group {
+			return errors.New("authorized route does not contain a matching capability")
 		}
 		if err := binding.Address.Validate(); err != nil {
 			return err
@@ -282,26 +334,30 @@ func (r *RouteRegistry) Replace(lease Lease, routes []AuthorizedRoute) error {
 		if binding.SourceID == "" {
 			return errors.New("authorized route source identity is empty")
 		}
-		newBindings[binding] = struct{}{}
+		key := keyForBinding(binding)
+		if _, exists := newBindings[key]; exists {
+			return errors.New("duplicate authorized route binding")
+		}
+		newBindings[key] = binding
 	}
 
 	r.mu.Lock()
-	if r.tracker != nil && !r.tracker.IsCurrent(lease) {
+	if r.tracker != nil && !r.tracker.IsLeaseCurrent(lease) {
 		r.mu.Unlock()
 		return staleRuntimeError("route-replace")
 	}
 	oldBindings := r.byOwner[lease.Key]
 	toStop := make([]*watchSupervisor, 0)
-	for binding := range oldBindings {
-		if _, keep := newBindings[binding]; keep {
+	for key, binding := range oldBindings {
+		if _, keep := newBindings[key]; keep {
 			continue
 		}
 		if supervisor := r.removeBindingLocked(binding); supervisor != nil {
 			toStop = append(toStop, supervisor)
 		}
 	}
-	for binding := range newBindings {
-		if _, exists := oldBindings[binding]; exists {
+	for key, binding := range newBindings {
+		if _, exists := oldBindings[key]; exists {
 			continue
 		}
 		r.addBindingLocked(binding)
@@ -363,45 +419,112 @@ func (r *RouteRegistry) startSupervisorAndWait(supervisor *watchSupervisor, pare
 	r.mu.RUnlock()
 }
 
+// currentPermit prunes every stale exact binding for an address and returns a
+// fresh private permit only when at least one current capability remains.
+func (r *RouteRegistry) currentPermit(address WatchAddress) (WatchPermit, bool) {
+	if r == nil {
+		return WatchPermit{}, false
+	}
+	r.mu.Lock()
+	toStop := r.pruneStaleLocked(address)
+	bindings := r.byTarget[address]
+	ordered := make([]RouteBinding, 0, len(bindings))
+	for _, binding := range bindings {
+		ordered = append(ordered, binding)
+	}
+	r.mu.Unlock()
+	for _, supervisor := range toStop {
+		supervisor.stop()
+	}
+	if len(ordered) == 0 {
+		return WatchPermit{}, false
+	}
+	sort.SliceStable(ordered, func(i, j int) bool {
+		left, right := ordered[i], ordered[j]
+		if left.Owner.Namespace != right.Owner.Namespace {
+			return left.Owner.Namespace < right.Owner.Namespace
+		}
+		if left.Owner.Name != right.Owner.Name {
+			return left.Owner.Name < right.Owner.Name
+		}
+		return left.SourceID < right.SourceID
+	})
+	capabilities := make([]authorization.Capability, 0, len(ordered))
+	for _, binding := range ordered {
+		capabilities = append(capabilities, binding.capability)
+	}
+	permit := WatchPermit{address: address, capabilities: capabilities}
+	if !permit.valid() {
+		return WatchPermit{}, false
+	}
+	return permit, true
+}
+
+func (r *RouteRegistry) pruneStaleLocked(address WatchAddress) []*watchSupervisor {
+	if r == nil {
+		return nil
+	}
+	bindings := r.byTarget[address]
+	toStop := make([]*watchSupervisor, 0)
+	for _, binding := range bindings {
+		if r.tracker == nil || !r.tracker.IsCurrent(binding.Subject) {
+			if supervisor := r.removeBindingLocked(binding); supervisor != nil {
+				toStop = append(toStop, supervisor)
+			}
+		}
+	}
+	return toStop
+}
+
 func (r *RouteRegistry) addBindingLocked(binding RouteBinding) {
+	key := keyForBinding(binding)
 	ownerBindings := r.byOwner[binding.Owner]
 	if ownerBindings == nil {
-		ownerBindings = make(map[RouteBinding]struct{})
+		ownerBindings = make(map[routeBindingKey]RouteBinding)
 		r.byOwner[binding.Owner] = ownerBindings
 	}
-	ownerBindings[binding] = struct{}{}
-	targetOwners := r.byTarget[binding.Address]
-	if targetOwners == nil {
-		targetOwners = make(map[types.NamespacedName]int)
-		r.byTarget[binding.Address] = targetOwners
+	ownerBindings[key] = binding
+	targetBindings := r.byTarget[binding.Address]
+	if targetBindings == nil {
+		targetBindings = make(map[routeBindingKey]RouteBinding)
+		r.byTarget[binding.Address] = targetBindings
 	}
-	targetOwners[binding.Owner]++
+	targetBindings[key] = binding
 }
 
 func (r *RouteRegistry) removeBindingLocked(binding RouteBinding) *watchSupervisor {
+	key := keyForBinding(binding)
 	ownerBindings := r.byOwner[binding.Owner]
 	if ownerBindings == nil {
 		return nil
 	}
-	delete(ownerBindings, binding)
+	delete(ownerBindings, key)
 	if len(ownerBindings) == 0 {
 		delete(r.byOwner, binding.Owner)
 	}
-	targetOwners := r.byTarget[binding.Address]
-	if targetOwners == nil {
+	targetBindings := r.byTarget[binding.Address]
+	if targetBindings == nil {
 		return nil
 	}
-	targetOwners[binding.Owner]--
-	if targetOwners[binding.Owner] <= 0 {
-		delete(targetOwners, binding.Owner)
-	}
-	if len(targetOwners) != 0 {
+	delete(targetBindings, key)
+	if len(targetBindings) != 0 {
 		return nil
 	}
 	delete(r.byTarget, binding.Address)
 	supervisor := r.watches[binding.Address]
 	delete(r.watches, binding.Address)
 	return supervisor
+}
+
+func keyForBinding(binding RouteBinding) routeBindingKey {
+	return routeBindingKey{
+		Address:     binding.Address,
+		SourceID:    binding.SourceID,
+		Owner:       binding.Owner,
+		OwnerUID:    binding.OwnerUID,
+		Generation:  binding.Generation,
+		PolicyEpoch: binding.Subject.PolicyEpoch,
+	}
 }
 
 // RemoveOwner removes all routes for one key and stops transports that no
@@ -413,7 +536,7 @@ func (r *RouteRegistry) RemoveOwner(owner types.NamespacedName) {
 	r.mu.Lock()
 	bindings := r.byOwner[owner]
 	toStop := make([]*watchSupervisor, 0)
-	for binding := range bindings {
+	for _, binding := range bindings {
 		if supervisor := r.removeBindingLocked(binding); supervisor != nil {
 			toStop = append(toStop, supervisor)
 		}
@@ -434,8 +557,8 @@ func (r *RouteRegistry) RemoveAll() {
 	for _, supervisor := range r.watches {
 		supervisors = append(supervisors, supervisor)
 	}
-	r.byOwner = make(map[types.NamespacedName]map[RouteBinding]struct{})
-	r.byTarget = make(map[WatchAddress]map[types.NamespacedName]int)
+	r.byOwner = make(map[types.NamespacedName]map[routeBindingKey]RouteBinding)
+	r.byTarget = make(map[WatchAddress]map[routeBindingKey]RouteBinding)
 	r.watches = make(map[WatchAddress]*watchSupervisor)
 	r.mu.Unlock()
 	for _, supervisor := range supervisors {
@@ -445,15 +568,28 @@ func (r *RouteRegistry) RemoveAll() {
 
 // Owners returns sorted distinct owners currently bound to an address.
 func (r *RouteRegistry) Owners(address WatchAddress) []types.NamespacedName {
+	return r.currentOwners(address)
+}
+
+func (r *RouteRegistry) currentOwners(address WatchAddress) []types.NamespacedName {
 	if r == nil {
 		return nil
 	}
-	r.mu.RLock()
+	r.mu.Lock()
+	toStop := r.pruneStaleLocked(address)
 	owners := make([]types.NamespacedName, 0, len(r.byTarget[address]))
-	for owner := range r.byTarget[address] {
-		owners = append(owners, owner)
+	seen := make(map[types.NamespacedName]struct{}, len(r.byTarget[address]))
+	for _, binding := range r.byTarget[address] {
+		if _, exists := seen[binding.Owner]; exists {
+			continue
+		}
+		seen[binding.Owner] = struct{}{}
+		owners = append(owners, binding.Owner)
 	}
-	r.mu.RUnlock()
+	r.mu.Unlock()
+	for _, supervisor := range toStop {
+		supervisor.stop()
+	}
 	sort.Slice(owners, func(i, j int) bool {
 		if owners[i].Namespace != owners[j].Namespace {
 			return owners[i].Namespace < owners[j].Namespace
@@ -487,7 +623,7 @@ func (r *RouteRegistry) routeEvent(address WatchAddress) {
 	if r == nil {
 		return
 	}
-	owners := r.Owners(address)
+	owners := r.currentOwners(address)
 	r.mu.RLock()
 	queue := r.queue
 	r.mu.RUnlock()
@@ -580,22 +716,23 @@ func (s *watchSupervisor) run(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		stream, err := s.watcher.Watch(ctx, s.address, resourceVersion)
+		permit, current := s.registry.currentPermit(s.address)
+		if !current {
+			signalWatchReady(s, &firstAttempt)
+			return
+		}
+		stream, err := s.watcher.Watch(ctx, permit, resourceVersion)
 		if firstAttempt {
-			s.mu.Lock()
-			ready := s.ready
-			s.ready = nil
-			s.mu.Unlock()
-			if ready != nil {
-				close(ready)
-			}
-			firstAttempt = false
+			signalWatchReady(s, &firstAttempt)
 		}
 		if err == nil && stream != nil {
 			err = s.consume(ctx, stream, &resourceVersion)
 			stream.Stop()
 		} else if err == nil {
 			err = errors.New("metadata watcher returned no stream")
+		}
+		if apierrors.IsForbidden(err) {
+			recordWatchForbidden(ctx, permit)
 		}
 		if ctx.Err() != nil {
 			return
@@ -607,6 +744,32 @@ func (s *watchSupervisor) run(ctx context.Context) {
 			return
 		}
 		backoff = nextBackoff(backoff, s.maximum)
+	}
+}
+
+func signalWatchReady(s *watchSupervisor, firstAttempt *bool) {
+	if s == nil || firstAttempt == nil || !*firstAttempt {
+		return
+	}
+	s.mu.Lock()
+	ready := s.ready
+	s.ready = nil
+	s.mu.Unlock()
+	if ready != nil {
+		close(ready)
+	}
+	*firstAttempt = false
+}
+
+func recordWatchForbidden(ctx context.Context, permit WatchPermit) {
+	for _, capability := range permit.capabilities {
+		record := capability.Record()
+		record.Kind = authorization.RecordReadForbidden
+		record.Outcome = authorization.OutcomeForbidden
+		record.Reason = string(selection.ReasonReadForbidden)
+		if recorder := capability.Recorder(); recorder != nil {
+			recorder.Record(ctx, []authorization.Record{record})
+		}
 	}
 }
 

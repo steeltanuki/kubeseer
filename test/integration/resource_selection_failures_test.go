@@ -35,7 +35,7 @@ func assertResourceSelectionFailureScenarios(t *testing.T, ctx context.Context, 
 		source := v1alpha1.KubeseerSource{
 			ID:         "atomic-source",
 			Resource:   v1alpha1.ResourceReference{APIVersion: "v1", Kind: "Pod"},
-			Namespaces: &v1alpha1.NamespaceSelection{Names: []string{"team-a", "team-b"}},
+			Namespaces: &v1alpha1.NamespaceSelection{Names: []string{"team-a", "team-c"}},
 		}
 		authorized := planAndAuthorizeSelection(t, ctx, resolver, "team-a", source)
 		backendFailure := errors.New("backend payload contains secret-value")
@@ -43,7 +43,7 @@ func assertResourceSelectionFailureScenarios(t *testing.T, ctx context.Context, 
 			{list: listWithContinue(paginationObject("team-a", "partial-pod", "uid-partial"), "")},
 			{err: backendFailure},
 		}}
-		outcome := selection.NewExecutor(lister).Execute(ctx, authorized)
+		outcome := newSelectionExecutor(lister).Execute(ctx, authorized)
 		if !selection.HasReason(outcome.Err, selection.ReasonReadUnavailable) || !errors.Is(outcome.Err, backendFailure) || len(outcome.Resources) != 0 {
 			t.Fatalf("atomic failure outcome = %#v", outcome)
 		}
@@ -57,11 +57,11 @@ func assertResourceSelectionFailureScenarios(t *testing.T, ctx context.Context, 
 		plan := planSelection(t, ctx, resolver, "team-a", source)
 		runtimeFailure := apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "forbidden-pod", errors.New("raw-rbac-detail"))
 		lister := &scriptedResourceLister{responses: []scriptedListResponse{{err: runtimeFailure}}}
-		authorized, err := selection.Bind(plan, []selection.Authorization{{Request: selection.RequestForTarget(plan.Targets()[0]), Decision: allowedDecision()}})
+		authorized, err := selection.BindCapabilities(plan, authorizationOutcomesForPlan(t, plan, mustSnapshot(t, basePolicy())))
 		if err != nil {
 			t.Fatalf("bind runtime-forbidden fixture: %v", err)
 		}
-		outcome := selection.NewExecutor(lister).Execute(ctx, authorized)
+		outcome := newSelectionExecutor(lister).Execute(ctx, authorized)
 		if !selection.HasReason(outcome.Err, selection.ReasonReadForbidden) || !errors.Is(outcome.Err, runtimeFailure) {
 			t.Fatalf("runtime forbidden outcome = %#v", outcome)
 		}
@@ -70,7 +70,9 @@ func assertResourceSelectionFailureScenarios(t *testing.T, ctx context.Context, 
 		}
 
 		deniedLister := &countingResourceLister{}
-		if _, err := selection.Bind(plan, []selection.Authorization{{Request: selection.RequestForTarget(plan.Targets()[0]), Decision: deniedDecision()}}); !selection.HasReason(err, selection.ReasonAuthorizationDenied) {
+		denyingPolicy := basePolicy()
+		denyingPolicy.Spec.Resources = nil
+		if _, err := selection.BindCapabilities(plan, authorizationOutcomesForPlan(t, plan, mustSnapshot(t, denyingPolicy))); !selection.HasReason(err, selection.ReasonAuthorizationDenied) {
 			t.Fatalf("installation-policy denial = %v", err)
 		}
 		if got := len(deniedLister.Calls()); got != 0 {
@@ -86,8 +88,8 @@ func assertResourceSelectionFailureScenarios(t *testing.T, ctx context.Context, 
 		}
 		unsupportedPlan := planSelection(t, ctx, resolver, "team-a", unsupportedSource)
 		failure := apierrors.NewBadRequest("field spec.unsupported is not supported: secret-value")
-		first := selection.NewExecutor(&scriptedResourceLister{responses: []scriptedListResponse{{err: failure}}}).Execute(ctx, mustBindSelection(t, unsupportedPlan))
-		second := selection.NewExecutor(&scriptedResourceLister{responses: []scriptedListResponse{{err: failure}}}).Execute(ctx, mustBindSelection(t, unsupportedPlan))
+		first := newSelectionExecutor(&scriptedResourceLister{responses: []scriptedListResponse{{err: failure}}}).Execute(ctx, mustBindSelection(t, unsupportedPlan))
+		second := newSelectionExecutor(&scriptedResourceLister{responses: []scriptedListResponse{{err: failure}}}).Execute(ctx, mustBindSelection(t, unsupportedPlan))
 		if !selection.HasReason(first.Err, selection.ReasonUnsupportedSelector) || !selection.HasReason(second.Err, selection.ReasonUnsupportedSelector) || first.Err.Reason != second.Err.Reason {
 			t.Fatalf("unsupported selector stability = %#v / %#v", first.Err, second.Err)
 		}
@@ -100,21 +102,21 @@ func assertResourceSelectionFailureScenarios(t *testing.T, ctx context.Context, 
 		canceledSource := v1alpha1.KubeseerSource{ID: "canceled-source", Resource: v1alpha1.ResourceReference{APIVersion: "v1", Kind: "Pod"}}
 		canceledPlan := planSelection(t, ctx, resolver, "team-a", canceledSource)
 		canceledLister := &countingResourceLister{}
-		canceledOutcome := selection.NewExecutor(canceledLister).Execute(canceledCtx, mustBindSelection(t, canceledPlan))
+		canceledOutcome := newSelectionExecutor(canceledLister).Execute(canceledCtx, mustBindSelection(t, canceledPlan))
 		if !selection.HasReason(canceledOutcome.Err, selection.ReasonReadInterrupted) || len(canceledLister.Calls()) != 0 {
 			t.Fatalf("canceled outcome = %#v calls=%d", canceledOutcome, len(canceledLister.Calls()))
 		}
 
 		unavailableSource := v1alpha1.KubeseerSource{ID: "unavailable-source", Resource: v1alpha1.ResourceReference{APIVersion: "v1", Kind: "Pod"}}
 		unavailablePlan := planSelection(t, ctx, resolver, "team-a", unavailableSource)
-		unavailable := selection.NewExecutor(&scriptedResourceLister{responses: []scriptedListResponse{{returnNil: true}}}).Execute(ctx, mustBindSelection(t, unavailablePlan))
+		unavailable := newSelectionExecutor(&scriptedResourceLister{responses: []scriptedListResponse{{returnNil: true}}}).Execute(ctx, mustBindSelection(t, unavailablePlan))
 		if !selection.HasReason(unavailable.Err, selection.ReasonReadUnavailable) {
 			t.Fatalf("nil response outcome = %#v", unavailable)
 		}
 
 		invalidSource := v1alpha1.KubeseerSource{ID: "invalid-object-source", Resource: v1alpha1.ResourceReference{APIVersion: "v1", Kind: "Pod"}}
 		invalidPlan := planSelection(t, ctx, resolver, "team-a", invalidSource)
-		invalidObject := selection.NewExecutor(&scriptedResourceLister{responses: []scriptedListResponse{{list: listWithContinue(&unstructured.Unstructured{Object: map[string]interface{}{"metadata": map[string]interface{}{"name": "missing-uid"}}}, "")}}}).Execute(ctx, mustBindSelection(t, invalidPlan))
+		invalidObject := newSelectionExecutor(&scriptedResourceLister{responses: []scriptedListResponse{{list: listWithContinue(&unstructured.Unstructured{Object: map[string]interface{}{"metadata": map[string]interface{}{"name": "missing-uid"}}}, "")}}}).Execute(ctx, mustBindSelection(t, invalidPlan))
 		if !selection.HasReason(invalidObject.Err, selection.ReasonInvalidObject) || len(invalidObject.Resources) != 0 {
 			t.Fatalf("invalid object outcome = %#v", invalidObject)
 		}
@@ -135,7 +137,7 @@ func assertResourceSelectionFailureScenarios(t *testing.T, ctx context.Context, 
 			{list: listWithContinue(paginationObject("team-a", "batch-first-pod", "uid-batch-first"), "")},
 			{err: apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "batch-second-pod", nil)},
 		}}
-		outcomes := selection.NewExecutor(lister).SelectBatch(ctx, []selection.AuthorizedPlan{firstAuthorized, secondAuthorized, thirdAuthorized})
+		outcomes := newSelectionExecutor(lister).SelectBatch(ctx, []selection.AuthorizedPlan{firstAuthorized, secondAuthorized, thirdAuthorized})
 		if len(outcomes) != 3 || outcomes[0].Err != nil || len(outcomes[0].Resources) != 1 || !selection.HasReason(outcomes[1].Err, selection.ReasonReadForbidden) || !selection.HasReason(outcomes[2].Err, selection.ReasonReadUnavailable) {
 			t.Fatalf("batch outcomes = %#v", outcomes)
 		}
@@ -149,7 +151,7 @@ func assertResourceSelectionFailureScenarios(t *testing.T, ctx context.Context, 
 				}
 			},
 		}
-		canceledOutcomes := selection.NewExecutor(cancelLister).SelectBatch(cancelCtx, []selection.AuthorizedPlan{firstAuthorized, secondAuthorized, thirdAuthorized})
+		canceledOutcomes := newSelectionExecutor(cancelLister).SelectBatch(cancelCtx, []selection.AuthorizedPlan{firstAuthorized, secondAuthorized, thirdAuthorized})
 		if len(canceledOutcomes) != 3 || canceledOutcomes[0].Err != nil || !selection.HasReason(canceledOutcomes[1].Err, selection.ReasonReadInterrupted) || !selection.HasReason(canceledOutcomes[2].Err, selection.ReasonReadInterrupted) || len(cancelLister.calls) != 1 {
 			t.Fatalf("canceled batch outcomes = %#v calls=%d", canceledOutcomes, len(cancelLister.calls))
 		}
@@ -167,12 +169,7 @@ func planSelection(t *testing.T, ctx context.Context, resolver *discovery.Resolv
 
 func mustBindSelection(t *testing.T, plan selection.SelectionPlan) selection.AuthorizedPlan {
 	t.Helper()
-	targets := plan.Targets()
-	authorizations := make([]selection.Authorization, 0, len(targets))
-	for _, target := range targets {
-		authorizations = append(authorizations, selection.Authorization{Request: selection.RequestForTarget(target), Decision: allowedDecision()})
-	}
-	authorized, err := selection.Bind(plan, authorizations)
+	authorized, err := selection.BindCapabilities(plan, authorizationOutcomesForPlan(t, plan, mustSnapshot(t, basePolicy())))
 	if err != nil {
 		t.Fatalf("bind %q: %v", plan.SourceID(), err)
 	}

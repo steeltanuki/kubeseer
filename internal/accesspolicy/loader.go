@@ -82,6 +82,11 @@ func Load(ctx context.Context, source PolicySource) Snapshot {
 		return NewDenyAllSnapshot(ReasonPolicyInvalid, "policy is invalid; observation denied")
 	}
 
+	identity := PolicyIdentity{
+		Name:       policy.Name,
+		UID:        policy.UID,
+		Generation: policy.Generation,
+	}
 	compiled, err := Compile(policy)
 	if err != nil {
 		message := "policy is invalid; observation denied"
@@ -89,9 +94,9 @@ func Load(ctx context.Context, source PolicySource) Snapshot {
 		if errors.As(err, &policyErr) {
 			message = policyErr.Error()
 		}
-		return NewDenyAllSnapshot(ReasonPolicyInvalid, message)
+		return NewDenyAllSnapshotWithIdentity(ReasonPolicyInvalid, message, identity)
 	}
-	return NewSnapshot(compiled)
+	return NewSnapshotWithIdentity(compiled, identity)
 }
 
 // LoadPolicy is an explicit name for callers that prefer the feature's domain

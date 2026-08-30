@@ -50,6 +50,9 @@ func TestModuleIntegration(t *testing.T) {
 	t.Run("loader fail-closed transitions use real evaluation", func(t *testing.T) {
 		assertLoaderScenarios(t, ctx, resolver)
 	})
+	t.Run("authorization enforcement preserves exact decisions and evidence", func(t *testing.T) {
+		assertAuthorizationEnforcementCoreScenarios(t, ctx, resolver)
+	})
 	t.Run("resource selection planning uses real discovery", func(t *testing.T) {
 		assertResourceSelectionPlanningScenarios(t, ctx, resolver)
 	})
@@ -58,6 +61,9 @@ func TestModuleIntegration(t *testing.T) {
 	})
 	t.Run("resource selection execution stays behind the authorization boundary", func(t *testing.T) {
 		assertResourceSelectionExecutionBoundaryScenarios(t, ctx, resolver)
+	})
+	t.Run("authorization enforcement guards every LIST page and reports RBAC separately", func(t *testing.T) {
+		assertAuthorizationEnforcementListScenarios(t, ctx, resolver)
 	})
 	t.Run("resource selection pagination is complete and deterministic", func(t *testing.T) {
 		assertResourceSelectionPaginationScenarios(t, ctx, resolver)
@@ -92,8 +98,14 @@ func TestModuleIntegration(t *testing.T) {
 	t.Run("reconciliation runtime routes authorized metadata events", func(t *testing.T) {
 		assertReconciliationRuntimeWatchRoutingScenarios(t, ctx, resolver)
 	})
+	t.Run("authorization enforcement retains current capability-backed watch permits", func(t *testing.T) {
+		assertAuthorizationEnforcementWatchScenarios(t, ctx, resolver)
+	})
 	t.Run("reconciliation runtime composes ordered partial results", func(t *testing.T) {
 		assertReconciliationRuntimePipelineScenarios(t, ctx, resolver)
+	})
+	t.Run("authorization enforcement composes fresh decisions through status", func(t *testing.T) {
+		assertAuthorizationEnforcementPipelineScenarios(t, ctx, resolver)
 	})
 	t.Run("reconciliation runtime publishes guarded semantic status", func(t *testing.T) {
 		assertReconciliationRuntimeStatusScenarios(t, ctx)
@@ -113,9 +125,12 @@ func TestModuleIntegration(t *testing.T) {
 
 	t.Log("MODULE_INTEGRATION=discovery-access-policy-evaluation STATUS=passed")
 	t.Log("MODULE_INTEGRATION=discovery-access-policy-loader STATUS=passed")
+	t.Log("MODULE_INTEGRATION=authorization-enforcement-core STATUS=passed")
+	t.Log("MODULE_INTEGRATION=authorization-enforcement STATUS=passed")
 	t.Log("MODULE_INTEGRATION=resource-selection-planning STATUS=passed")
 	t.Log("MODULE_INTEGRATION=resource-selection-authorization STATUS=passed")
 	t.Log("MODULE_INTEGRATION=resource-selection-execution-boundary STATUS=passed")
+	t.Log("MODULE_INTEGRATION=authorization-enforcement-list STATUS=passed")
 	t.Log("MODULE_INTEGRATION=resource-selection-pagination STATUS=passed")
 	t.Log("MODULE_INTEGRATION=resource-selection-failures STATUS=passed")
 	t.Log("MODULE_INTEGRATION=field-extraction-planning STATUS=passed")
@@ -127,7 +142,9 @@ func TestModuleIntegration(t *testing.T) {
 	t.Log("MODULE_INTEGRATION=typed-output-model-isolation STATUS=passed")
 	t.Log("MODULE_INTEGRATION=reconciliation-runtime-scheduling STATUS=passed")
 	t.Log("MODULE_INTEGRATION=reconciliation-runtime-watch-routing STATUS=passed")
+	t.Log("MODULE_INTEGRATION=authorization-enforcement-watch STATUS=passed")
 	t.Log("MODULE_INTEGRATION=reconciliation-runtime-pipeline STATUS=passed")
+	t.Log("MODULE_INTEGRATION=authorization-enforcement-pipeline STATUS=passed")
 	t.Log("MODULE_INTEGRATION=reconciliation-runtime-status STATUS=passed")
 	t.Log("MODULE_INTEGRATION=status-and-conditions-result STATUS=passed")
 	t.Log("MODULE_INTEGRATION=status-and-conditions-conditions STATUS=passed")

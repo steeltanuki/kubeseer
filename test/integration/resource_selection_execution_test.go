@@ -58,11 +58,11 @@ func assertResourceSelectionExecutionBoundaryScenarios(t *testing.T, ctx context
 		},
 	}}
 	lister := &countingResourceLister{response: &unstructured.UnstructuredList{Items: []unstructured.Unstructured{*object}}}
-	authorized, err := selection.Bind(plan, []selection.Authorization{{Request: selection.RequestForTarget(plan.Targets()[0]), Decision: allowedDecision()}})
+	authorized, err := selection.BindCapabilities(plan, authorizationOutcomesForPlan(t, plan, mustSnapshot(t, basePolicy())))
 	if err != nil {
 		t.Fatalf("bind allowed execution boundary fixture: %v", err)
 	}
-	outcome := selection.NewExecutor(lister).Execute(ctx, authorized)
+	outcome := newSelectionExecutor(lister).Execute(ctx, authorized)
 	if outcome.Err != nil || len(outcome.Resources) != 1 {
 		t.Fatalf("authorized execution outcome = %#v", outcome)
 	}
@@ -84,8 +84,10 @@ func assertResourceSelectionExecutionBoundaryScenarios(t *testing.T, ctx context
 	}
 
 	t.Run("denied authorization does not issue a list", func(t *testing.T) {
-		denied := []selection.Authorization{{Request: selection.RequestForTarget(plan.Targets()[0]), Decision: deniedDecision()}}
-		if _, err := selection.Bind(plan, denied); !selection.HasReason(err, selection.ReasonAuthorizationDenied) {
+		denyingPolicy := basePolicy()
+		denyingPolicy.Spec.Resources = nil
+		denied := authorizationOutcomesForPlan(t, plan, mustSnapshot(t, denyingPolicy))
+		if _, err := selection.BindCapabilities(plan, denied); !selection.HasReason(err, selection.ReasonAuthorizationDenied) {
 			t.Fatalf("denied bind error = %v", err)
 		}
 		if got := len(lister.Calls()); got != 1 {
@@ -94,11 +96,10 @@ func assertResourceSelectionExecutionBoundaryScenarios(t *testing.T, ctx context
 	})
 
 	t.Run("mismatched authorization does not issue a list", func(t *testing.T) {
-		mismatched := []selection.Authorization{{
-			Request:  selection.RequestForTarget(selection.ReadTarget{SourceID: "other-source", GVR: wantTarget.GVR, Kind: wantTarget.Kind, Scope: wantTarget.Scope, Namespace: wantTarget.Namespace}),
-			Decision: allowedDecision(),
-		}}
-		if _, err := selection.Bind(plan, mismatched); !selection.HasReason(err, selection.ReasonAuthorizationMismatch) {
+		mismatchedRequest := selection.RequestForTarget(wantTarget)
+		mismatchedRequest.SourceID = "other-source"
+		mismatched := authorizationOutcomesForRequests(t, mustSnapshot(t, basePolicy()), []accesspolicy.Request{mismatchedRequest})
+		if _, err := selection.BindCapabilities(plan, mismatched); !selection.HasReason(err, selection.ReasonAuthorizationMismatch) {
 			t.Fatalf("mismatched bind error = %v", err)
 		}
 		if got := len(lister.Calls()); got != 1 {
@@ -116,11 +117,11 @@ func assertResourceSelectionExecutionBoundaryScenarios(t *testing.T, ctx context
 		if err != nil {
 			t.Fatalf("plan empty execution fixture: %v", err)
 		}
-		emptyAuthorized, err := selection.Bind(emptyPlan, nil)
+		emptyAuthorized, err := selection.BindCapabilities(emptyPlan, authorizationOutcomesForPlan(t, emptyPlan, mustSnapshot(t, basePolicy())))
 		if err != nil {
 			t.Fatalf("bind empty execution fixture: %v", err)
 		}
-		emptyOutcome := selection.NewExecutor(lister).Execute(ctx, emptyAuthorized)
+		emptyOutcome := newSelectionExecutor(lister).Execute(ctx, emptyAuthorized)
 		if emptyOutcome.Err != nil || len(emptyOutcome.Resources) != 0 {
 			t.Fatalf("empty execution outcome = %#v", emptyOutcome)
 		}
@@ -143,7 +144,8 @@ type countingResourceLister struct {
 	err      error
 }
 
-func (l *countingResourceLister) List(ctx context.Context, target selection.ReadTarget, options metav1.ListOptions) (*unstructured.UnstructuredList, error) {
+func (l *countingResourceLister) List(ctx context.Context, read selection.AuthorizedRead, options metav1.ListOptions) (*unstructured.UnstructuredList, error) {
+	target := read.Target()
 	l.mu.Lock()
 	l.calls = append(l.calls, recordedListCall{target: target, options: options, ctx: ctx})
 	var response *unstructured.UnstructuredList
