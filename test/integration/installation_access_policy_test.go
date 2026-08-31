@@ -107,6 +107,27 @@ func TestModuleIntegration(t *testing.T) {
 	t.Run("value operators isolate sources and cancellation partitions", func(t *testing.T) {
 		assertValueOperatorIsolationScenarios(t)
 	})
+	t.Run("cross-namespace aggregation planning reuses typed semantics", func(t *testing.T) {
+		assertCrossNamespaceAggregationPlanningScenarios(t)
+	})
+	t.Run("cross-namespace aggregation forms deterministic typed groups", func(t *testing.T) {
+		assertCrossNamespaceAggregationGroupingScenarios(t)
+	})
+	t.Run("cross-namespace aggregation applies closed reducers", func(t *testing.T) {
+		assertCrossNamespaceAggregationReducerScenarios(t)
+	})
+	t.Run("cross-namespace aggregation applies exact arithmetic", func(t *testing.T) {
+		assertCrossNamespaceAggregationArithmeticScenarios(t)
+	})
+	t.Run("cross-namespace aggregation isolates failures, limits, and cancellation", func(t *testing.T) {
+		assertCrossNamespaceAggregationIsolationScenarios(t)
+	})
+	t.Run("cross-namespace aggregation publishes raw and aggregate status together", func(t *testing.T) {
+		assertCrossNamespaceAggregationStatusScenarios(t)
+	})
+	t.Run("cross-namespace aggregation runs after operators in the production pipeline", func(t *testing.T) {
+		assertCrossNamespaceAggregationPipelineScenarios(t, ctx, resolver)
+	})
 	t.Run("reconciliation runtime scheduling preserves lifecycle and queue semantics", func(t *testing.T) {
 		assertReconciliationRuntimeSchedulingScenarios(t)
 	})
@@ -160,6 +181,13 @@ func TestModuleIntegration(t *testing.T) {
 	t.Log("MODULE_INTEGRATION=value-operators-predicates STATUS=passed")
 	t.Log("MODULE_INTEGRATION=value-operators-transformations STATUS=passed")
 	t.Log("MODULE_INTEGRATION=value-operators-isolation STATUS=passed")
+	t.Log("MODULE_INTEGRATION=cross-namespace-aggregation-planning STATUS=passed")
+	t.Log("MODULE_INTEGRATION=cross-namespace-aggregation-grouping STATUS=passed")
+	t.Log("MODULE_INTEGRATION=cross-namespace-aggregation-reducers STATUS=passed")
+	t.Log("MODULE_INTEGRATION=cross-namespace-aggregation-arithmetic STATUS=passed")
+	t.Log("MODULE_INTEGRATION=cross-namespace-aggregation-isolation STATUS=passed")
+	t.Log("MODULE_INTEGRATION=cross-namespace-aggregation-status STATUS=passed")
+	t.Log("MODULE_INTEGRATION=cross-namespace-aggregation-pipeline STATUS=passed")
 	t.Log("MODULE_INTEGRATION=reconciliation-runtime-scheduling STATUS=passed")
 	t.Log("MODULE_INTEGRATION=reconciliation-runtime-watch-routing STATUS=passed")
 	t.Log("MODULE_INTEGRATION=authorization-enforcement-watch STATUS=passed")

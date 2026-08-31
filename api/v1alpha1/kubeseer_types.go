@@ -74,6 +74,71 @@ type KubeseerSource struct {
 	// +listType=map
 	// +listMapKey=name
 	Fields []KubeseerField `json:"fields,omitempty"`
+
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	Aggregations []KubeseerAggregation `json:"aggregations,omitempty"`
+}
+
+// KubeseerAggregationFunction identifies one supported source-wide reducer.
+// +kubebuilder:validation:Enum=collect;count;sum;min;max;average;first;last;distinct
+type KubeseerAggregationFunction string
+
+const (
+	AggregationCollect  KubeseerAggregationFunction = "collect"
+	AggregationCount    KubeseerAggregationFunction = "count"
+	AggregationSum      KubeseerAggregationFunction = "sum"
+	AggregationMin      KubeseerAggregationFunction = "min"
+	AggregationMax      KubeseerAggregationFunction = "max"
+	AggregationAverage  KubeseerAggregationFunction = "average"
+	AggregationFirst    KubeseerAggregationFunction = "first"
+	AggregationLast     KubeseerAggregationFunction = "last"
+	AggregationDistinct KubeseerAggregationFunction = "distinct"
+)
+
+// KubeseerRoundingMode identifies the closed set of average rounding rules.
+// +kubebuilder:validation:Enum=halfEven;halfAwayFromZero;towardZero;awayFromZero
+type KubeseerRoundingMode string
+
+const (
+	RoundingHalfEven         KubeseerRoundingMode = "halfEven"
+	RoundingHalfAwayFromZero KubeseerRoundingMode = "halfAwayFromZero"
+	RoundingTowardZero       KubeseerRoundingMode = "towardZero"
+	RoundingAwayFromZero     KubeseerRoundingMode = "awayFromZero"
+)
+
+// KubeseerAggregation declares one typed reduction over the containing
+// source's extracted field outcomes. Average options are resolved at runtime
+// so omission remains distinguishable from invalid options on other functions.
+type KubeseerAggregation struct {
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-z][A-Za-z0-9]*(?:-[a-z0-9]+)*$`
+	Name string `json:"name"`
+
+	// +kubebuilder:validation:Required
+	Function KubeseerAggregationFunction `json:"function"`
+
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-z][A-Za-z0-9]*(?:-[a-z0-9]+)*$`
+	Field string `json:"field"`
+
+	// +optional
+	// +listType=atomic
+	GroupBy []string `json:"groupBy,omitempty"`
+
+	// +optional
+	IncludeProvenance bool `json:"includeProvenance,omitempty"`
+
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=18
+	Precision *int32 `json:"precision,omitempty"`
+
+	// +optional
+	RoundingMode KubeseerRoundingMode `json:"roundingMode,omitempty"`
 }
 
 // KubeseerField declares one named native-value extraction from a selected
@@ -317,7 +382,135 @@ type KubeseerSourceResult struct {
 	Resources []KubeseerResourceResult `json:"resources,omitempty"`
 
 	// +optional
+	// +listType=atomic
+	Aggregates []KubeseerAggregateResult `json:"aggregates,omitempty"`
+
+	// +optional
 	Error *KubeseerResultError `json:"error,omitempty"`
+}
+
+// KubeseerAggregateState identifies the terminal state of one aggregate.
+// +kubebuilder:validation:Enum=values;degraded;error
+type KubeseerAggregateState string
+
+const (
+	AggregateStateValues   KubeseerAggregateState = "values"
+	AggregateStateDegraded KubeseerAggregateState = "degraded"
+	AggregateStateError    KubeseerAggregateState = "error"
+)
+
+// KubeseerAggregateValueState distinguishes an absent scalar from a value
+// collection, including an intentionally empty collection.
+// +kubebuilder:validation:Enum=absent;values
+type KubeseerAggregateValueState string
+
+const (
+	AggregateValueAbsent KubeseerAggregateValueState = "absent"
+	AggregateValueValues KubeseerAggregateValueState = "values"
+)
+
+// KubeseerAggregateResult is one source-scoped aggregate outcome.
+type KubeseerAggregateResult struct {
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// +kubebuilder:validation:Required
+	Function KubeseerAggregationFunction `json:"function"`
+
+	// +kubebuilder:validation:Required
+	Field string `json:"field"`
+
+	// +kubebuilder:validation:Required
+	State KubeseerAggregateState `json:"state"`
+
+	// +optional
+	// +listType=atomic
+	Groups []KubeseerAggregateGroup `json:"groups,omitempty"`
+
+	// +optional
+	// +listType=atomic
+	Failures []KubeseerAggregateResourceFailure `json:"failures,omitempty"`
+
+	// +optional
+	Error *KubeseerResultError `json:"error,omitempty"`
+}
+
+// KubeseerAggregateKey is one ordered typed group-key component.
+type KubeseerAggregateKey struct {
+	// +kubebuilder:validation:Required
+	Field string `json:"field"`
+
+	// +kubebuilder:validation:Required
+	Type KubeseerValueType `json:"type"`
+
+	// +kubebuilder:validation:Required
+	Value KubeseerTypedMatch `json:"value"`
+}
+
+// KubeseerAggregateGroup is one ordered key and reduced value.
+type KubeseerAggregateGroup struct {
+	// +optional
+	// +listType=atomic
+	Keys []KubeseerAggregateKey `json:"keys,omitempty"`
+
+	// +kubebuilder:validation:Required
+	Value KubeseerAggregateValue `json:"value"`
+
+	// +optional
+	// +listType=atomic
+	Contributors []KubeseerResourceProvenance `json:"contributors,omitempty"`
+}
+
+// KubeseerAggregateValue is a typed scalar or collection result.
+type KubeseerAggregateValue struct {
+	// +kubebuilder:validation:Required
+	Type KubeseerValueType `json:"type"`
+
+	// +kubebuilder:validation:Required
+	State KubeseerAggregateValueState `json:"state"`
+
+	// +optional
+	// +listType=atomic
+	Matches []KubeseerAggregateMatch `json:"matches,omitempty"`
+}
+
+// KubeseerAggregateMatch is one typed aggregate value and optional
+// value-specific provenance.
+type KubeseerAggregateMatch struct {
+	// +kubebuilder:validation:Required
+	Value KubeseerTypedMatch `json:"value"`
+
+	// +optional
+	// +listType=atomic
+	Contributors []KubeseerResourceProvenance `json:"contributors,omitempty"`
+}
+
+// KubeseerResourceProvenance identifies one contributing Kubernetes resource.
+type KubeseerResourceProvenance struct {
+	// +kubebuilder:validation:Required
+	APIVersion string `json:"apiVersion"`
+
+	// +kubebuilder:validation:Required
+	Kind string `json:"kind"`
+
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// +kubebuilder:validation:Required
+	UID types.UID `json:"uid"`
+}
+
+// KubeseerAggregateResourceFailure associates a sanitized failure with the
+// resource whose contribution could not be evaluated.
+type KubeseerAggregateResourceFailure struct {
+	// +kubebuilder:validation:Required
+	Provenance KubeseerResourceProvenance `json:"provenance"`
+
+	// +kubebuilder:validation:Required
+	Error KubeseerResultError `json:"error"`
 }
 
 // KubeseerResourceResult identifies one contributing selected resource and

@@ -2,7 +2,7 @@
 walden_schema_version: v1alpha1
 status: approved
 approved_at: 2026-08-31T09:10:26Z
-last_modified: 2026-08-31T09:10:26Z
+last_modified: 2026-08-31T10:10:11Z
 approved_fingerprint: sha256:4165e99396de27d1c60cc14480a3759231233abc56963e8f6d36fa93c7a866e6
 source_design_approved_at: 2026-08-31T08:58:06Z
 source_design_fingerprint: sha256:286b57aa97ad1ab9f28376243902e39ecf007e430d46845e6cc074ab23646234
@@ -10,8 +10,8 @@ source_design_fingerprint: sha256:286b57aa97ad1ab9f28376243902e39ecf007e430d4684
 
 # Implementation Plan
 
-- [ ] 1. Add the structural aggregation API contract
-  - [ ] 1.1 Add declarations, public outcomes, generated artifacts, and API-server proof
+- [x] 1. Add the structural aggregation API contract
+  - [x] 1.1 Add declarations, public outcomes, generated artifacts, and API-server proof
     - Extend each `KubeseerSource` with the optional aggregation list-map keyed
       by lower-camel-case `name`. Add closed function and rounding-mode enums,
       ordered atomic `groupBy`, optional provenance, optional precision bounded
@@ -38,8 +38,8 @@ source_design_fingerprint: sha256:286b57aa97ad1ab9f28376243902e39ecf007e430d4684
         timeout: 40m
         covers: ["R1.AC1", "R1.AC2", "R1.AC3", "R1.AC4", "R1.AC5", "R1.AC6", "R1.AC7", "R1.AC8", "R1.AC9", "R1.AC10", "R1.AC11", "R1.AC12", "R1.AC13", "R1.AC14", "R1.AC15", "R1.AC16", "R1.AC17", "R1.AC20", "R5.AC12", "R5.AC13", "R5.AC14", "R9.AC7", "NFR7", "NFR8", "C2", "C4"]
 
-- [ ] 2. Build typed-key primitives and the immutable aggregation planner
-  - [ ] 2.1 Reuse canonical typed semantics and compile independent ordered plans
+- [x] 2. Build typed-key primitives and the immutable aggregation planner
+  - [x] 2.1 Reuse canonical typed semantics and compile independent ordered plans
     - Add narrow `internal/typedoutput` helpers for type-tagged canonical keys,
       approved typed ordering, exact numeric extraction, and safe construction
       of aggregate matches. Reuse existing number, timestamp, duration, and
@@ -69,8 +69,8 @@ source_design_fingerprint: sha256:286b57aa97ad1ab9f28376243902e39ecf007e430d4684
         timeout: 30m
         covers: ["R1.AC18", "R1.AC19", "R2.AC1", "R2.AC2", "R2.AC3", "R2.AC4", "R2.AC5", "R2.AC6", "R2.AC7", "R2.AC8", "R2.AC9", "R2.AC10", "R2.AC11", "R2.AC12", "R2.AC13", "R2.AC14", "R2.AC15", "R2.AC16", "R3.AC3", "R3.AC4", "R3.AC5", "R3.AC6", "R3.AC7", "R3.AC8", "R3.AC9", "R4.AC1", "R4.AC2", "R4.AC3", "R4.AC4", "R8.AC1", "R8.AC2", "R9.AC1", "NFR1", "NFR2", "NFR6", "C1", "C3", "C5", "C7", "C8"]
 
-- [ ] 3. Form deterministic groups with complete provenance
-  - [ ] 3.1 Consume accepted operator outcomes, deduplicate resources, and order contributions
+- [x] 3. Form deterministic groups with complete provenance
+  - [x] 3.1 Consume accepted operator outcomes, deduplicate resources, and order contributions
     - Implement source-input validation and accepted-resource traversal without
       Kubernetes I/O. Preserve unsuccessful sources atomically, ignore rejected
       resources, omit unsuccessful resources from contributions while retaining
@@ -98,8 +98,8 @@ source_design_fingerprint: sha256:286b57aa97ad1ab9f28376243902e39ecf007e430d4684
         timeout: 30m
         covers: ["R3.AC1", "R3.AC2", "R3.AC3", "R3.AC4", "R3.AC5", "R3.AC6", "R3.AC7", "R3.AC8", "R3.AC9", "R3.AC10", "R3.AC11", "R3.AC12", "R3.AC13", "R3.AC14", "R4.AC5", "R4.AC6", "R4.AC7", "R5.AC1", "R5.AC3", "R5.AC5", "R5.AC6", "R5.AC7", "R5.AC8", "R5.AC9", "R5.AC10", "R5.AC11", "R7.AC1", "R7.AC2", "R7.AC3", "R7.AC4", "R7.AC5", "R7.AC6", "R7.AC7", "R7.AC8", "R7.AC9", "R7.AC10", "R7.AC11", "NFR2", "NFR3", "C3", "C6"]
 
-- [ ] 4. Implement the closed reducer set and exact average rounding
-  - [ ] 4.1 Implement collection, cardinality, selection, extrema, and distinct reducers
+- [x] 4. Implement the closed reducer set and exact average rounding
+  - [x] 4.1 Implement collection, cardinality, selection, extrema, and distinct reducers
     - Implement `collect`, `count`, `min`, `max`, `first`, `last`, and
       `distinct` over the shared deterministic contribution order. Use approved
       typed comparison/equality, retain first-occurrence order for distinct
@@ -122,7 +122,7 @@ source_design_fingerprint: sha256:286b57aa97ad1ab9f28376243902e39ecf007e430d4684
         timeout: 30m
         covers: ["R4.AC1", "R4.AC4", "R4.AC8", "R4.AC9", "R4.AC16", "R4.AC17", "R4.AC18", "R4.AC19", "R4.AC20", "R4.AC21", "R4.AC22", "R4.AC24", "R5.AC4", "R5.AC6", "R5.AC7", "R5.AC8", "R5.AC9", "R5.AC10", "R7.AC4", "R7.AC6", "R7.AC7", "R7.AC10", "R7.AC11", "NFR2", "NFR3"]
 
-  - [ ] 4.2 Implement exact sums and single-rounding averages
+  - [x] 4.2 Implement exact sums and single-rounding averages
     - Implement checked signed-64-bit integer and duration sums, exact decimal
       number sums, and exact normalized base-unit quantity sums. Return exact
       typed zero for empty sums and fail the aggregate without partial groups on
@@ -146,8 +146,8 @@ source_design_fingerprint: sha256:286b57aa97ad1ab9f28376243902e39ecf007e430d4684
         timeout: 30m
         covers: ["R4.AC2", "R4.AC3", "R4.AC10", "R4.AC11", "R4.AC12", "R4.AC13", "R4.AC14", "R4.AC15", "R4.AC23", "R4.AC24", "R4.AC25", "R4.AC26", "R4.AC27", "R4.AC28", "R4.AC29", "R4.AC30", "NFR1", "NFR2", "C5"]
 
-- [ ] 5. Enforce failure isolation, limits, and cancellation
-  - [ ] 5.1 Produce bounded immutable batch outcomes without partial aggregate publication
+- [x] 5. Enforce failure isolation, limits, and cancellation
+  - [x] 5.1 Produce bounded immutable batch outcomes without partial aggregate publication
     - Complete sequential `EvaluateBatch` with one aggregate outcome per
       declaration and one source outcome per input. Preserve upstream atomic
       source failures unchanged, retain unsuccessful-resource diagnostics,
@@ -177,8 +177,8 @@ source_design_fingerprint: sha256:286b57aa97ad1ab9f28376243902e39ecf007e430d4684
         timeout: 35m
         covers: ["R5.AC2", "R5.AC4", "R6.AC1", "R6.AC2", "R6.AC3", "R6.AC4", "R6.AC5", "R6.AC6", "R6.AC7", "R6.AC8", "R6.AC9", "R6.AC10", "R6.AC11", "R6.AC12", "R6.AC13", "R6.AC14", "R6.AC15", "R6.AC16", "R6.AC17", "R8.AC1", "R8.AC2", "R8.AC3", "R8.AC4", "R8.AC5", "R8.AC6", "R8.AC7", "R8.AC8", "R8.AC9", "R9.AC8", "R9.AC9", "NFR4", "NFR5", "NFR6", "C6", "C7"]
 
-- [ ] 6. Integrate aggregate projection with status and reconciliation
-  - [ ] 6.1 Preserve raw results while making aggregate semantics publishable
+- [x] 6. Integrate aggregate projection with status and reconciliation
+  - [x] 6.1 Preserve raw results while making aggregate semantics publishable
     - Implement the pure aggregate result adapter by reusing existing operator
       projection, then append ordered aggregates beside unchanged raw resource
       outcomes. Omit aggregate fields for omitted/empty declarations and retain
@@ -216,8 +216,8 @@ source_design_fingerprint: sha256:286b57aa97ad1ab9f28376243902e39ecf007e430d4684
         timeout: 45m
         covers: ["R1.AC18", "R1.AC19", "R5.AC7", "R5.AC11", "R5.AC12", "R6.AC10", "R6.AC11", "R6.AC12", "R9.AC2", "R9.AC3", "R9.AC4", "R9.AC5", "R9.AC6", "R9.AC7", "NFR4", "NFR7", "NFR8", "C1", "C2", "C3", "C4", "C6"]
 
-- [ ] 7. Complete repository-wide verification
-  - [ ] 7.1 Verify boundaries, generated state, races, compatibility, build, and module tidiness
+- [x] 7. Complete repository-wide verification
+  - [x] 7.1 Verify boundaries, generated state, races, compatibility, build, and module tidiness
     - Register only the approved API, module-integration, and envtest scenarios
       in the test-layer policy. Add no dedicated unit-test layer, reducer plugin
       registry, expression language, cross-source joins, required cache,

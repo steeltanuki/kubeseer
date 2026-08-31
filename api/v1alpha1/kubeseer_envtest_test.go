@@ -101,7 +101,7 @@ func TestAPIContract(t *testing.T) {
 	resources := clients.Dynamic.Resource(kubeseerResourceGVR).Namespace(namespace)
 	accessPolicies := clients.Dynamic.Resource(accessPolicyResourceGVR)
 	environment.AddCleanup("delete Kubeseer API contract fixtures", func(ctx context.Context) error {
-		for _, name := range []string{"minimal", "valid-source", "negative-generation", "status-isolation", "typed-persistence", "untyped-field-compatible", "invalid-field-type", "typed-result-persistence", "operator-persistence", "operator-empty", "invalid-operator-name", "duplicate-source-ids", "missing-resource", "invalid-namespace", "duplicate-namespaces", "missing-field-name", "missing-field-path", "invalid-field-name", "overlong-field-path", "duplicate-field-names"} {
+		for _, name := range []string{"minimal", "valid-source", "negative-generation", "status-isolation", "typed-persistence", "untyped-field-compatible", "invalid-field-type", "typed-result-persistence", "operator-persistence", "operator-empty", "invalid-operator-name", "duplicate-source-ids", "missing-resource", "invalid-namespace", "duplicate-namespaces", "missing-field-name", "missing-field-path", "invalid-field-name", "overlong-field-path", "duplicate-field-names", "aggregation-persistence", "aggregation-empty", "invalid-aggregation-function", "invalid-aggregation-rounding", "invalid-aggregation-precision"} {
 			err := resources.Delete(ctx, name, metav1.DeleteOptions{})
 			if err != nil && !apierrors.IsNotFound(err) {
 				return err
@@ -120,6 +120,7 @@ func TestAPIContract(t *testing.T) {
 	assertTypedSchemeAndClient(t, ctx, resources, namespace, environment.Config())
 	assertTypedOutputAPIScenarios(t, ctx, resources, namespace)
 	assertValueOperatorsAPIScenarios(t, ctx, resources, namespace)
+	assertCrossNamespaceAggregationAPIScenarios(t, ctx, resources, namespace)
 	createMinimalResource(t, ctx, resources, namespace)
 	createValidSourceResource(t, ctx, resources, namespace)
 	assertMissingSpecRejected(t, ctx, resources, namespace)
@@ -142,6 +143,7 @@ func TestAPIContract(t *testing.T) {
 	t.Log("API_CONTRACT=typed-output-model-types STATUS=passed")
 	t.Log("API_CONTRACT=value-operators-types STATUS=passed")
 	t.Log("API_CONTRACT=status-and-conditions-api STATUS=passed")
+	t.Log("API_CONTRACT=cross-namespace-aggregation-types STATUS=passed")
 }
 
 func assertTypedSchemeAndClient(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface, namespace string, config *rest.Config) {
@@ -572,6 +574,138 @@ func assertValueOperatorsAPIScenarios(t *testing.T, ctx context.Context, resourc
 	assertNotPersisted(t, ctx, resources, invalid.GetName())
 }
 
+func assertCrossNamespaceAggregationAPIScenarios(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface, namespace string) {
+	t.Helper()
+
+	aggregationResource := newKubeseer("aggregation-persistence", namespace, map[string]interface{}{
+		"sources": []interface{}{map[string]interface{}{
+			"id":       "aggregation-source",
+			"resource": map[string]interface{}{"apiVersion": "v1", "kind": "Pod"},
+			"fields": []interface{}{
+				map[string]interface{}{"name": "team", "path": "{.metadata.labels.team}", "type": "string"},
+				map[string]interface{}{"name": "replicas", "path": "{.spec.replicas}", "type": "integer"},
+			},
+			"aggregations": []interface{}{
+				map[string]interface{}{
+					"name":              "average-replicas",
+					"function":          "average",
+					"field":             "replicas",
+					"groupBy":           []interface{}{"team"},
+					"includeProvenance": true,
+					"precision":         int64(3),
+					"roundingMode":      "halfAwayFromZero",
+				},
+				map[string]interface{}{
+					"name":     "count-replicas",
+					"function": "count",
+					"field":    "replicas",
+				},
+			},
+		}},
+	})
+	created, err := resources.Create(ctx, aggregationResource, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("create aggregation persistence fixture: %v", err)
+	}
+	sources, found, err := unstructured.NestedSlice(created.Object, "spec", "sources")
+	if err != nil || !found || len(sources) != 1 {
+		t.Fatalf("read persisted aggregation source: found=%t err=%v object=%#v", found, err, created.Object)
+	}
+	source, ok := sources[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("persisted aggregation source has unexpected shape: %#v", sources[0])
+	}
+	aggregations, ok := source["aggregations"].([]interface{})
+	if !ok || len(aggregations) != 2 {
+		t.Fatalf("persisted aggregation list changed: %#v", source["aggregations"])
+	}
+	byName := make(map[string]map[string]interface{}, len(aggregations))
+	for _, item := range aggregations {
+		declaration, ok := item.(map[string]interface{})
+		if !ok {
+			t.Fatalf("persisted aggregation has unexpected shape: %#v", item)
+		}
+		name, ok := declaration["name"].(string)
+		if !ok {
+			t.Fatalf("persisted aggregation has no name: %#v", declaration)
+		}
+		byName[name] = declaration
+	}
+	average := byName["average-replicas"]
+	if average["function"] != "average" || average["field"] != "replicas" || average["includeProvenance"] != true || average["precision"] != int64(3) || average["roundingMode"] != "halfAwayFromZero" {
+		t.Fatalf("persisted average aggregation changed declaration: %#v", average)
+	}
+	groupBy, ok := average["groupBy"].([]interface{})
+	if !ok || len(groupBy) != 1 || groupBy[0] != "team" {
+		t.Fatalf("persisted aggregation groupBy changed: %#v", average["groupBy"])
+	}
+	if count := byName["count-replicas"]; count["function"] != "count" || count["field"] != "replicas" {
+		t.Fatalf("persisted count aggregation changed declaration: %#v", count)
+	}
+	if _, found := byName["count-replicas"]["precision"]; found {
+		t.Fatalf("omitted precision received an API default: %#v", byName["count-replicas"])
+	}
+
+	empty := newKubeseer("aggregation-empty", namespace, map[string]interface{}{
+		"sources": []interface{}{map[string]interface{}{
+			"id":           "empty-aggregation-source",
+			"resource":     map[string]interface{}{"apiVersion": "v1", "kind": "Pod"},
+			"aggregations": []interface{}{},
+		}},
+	})
+	emptyCreated, err := resources.Create(ctx, empty, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("create explicit-empty aggregation fixture: %v", err)
+	}
+	emptySources, found, err := unstructured.NestedSlice(emptyCreated.Object, "spec", "sources")
+	if err != nil || !found || len(emptySources) != 1 {
+		t.Fatalf("read explicit-empty aggregation source: found=%t err=%v object=%#v", found, err, emptyCreated.Object)
+	}
+	emptySource := emptySources[0].(map[string]interface{})
+	if persisted, found := emptySource["aggregations"]; found && persisted != nil {
+		values, ok := persisted.([]interface{})
+		if !ok || len(values) != 0 {
+			t.Fatalf("explicit-empty aggregation list received a default: %#v", persisted)
+		}
+	}
+
+	invalidFunction := newKubeseer("invalid-aggregation-function", namespace, map[string]interface{}{
+		"sources": []interface{}{map[string]interface{}{
+			"id":       "invalid-aggregation-function-source",
+			"resource": map[string]interface{}{"apiVersion": "v1", "kind": "Pod"},
+			"aggregations": []interface{}{map[string]interface{}{
+				"name": "invalid", "function": "median", "field": "replicas",
+			}},
+		}},
+	})
+	assertInvalidCreate(t, ctx, resources, invalidFunction, "unsupported aggregation function")
+	assertNotPersisted(t, ctx, resources, invalidFunction.GetName())
+
+	invalidRounding := newKubeseer("invalid-aggregation-rounding", namespace, map[string]interface{}{
+		"sources": []interface{}{map[string]interface{}{
+			"id":       "invalid-aggregation-rounding-source",
+			"resource": map[string]interface{}{"apiVersion": "v1", "kind": "Pod"},
+			"aggregations": []interface{}{map[string]interface{}{
+				"name": "invalid", "function": "average", "field": "replicas", "roundingMode": "nearest",
+			}},
+		}},
+	})
+	assertInvalidCreate(t, ctx, resources, invalidRounding, "unsupported aggregation rounding mode")
+	assertNotPersisted(t, ctx, resources, invalidRounding.GetName())
+
+	invalidPrecision := newKubeseer("invalid-aggregation-precision", namespace, map[string]interface{}{
+		"sources": []interface{}{map[string]interface{}{
+			"id":       "invalid-aggregation-precision-source",
+			"resource": map[string]interface{}{"apiVersion": "v1", "kind": "Pod"},
+			"aggregations": []interface{}{map[string]interface{}{
+				"name": "invalid", "function": "average", "field": "replicas", "precision": int64(19),
+			}},
+		}},
+	})
+	assertInvalidCreate(t, ctx, resources, invalidPrecision, "out-of-range aggregation precision")
+	assertNotPersisted(t, ctx, resources, invalidPrecision.GetName())
+}
+
 func typedResultSemanticallyEqual(left, right KubeseerResult) bool {
 	leftCopy := *left.DeepCopy()
 	rightCopy := *right.DeepCopy()
@@ -640,6 +774,33 @@ func typedResultFixture() KubeseerResult {
 						Error:      &KubeseerResultError{Reason: "OperatorFailed", Message: "operator evaluation failed"},
 					},
 				},
+				Aggregates: []KubeseerAggregateResult{{
+					Name:     "replica-average",
+					Function: AggregationAverage,
+					Field:    "replicas",
+					State:    AggregateStateDegraded,
+					Groups: []KubeseerAggregateGroup{{
+						Keys: []KubeseerAggregateKey{{
+							Field: "team",
+							Type:  ValueTypeString,
+							Value: KubeseerTypedMatch{State: MatchStateValue, StringValue: &emptyString},
+						}},
+						Value: KubeseerAggregateValue{
+							Type:  ValueTypeNumber,
+							State: AggregateValueValues,
+							Matches: []KubeseerAggregateMatch{{
+								Value: KubeseerTypedMatch{State: MatchStateValue, NumberValue: &number},
+								Contributors: []KubeseerResourceProvenance{{
+									APIVersion: "v1", Kind: "Pod", Namespace: "team-a", Name: "demo", UID: types.UID("9e7d5e6b-4f7b-4c34-8ef6-typedout001"),
+								}},
+							}},
+						},
+					}},
+					Failures: []KubeseerAggregateResourceFailure{{
+						Provenance: KubeseerResourceProvenance{APIVersion: "v1", Kind: "Pod", Namespace: "team-a", Name: "failed", UID: types.UID("9e7d5e6b-4f7b-4c34-8ef6-typedout002")},
+						Error:      KubeseerResultError{Reason: "target-field-error", Message: "field evaluation failed"},
+					}},
+				}},
 			},
 			{
 				ID:    "failed-source",
@@ -1000,6 +1161,42 @@ func assertInstalledCRDContract(t *testing.T, ctx context.Context, client apiext
 			t.Fatalf("installed CRD operator operand payload %q schema is missing: %#v", payload, operatorOperand)
 		}
 	}
+	aggregations, found := source.Properties["aggregations"]
+	if !found || aggregations.Type != "array" || aggregations.Items == nil || aggregations.Items.Schema == nil || aggregations.XListType == nil || *aggregations.XListType != "map" || len(aggregations.XListMapKeys) != 1 || aggregations.XListMapKeys[0] != "name" {
+		t.Fatalf("installed CRD aggregation declaration schema is incorrect: %#v", aggregations)
+	}
+	aggregation := aggregations.Items.Schema
+	if aggregation.Type != "object" || !apiContractContains(aggregation.Required, "name") || !apiContractContains(aggregation.Required, "function") || !apiContractContains(aggregation.Required, "field") {
+		t.Fatalf("installed CRD aggregation declaration required fields are incorrect: %#v", aggregation)
+	}
+	aggregationName, found := aggregation.Properties["name"]
+	if !found || aggregationName.Type != "string" || aggregationName.MaxLength == nil || *aggregationName.MaxLength != 63 || aggregationName.Pattern != `^[a-z][A-Za-z0-9]*(?:-[a-z0-9]+)*$` {
+		t.Fatalf("installed CRD aggregation name schema is incorrect: %#v", aggregationName)
+	}
+	aggregationFunction, found := aggregation.Properties["function"]
+	if !found || aggregationFunction.Type != "string" || !equalJSONValues(aggregationFunction.Enum, []string{"collect", "count", "sum", "min", "max", "average", "first", "last", "distinct"}) || aggregationFunction.Default != nil {
+		t.Fatalf("installed CRD aggregation function schema is incorrect: %#v", aggregationFunction)
+	}
+	aggregationField, found := aggregation.Properties["field"]
+	if !found || aggregationField.Type != "string" || aggregationField.MaxLength == nil || *aggregationField.MaxLength != 63 || aggregationField.Pattern != `^[a-z][A-Za-z0-9]*(?:-[a-z0-9]+)*$` {
+		t.Fatalf("installed CRD aggregation field schema is incorrect: %#v", aggregationField)
+	}
+	aggregationGroupBy, found := aggregation.Properties["groupBy"]
+	if !found || aggregationGroupBy.Type != "array" || aggregationGroupBy.XListType == nil || *aggregationGroupBy.XListType != "atomic" || aggregationGroupBy.Items == nil || aggregationGroupBy.Items.Schema == nil || aggregationGroupBy.Items.Schema.Type != "string" {
+		t.Fatalf("installed CRD aggregation groupBy schema is incorrect: %#v", aggregationGroupBy)
+	}
+	aggregationProvenance, found := aggregation.Properties["includeProvenance"]
+	if !found || aggregationProvenance.Type != "boolean" || aggregationProvenance.Default != nil {
+		t.Fatalf("installed CRD aggregation provenance schema is incorrect: %#v", aggregationProvenance)
+	}
+	aggregationPrecision, found := aggregation.Properties["precision"]
+	if !found || aggregationPrecision.Type != "integer" || aggregationPrecision.Format != "int32" || aggregationPrecision.Minimum == nil || *aggregationPrecision.Minimum != 0 || aggregationPrecision.Maximum == nil || *aggregationPrecision.Maximum != 18 || aggregationPrecision.Default != nil {
+		t.Fatalf("installed CRD aggregation precision schema is incorrect: %#v", aggregationPrecision)
+	}
+	aggregationRounding, found := aggregation.Properties["roundingMode"]
+	if !found || aggregationRounding.Type != "string" || !equalJSONValues(aggregationRounding.Enum, []string{"halfEven", "halfAwayFromZero", "towardZero", "awayFromZero"}) || aggregationRounding.Default != nil {
+		t.Fatalf("installed CRD aggregation rounding schema is incorrect: %#v", aggregationRounding)
+	}
 	status, found := root.Properties["status"]
 	if !found || status.Type != "object" {
 		t.Fatalf("installed CRD status schema is incorrect: %#v", status)
@@ -1083,6 +1280,54 @@ func assertInstalledCRDContract(t *testing.T, ctx context.Context, client apiext
 		if _, found := match.Properties[payload]; !found {
 			t.Fatalf("installed CRD typed payload %q schema is missing: %#v", payload, match.Properties)
 		}
+	}
+	aggregateResults, found := sourceResult.Properties["aggregates"]
+	if !found || aggregateResults.Type != "array" || aggregateResults.Items == nil || aggregateResults.Items.Schema == nil || aggregateResults.XListType == nil || *aggregateResults.XListType != "atomic" {
+		t.Fatalf("installed CRD aggregate results schema is incorrect: %#v", aggregateResults)
+	}
+	aggregateResult := aggregateResults.Items.Schema
+	if aggregateResult.Type != "object" || !apiContractContains(aggregateResult.Required, "name") || !apiContractContains(aggregateResult.Required, "function") || !apiContractContains(aggregateResult.Required, "field") || !apiContractContains(aggregateResult.Required, "state") {
+		t.Fatalf("installed CRD aggregate result required fields are incorrect: %#v", aggregateResult)
+	}
+	aggregateState, found := aggregateResult.Properties["state"]
+	if !found || aggregateState.Type != "string" || !equalJSONValues(aggregateState.Enum, []string{"values", "degraded", "error"}) {
+		t.Fatalf("installed CRD aggregate state schema is incorrect: %#v", aggregateState)
+	}
+	aggregateGroups, found := aggregateResult.Properties["groups"]
+	if !found || aggregateGroups.Type != "array" || aggregateGroups.Items == nil || aggregateGroups.Items.Schema == nil || aggregateGroups.XListType == nil || *aggregateGroups.XListType != "atomic" {
+		t.Fatalf("installed CRD aggregate groups schema is incorrect: %#v", aggregateGroups)
+	}
+	aggregateGroup := aggregateGroups.Items.Schema
+	if aggregateGroup.Type != "object" || !apiContractContains(aggregateGroup.Required, "value") {
+		t.Fatalf("installed CRD aggregate group schema is incorrect: %#v", aggregateGroup)
+	}
+	aggregateKeys, found := aggregateGroup.Properties["keys"]
+	if !found || aggregateKeys.Type != "array" || aggregateKeys.Items == nil || aggregateKeys.Items.Schema == nil || aggregateKeys.XListType == nil || *aggregateKeys.XListType != "atomic" {
+		t.Fatalf("installed CRD aggregate keys schema is incorrect: %#v", aggregateKeys)
+	}
+	aggregateValue := aggregateGroup.Properties["value"]
+	if aggregateValue.Type != "object" || !apiContractContains(aggregateValue.Required, "type") || !apiContractContains(aggregateValue.Required, "state") {
+		t.Fatalf("installed CRD aggregate value schema is incorrect: %#v", aggregateValue)
+	}
+	aggregateValueState, found := aggregateValue.Properties["state"]
+	if !found || aggregateValueState.Type != "string" || !equalJSONValues(aggregateValueState.Enum, []string{"absent", "values"}) {
+		t.Fatalf("installed CRD aggregate value state schema is incorrect: %#v", aggregateValueState)
+	}
+	aggregateMatches, found := aggregateValue.Properties["matches"]
+	if !found || aggregateMatches.Type != "array" || aggregateMatches.Items == nil || aggregateMatches.Items.Schema == nil || aggregateMatches.XListType == nil || *aggregateMatches.XListType != "atomic" {
+		t.Fatalf("installed CRD aggregate matches schema is incorrect: %#v", aggregateMatches)
+	}
+	aggregateFailures, found := aggregateResult.Properties["failures"]
+	if !found || aggregateFailures.Type != "array" || aggregateFailures.Items == nil || aggregateFailures.Items.Schema == nil || aggregateFailures.XListType == nil || *aggregateFailures.XListType != "atomic" {
+		t.Fatalf("installed CRD aggregate failures schema is incorrect: %#v", aggregateFailures)
+	}
+	aggregateFailure := aggregateFailures.Items.Schema
+	if aggregateFailure.Type != "object" || !apiContractContains(aggregateFailure.Required, "provenance") || !apiContractContains(aggregateFailure.Required, "error") {
+		t.Fatalf("installed CRD aggregate failure schema is incorrect: %#v", aggregateFailure)
+	}
+	provenance, found := aggregateFailure.Properties["provenance"]
+	if !found || provenance.Type != "object" || !apiContractContains(provenance.Required, "apiVersion") || !apiContractContains(provenance.Required, "kind") || !apiContractContains(provenance.Required, "name") || !apiContractContains(provenance.Required, "uid") {
+		t.Fatalf("installed CRD aggregate provenance schema is incorrect: %#v", provenance)
 	}
 	apiContractAssertNoDefaults(t, root)
 	apiContractAssertNoPreserveUnknownFields(t, root)

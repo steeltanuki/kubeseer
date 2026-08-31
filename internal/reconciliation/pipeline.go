@@ -21,6 +21,7 @@ import (
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
 	"github.com/steeltanuki/kubeseer/internal/accesspolicy"
+	"github.com/steeltanuki/kubeseer/internal/aggregation"
 	"github.com/steeltanuki/kubeseer/internal/authorization"
 	"github.com/steeltanuki/kubeseer/internal/discovery"
 	"github.com/steeltanuki/kubeseer/internal/extraction"
@@ -43,6 +44,7 @@ type plannedSource struct {
 	authorizedSet   []AuthorizedRoute
 	authorizations  []authorization.DecisionOutcome
 	operatorPlan    operators.PlanOutcome
+	aggregationPlan aggregation.PlanOutcome
 	assessment      statuscontract.SourceAssessment
 	originalPlanErr error
 }
@@ -122,8 +124,9 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 			return reconcile.Result{}, nil
 		}
 		entry := plannedSource{
-			source:       source,
-			operatorPlan: operators.CompileSource(source),
+			source:          source,
+			operatorPlan:    operators.CompileSource(source),
+			aggregationPlan: aggregation.PlanSource(source, aggregation.DefaultLimits()),
 			assessment: statuscontract.SourceAssessment{
 				Index:         index,
 				Configuration: configurationOutcome(source),
@@ -276,7 +279,18 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
 		return reconcile.Result{}, nil
 	}
-	result, err := operators.BuildResult(operatorOutcomes)
+	aggregationInputs := make([]aggregation.SourceInput, len(sources))
+	for index := range sources {
+		aggregationInputs[index] = aggregation.SourceInput{
+			Plan:      planned[index].aggregationPlan,
+			Operators: operatorOutcomes[index],
+		}
+	}
+	aggregationOutcomes := aggregation.EvaluateBatch(child, aggregationInputs)
+	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
+		return reconcile.Result{}, nil
+	}
+	result, err := aggregation.BuildResultChecked(aggregationOutcomes)
 	if err != nil {
 		buildErr := transientRuntimeError("result-build", "", ReasonBuildFailure, "candidate result construction failed", err)
 		unavailable := statuscontract.Evaluation{
@@ -372,6 +386,9 @@ func configurationOutcome(source v1alpha1.KubeseerSource) statuscontract.Configu
 		return statuscontract.ConfigurationInvalidOutcome
 	}
 	if !operators.CompileSource(source).Valid() {
+		return statuscontract.ConfigurationInvalidOutcome
+	}
+	if !aggregation.PlanSource(source, aggregation.DefaultLimits()).Valid() {
 		return statuscontract.ConfigurationInvalidOutcome
 	}
 	return statuscontract.ConfigurationAcceptedOutcome

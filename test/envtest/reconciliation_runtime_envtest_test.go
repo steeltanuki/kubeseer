@@ -156,6 +156,11 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	operatorInvalidKey := types.NamespacedName{Namespace: namespace, Name: "runtime-operators-invalid"}
 	operatorFailureKey := types.NamespacedName{Namespace: namespace, Name: "runtime-operators-failure"}
 	operatorSiblingKey := types.NamespacedName{Namespace: namespace, Name: "runtime-operators-sibling"}
+	aggregationKey := types.NamespacedName{Namespace: namespace, Name: "runtime-aggregation"}
+	aggregationNamespace := "runtime-aggregation-peer"
+	if _, err := clients.Core.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: aggregationNamespace}}, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("create aggregation peer namespace: %v", err)
+	}
 	for _, object := range []*v1alpha1.Kubeseer{
 		runtimeEnvtestKubeseer(existingKey, initialSource),
 		runtimeEnvtestKubeseer(fanoutKey, initialSource),
@@ -167,7 +172,7 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	policy := runtimeEnvtestPolicy(namespace)
 	environment.AddCleanup("delete reconciliation runtime fixtures", func(ctx context.Context) error {
 		var cleanupErr error
-		for _, key := range []types.NamespacedName{existingKey, fanoutKey, newKey, watchKey, watchPeerKey, statusKey, allFailedKey, emptyKey, adapterKey, busyKey, freeKey, deterministicKey, operatorKey, operatorInvalidKey, operatorFailureKey, operatorSiblingKey} {
+		for _, key := range []types.NamespacedName{existingKey, fanoutKey, newKey, watchKey, watchPeerKey, statusKey, allFailedKey, emptyKey, adapterKey, busyKey, freeKey, deterministicKey, operatorKey, operatorInvalidKey, operatorFailureKey, operatorSiblingKey, aggregationKey} {
 			object := &v1alpha1.Kubeseer{}
 			err := apiClient.Get(ctx, key, object)
 			if apierrors.IsNotFound(err) {
@@ -185,6 +190,9 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 			cleanupErr = errors.Join(cleanupErr, deleteErr)
 		}
 		if deleteErr := clients.Core.CoreV1().Pods(namespace).Delete(ctx, "runtime-status-pod", metav1.DeleteOptions{}); deleteErr != nil && !apierrors.IsNotFound(deleteErr) {
+			cleanupErr = errors.Join(cleanupErr, deleteErr)
+		}
+		if deleteErr := clients.Core.CoreV1().Namespaces().Delete(ctx, aggregationNamespace, metav1.DeleteOptions{}); deleteErr != nil && !apierrors.IsNotFound(deleteErr) {
 			cleanupErr = errors.Join(cleanupErr, deleteErr)
 		}
 		return cleanupErr
@@ -235,6 +243,79 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	assertRuntimeStatusSnapshot(t, successStatus, successStatus.Generation, true)
 	assertRuntimeCondition(t, successStatus.Status, statuscontract.ConditionReady, metav1.ConditionTrue, statuscontract.ReasonEvaluationSucceeded)
 	assertRuntimeCondition(t, successStatus.Status, statuscontract.ConditionDegraded, metav1.ConditionFalse, statuscontract.ReasonEvaluationSucceeded)
+
+	aggregationPolicy := &v1alpha1.KubeseerAccessPolicy{}
+	if err := apiClient.Get(ctx, types.NamespacedName{Name: v1alpha1.InstallationAccessCeilingName}, aggregationPolicy); err != nil {
+		t.Fatalf("read policy before cross-namespace aggregation: %v", err)
+	}
+	aggregationPolicy.Spec.Namespaces.Include = []string{namespace, aggregationNamespace}
+	aggregationPolicy.Spec.Namespaces.Exclude = nil
+	if err := apiClient.Update(ctx, aggregationPolicy); err != nil {
+		t.Fatalf("authorize cross-namespace aggregation namespaces: %v", err)
+	}
+	aggregationPods := []*corev1.Pod{
+		runtimeEnvtestAggregationPod("runtime-aggregation-a", namespace, "blue", "1", "1"),
+		runtimeEnvtestAggregationPod("runtime-aggregation-b", aggregationNamespace, "red", "3", "1"),
+		runtimeEnvtestAggregationPod("runtime-aggregation-c", aggregationNamespace, "blue", "2", "not-an-integer"),
+	}
+	for _, pod := range aggregationPods {
+		if _, err := clients.Core.CoreV1().Pods(pod.Namespace).Create(ctx, pod, metav1.CreateOptions{}); err != nil {
+			t.Fatalf("create cross-namespace aggregation Pod %s/%s: %v", pod.Namespace, pod.Name, err)
+		}
+	}
+	aggregationSource := runtimeEnvtestAggregationSource("aggregation-source", namespace, aggregationNamespace)
+	aggregationSibling := runtimeEnvtestAggregationSiblingSource("aggregation-sibling", namespace)
+	aggregationObject := runtimeEnvtestKubeseer(aggregationKey, aggregationSource)
+	aggregationObject.Spec.Sources = []v1alpha1.KubeseerSource{aggregationSource, aggregationSibling}
+	if err := apiClient.Create(ctx, aggregationObject); err != nil {
+		t.Fatalf("create cross-namespace aggregation Kubeseer: %v", err)
+	}
+	waitRuntimeAggregationState(t, ctx, apiClient, aggregationKey, aggregationSource.ID, v1alpha1.SourceStateValues, 3)
+	aggregationStatus := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, aggregationKey, aggregationStatus); err != nil {
+		t.Fatalf("read cross-namespace aggregation status: %v", err)
+	}
+	assertRuntimeStatusSnapshot(t, aggregationStatus, aggregationStatus.Generation, true)
+	assertRuntimeCondition(t, aggregationStatus.Status, statuscontract.ConditionAccepted, metav1.ConditionFalse, statuscontract.ReasonInvalidConfiguration)
+	assertRuntimeCondition(t, aggregationStatus.Status, statuscontract.ConditionDegraded, metav1.ConditionTrue, statuscontract.ReasonEvaluationDegraded)
+	if len(aggregationStatus.Status.Result.Sources) != 2 || len(aggregationStatus.Status.Result.Sources[1].Aggregates) != 0 || aggregationStatus.Status.Result.Sources[1].State != v1alpha1.SourceStateValues {
+		t.Fatalf("aggregate sibling preservation = %#v", aggregationStatus.Status.Result.Sources)
+	}
+	aggregationResult := aggregationStatus.Status.Result.Sources[0]
+	if len(aggregationResult.Aggregates) != 3 || aggregationResult.Aggregates[0].Name != "average-default" || aggregationResult.Aggregates[1].Name != "invalid-plan" || aggregationResult.Aggregates[2].Name != "sum-bad" {
+		t.Fatalf("aggregate declaration order = %#v", aggregationResult.Aggregates)
+	}
+	averageAggregate := aggregationResult.Aggregates[0]
+	if averageAggregate.State != v1alpha1.AggregateStateValues || len(averageAggregate.Groups) != 1 || len(averageAggregate.Groups[0].Value.Matches) != 1 || averageAggregate.Groups[0].Value.Matches[0].Value.NumberValue == nil || *averageAggregate.Groups[0].Value.Matches[0].Value.NumberValue != "2" || len(averageAggregate.Groups[0].Contributors) != 3 {
+		t.Fatalf("runtime average default/provenance = %#v", averageAggregate)
+	}
+	if invalid := aggregationResult.Aggregates[1]; invalid.State != v1alpha1.AggregateStateError || invalid.Error == nil || invalid.Error.Reason != "unknown-field" {
+		t.Fatalf("runtime invalid aggregation plan = %#v", invalid)
+	}
+	badAggregate := aggregationResult.Aggregates[2]
+	if badAggregate.State != v1alpha1.AggregateStateDegraded || len(badAggregate.Groups) != 1 || len(badAggregate.Failures) != 1 || strings.Contains(badAggregate.Failures[0].Error.Message, "not-an-integer") {
+		t.Fatalf("runtime sanitized aggregate failure = %#v", badAggregate)
+	}
+	statusWritesBeforeNoop := requestRecorder.StatusWrites(aggregationKey.Name)
+	noopPod, err := clients.Core.CoreV1().Pods(namespace).Get(ctx, "runtime-aggregation-a", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("read aggregation Pod before no-op event: %v", err)
+	}
+	noopPod.Annotations = map[string]string{"unrelated": "status-no-op"}
+	if _, err := clients.Core.CoreV1().Pods(namespace).Update(ctx, noopPod, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("update unrelated aggregation Pod metadata: %v", err)
+	}
+	assertRuntimeStatusWritesStable(t, ctx, requestRecorder, aggregationKey.Name, statusWritesBeforeNoop, 250*time.Millisecond)
+
+	aggregationPolicy = &v1alpha1.KubeseerAccessPolicy{}
+	if err := apiClient.Get(ctx, types.NamespacedName{Name: v1alpha1.InstallationAccessCeilingName}, aggregationPolicy); err != nil {
+		t.Fatalf("read policy before unavailable namespace proof: %v", err)
+	}
+	aggregationPolicy.Spec.Namespaces.Include = []string{namespace}
+	if err := apiClient.Update(ctx, aggregationPolicy); err != nil {
+		t.Fatalf("remove aggregation peer authorization: %v", err)
+	}
+	waitRuntimeAggregationDenied(t, ctx, apiClient, aggregationKey, aggregationSource.ID)
 
 	operatorPods := []*corev1.Pod{
 		runtimeEnvtestOperatorPod("runtime-operator-kept", namespace, "yes", "keep-me"),
@@ -720,6 +801,7 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	t.Log("API_CONTRACT=status-and-conditions-snapshots STATUS=passed")
 	t.Log("API_CONTRACT=status-and-conditions-transitions STATUS=passed")
 	t.Log("API_CONTRACT=value-operators-pipeline STATUS=passed")
+	t.Log("API_CONTRACT=cross-namespace-aggregation-pipeline STATUS=passed")
 }
 
 func runtimeEnvtestKubeseer(key types.NamespacedName, source v1alpha1.KubeseerSource) *v1alpha1.Kubeseer {
@@ -782,6 +864,51 @@ func runtimeEnvtestValueOperatorSource(id, selector string, typeName v1alpha1.Ku
 	return source
 }
 
+func runtimeEnvtestAggregationSource(id, firstNamespace, secondNamespace string) v1alpha1.KubeseerSource {
+	return v1alpha1.KubeseerSource{
+		ID:         id,
+		Resource:   v1alpha1.ResourceReference{APIVersion: "v1", Kind: "Pod"},
+		Namespaces: &v1alpha1.NamespaceSelection{Names: []string{firstNamespace, secondNamespace}},
+		Selector:   &v1alpha1.ResourceSelector{MatchLabels: map[string]string{"runtime-aggregation": "yes"}},
+		Fields: []v1alpha1.KubeseerField{
+			{Name: "group", Path: "{.metadata.labels['aggregation-group']}", Type: v1alpha1.ValueTypeString},
+			{Name: "value", Path: "{.metadata.labels['aggregation-value']}", Type: v1alpha1.ValueTypeNumber},
+			{Name: "bad", Path: "{.metadata.labels['aggregation-bad']}", Type: v1alpha1.ValueTypeInteger},
+		},
+		Aggregations: []v1alpha1.KubeseerAggregation{
+			{Name: "average-default", Function: v1alpha1.AggregationAverage, Field: "value", IncludeProvenance: true},
+			{Name: "invalid-plan", Function: v1alpha1.AggregationSum, Field: "not-declared"},
+			{Name: "sum-bad", Function: v1alpha1.AggregationSum, Field: "bad"},
+		},
+	}
+}
+
+func runtimeEnvtestAggregationSiblingSource(id, namespace string) v1alpha1.KubeseerSource {
+	return v1alpha1.KubeseerSource{
+		ID:         id,
+		Resource:   v1alpha1.ResourceReference{APIVersion: "v1", Kind: "Pod"},
+		Namespaces: &v1alpha1.NamespaceSelection{Names: []string{namespace}},
+		Selector:   &v1alpha1.ResourceSelector{MatchLabels: map[string]string{"runtime-aggregation": "yes"}},
+		Fields:     []v1alpha1.KubeseerField{{Name: "value", Path: "{.metadata.labels['aggregation-value']}", Type: v1alpha1.ValueTypeNumber}},
+	}
+}
+
+func runtimeEnvtestAggregationPod(name, namespace, group, value, bad string) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"runtime-aggregation": "yes",
+				"aggregation-group":   group,
+				"aggregation-value":   value,
+				"aggregation-bad":     bad,
+			},
+		},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "main", Image: "busybox"}}},
+	}
+}
+
 func stringOperatorOperand(value string) *v1alpha1.KubeseerOperatorOperand {
 	return &v1alpha1.KubeseerOperatorOperand{State: v1alpha1.MatchStateValue, StringValue: &value}
 }
@@ -818,6 +945,50 @@ func waitRuntimeValueOperatorState(t *testing.T, ctx context.Context, client crc
 		return false, nil
 	}); err != nil {
 		t.Fatalf("wait %s/%s value-operator source %q: %v", key.Namespace, key.Name, sourceID, err)
+	}
+}
+
+func waitRuntimeAggregationState(t *testing.T, ctx context.Context, client crclient.Client, key types.NamespacedName, sourceID string, want v1alpha1.KubeseerSourceState, resourceCount int) {
+	t.Helper()
+	if err := WaitFor(ctx, 10*time.Second, func(ctx context.Context) (bool, error) {
+		object := &v1alpha1.Kubeseer{}
+		if err := client.Get(ctx, key, object); err != nil {
+			return false, err
+		}
+		if object.Status.Result == nil {
+			return false, nil
+		}
+		for _, source := range object.Status.Result.Sources {
+			if source.ID != sourceID {
+				continue
+			}
+			return source.State == want && len(source.Resources) == resourceCount && len(source.Aggregates) == 3, nil
+		}
+		return false, nil
+	}); err != nil {
+		t.Fatalf("wait %s/%s aggregation source %q: %v", key.Namespace, key.Name, sourceID, err)
+	}
+}
+
+func waitRuntimeAggregationDenied(t *testing.T, ctx context.Context, client crclient.Client, key types.NamespacedName, sourceID string) {
+	t.Helper()
+	if err := WaitFor(ctx, 10*time.Second, func(ctx context.Context) (bool, error) {
+		object := &v1alpha1.Kubeseer{}
+		if err := client.Get(ctx, key, object); err != nil {
+			return false, err
+		}
+		if object.Status.Result == nil {
+			return false, nil
+		}
+		for _, source := range object.Status.Result.Sources {
+			if source.ID != sourceID {
+				continue
+			}
+			return source.State == v1alpha1.SourceStateError && source.Error != nil && len(source.Resources) == 0 && len(source.Aggregates) == 0, nil
+		}
+		return false, nil
+	}); err != nil {
+		t.Fatalf("wait %s/%s denied aggregation source %q: %v", key.Namespace, key.Name, sourceID, err)
 	}
 }
 

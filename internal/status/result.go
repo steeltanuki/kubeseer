@@ -78,6 +78,9 @@ func NormalizeResult(result *v1alpha1.KubeseerResult) *v1alpha1.KubeseerResult {
 		if len(source.Resources) == 0 {
 			source.Resources = nil
 		}
+		if len(source.Aggregates) == 0 {
+			source.Aggregates = nil
+		}
 		for resourceIndex := range source.Resources {
 			resource := &source.Resources[resourceIndex]
 			if len(resource.Fields) == 0 {
@@ -86,6 +89,32 @@ func NormalizeResult(result *v1alpha1.KubeseerResult) *v1alpha1.KubeseerResult {
 			for fieldIndex := range resource.Fields {
 				if len(resource.Fields[fieldIndex].Matches) == 0 {
 					resource.Fields[fieldIndex].Matches = nil
+				}
+			}
+		}
+		for aggregateIndex := range source.Aggregates {
+			aggregate := &source.Aggregates[aggregateIndex]
+			if len(aggregate.Groups) == 0 {
+				aggregate.Groups = nil
+			}
+			if len(aggregate.Failures) == 0 {
+				aggregate.Failures = nil
+			}
+			for groupIndex := range aggregate.Groups {
+				group := &aggregate.Groups[groupIndex]
+				if len(group.Keys) == 0 {
+					group.Keys = nil
+				}
+				if len(group.Contributors) == 0 {
+					group.Contributors = nil
+				}
+				if len(group.Value.Matches) == 0 {
+					group.Value.Matches = nil
+				}
+				for matchIndex := range group.Value.Matches {
+					if len(group.Value.Matches[matchIndex].Contributors) == 0 {
+						group.Value.Matches[matchIndex].Contributors = nil
+					}
 				}
 			}
 		}
@@ -116,6 +145,11 @@ func HasResultErrors(result *v1alpha1.KubeseerResult) bool {
 				if field.State == v1alpha1.FieldStateError || field.Error != nil {
 					return true
 				}
+			}
+		}
+		for _, aggregate := range source.Aggregates {
+			if aggregate.State == v1alpha1.AggregateStateDegraded || aggregate.State == v1alpha1.AggregateStateError || aggregate.Error != nil || len(aggregate.Failures) != 0 {
+				return true
 			}
 		}
 	}

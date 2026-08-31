@@ -1,0 +1,288 @@
+{
+  "schema_version": "v1alpha1",
+  "feature": "cross-namespace-aggregation",
+  "tasks": {
+    "1.1": {
+      "task_fingerprint": "sha256:a24b92980d13704a6f280a911052c24cbaf6e8030c64ee99a37ffcbdc2d25ce3",
+      "requirements_fingerprint": "sha256:e186b059871840b5a4aad9bc0472967c52ee01bca4c087451be456b2ac84f58b",
+      "design_fingerprint": "sha256:286b57aa97ad1ab9f28376243902e39ecf007e430d46845e6cc074ab23646234",
+      "tasks_fingerprint": "sha256:4165e99396de27d1c60cc14480a3759231233abc56963e8f6d36fa93c7a866e6",
+      "code_identity": "sha256:60dc228ee27373bb3a4c956d5e80819168197caaf345277845e1483471cfb84b",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-build GOMODCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-mod make test-api"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:5644a87810f1508ba60bd72f93b295c517ebb8ff7370902516599679e5b9d395"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-31T09:23:46Z"
+    },
+    "2.1": {
+      "task_fingerprint": "sha256:2810504a016c6fa55780086a922d68a970308a1c189d2af50581ad226d36b17f",
+      "requirements_fingerprint": "sha256:e186b059871840b5a4aad9bc0472967c52ee01bca4c087451be456b2ac84f58b",
+      "design_fingerprint": "sha256:286b57aa97ad1ab9f28376243902e39ecf007e430d46845e6cc074ab23646234",
+      "tasks_fingerprint": "sha256:4165e99396de27d1c60cc14480a3759231233abc56963e8f6d36fa93c7a866e6",
+      "code_identity": "sha256:a6e11142ac2884bc9b1dbc22fb881cc149d18f281172e0c009269287861af201",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-build GOMODCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-mod make test-integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:097276ec71d640d6bb18c0a225d7d00bf9b84e4c9b7b7ea140cabc227804c6d2"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-31T09:32:28Z"
+    },
+    "3.1": {
+      "task_fingerprint": "sha256:b9c76ccfcb03fbc3952ed1f11502827397541f820526e446ea8623ba80bf6c92",
+      "requirements_fingerprint": "sha256:e186b059871840b5a4aad9bc0472967c52ee01bca4c087451be456b2ac84f58b",
+      "design_fingerprint": "sha256:286b57aa97ad1ab9f28376243902e39ecf007e430d46845e6cc074ab23646234",
+      "tasks_fingerprint": "sha256:4165e99396de27d1c60cc14480a3759231233abc56963e8f6d36fa93c7a866e6",
+      "code_identity": "sha256:baa025d09e23361a18b8832f62cdfb9b949ed8377356df728b91d506f355a198",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-build GOMODCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-mod make test-integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:06a193c20bb89fc36fa97ab91c91cf5ffae762b50a28aa972c62606d92cfa6e3"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-31T09:41:18Z"
+    },
+    "4.1": {
+      "task_fingerprint": "sha256:670c59915dfde94327f2d61c271acef4367b5713b19371855148c6e8af911eb5",
+      "requirements_fingerprint": "sha256:e186b059871840b5a4aad9bc0472967c52ee01bca4c087451be456b2ac84f58b",
+      "design_fingerprint": "sha256:286b57aa97ad1ab9f28376243902e39ecf007e430d46845e6cc074ab23646234",
+      "tasks_fingerprint": "sha256:4165e99396de27d1c60cc14480a3759231233abc56963e8f6d36fa93c7a866e6",
+      "code_identity": "sha256:eadb2662081efee61aeb92a35996629cc79602de20ac2a90473445501b6bbf5a",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-build GOMODCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-mod make test-integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:b621d835887aea9eeba4cc3b55837cbb55c7e925b34689c61afc10a0603665ec"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-31T09:43:31Z"
+    },
+    "4.2": {
+      "task_fingerprint": "sha256:9c0f2396afd6dffb1b83159f0488a0c9570f0d30a271739692e184af9cc6e6e5",
+      "requirements_fingerprint": "sha256:e186b059871840b5a4aad9bc0472967c52ee01bca4c087451be456b2ac84f58b",
+      "design_fingerprint": "sha256:286b57aa97ad1ab9f28376243902e39ecf007e430d46845e6cc074ab23646234",
+      "tasks_fingerprint": "sha256:4165e99396de27d1c60cc14480a3759231233abc56963e8f6d36fa93c7a866e6",
+      "code_identity": "sha256:729deebe9cb1b02ed79a88dec1aa55eb246ace6244feda8b7cdacc244977e22a",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-build GOMODCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-mod make test-integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:4e6a65bce0e09f5f69b4243fcd42deaaa1ea426a08026adc4cf932d104cb39f2"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-31T09:45:33Z"
+    },
+    "5.1": {
+      "task_fingerprint": "sha256:1e25eaf6f39d54e7b6d6d47365af9a404d733d5dbe0cd03dfa471f076d256b16",
+      "requirements_fingerprint": "sha256:e186b059871840b5a4aad9bc0472967c52ee01bca4c087451be456b2ac84f58b",
+      "design_fingerprint": "sha256:286b57aa97ad1ab9f28376243902e39ecf007e430d46845e6cc074ab23646234",
+      "tasks_fingerprint": "sha256:4165e99396de27d1c60cc14480a3759231233abc56963e8f6d36fa93c7a866e6",
+      "code_identity": "sha256:85db9d27d0d8af03d798a32eb3cd3dbeadae0c2cdf7f323a7e897e9cd574729a",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-build GOMODCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-mod make test-integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:f6161679a1d57b963a2c12804a6eb68ed43120000e0f433c845595b490c89edd"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-31T09:50:00Z"
+    },
+    "6.1": {
+      "task_fingerprint": "sha256:a84ff6e1beab818658e67b15ea2e3ab08c5c50048bf78abc6353955061e4eb8e",
+      "requirements_fingerprint": "sha256:e186b059871840b5a4aad9bc0472967c52ee01bca4c087451be456b2ac84f58b",
+      "design_fingerprint": "sha256:286b57aa97ad1ab9f28376243902e39ecf007e430d46845e6cc074ab23646234",
+      "tasks_fingerprint": "sha256:4165e99396de27d1c60cc14480a3759231233abc56963e8f6d36fa93c7a866e6",
+      "code_identity": "sha256:0e2b87399db4ad06e4abf6006b47c0dd73cc5951a6ba607ddfcd44004212e902",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "probe failed: exit 1",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-build GOMODCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-mod make test-integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:58f1e0e1ce5265d30dcd45b33fed8f351b0987dacf8453d446498162b14be75f"
+        },
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-build GOMODCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-mod make test-api"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:f7e1082f1c0d40c22dc4957500acb0ac7a9359e56eebe6331dcccb410f67cacb"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-31T10:04:24Z"
+    },
+    "7.1": {
+      "task_fingerprint": "sha256:94c64fb6f140e919d797d3b1950fb03a1af1aa65bb7a5012a82c687b74228138",
+      "requirements_fingerprint": "sha256:e186b059871840b5a4aad9bc0472967c52ee01bca4c087451be456b2ac84f58b",
+      "design_fingerprint": "sha256:286b57aa97ad1ab9f28376243902e39ecf007e430d46845e6cc074ab23646234",
+      "tasks_fingerprint": "sha256:4165e99396de27d1c60cc14480a3759231233abc56963e8f6d36fa93c7a866e6",
+      "code_identity": "sha256:0e2b87399db4ad06e4abf6006b47c0dd73cc5951a6ba607ddfcd44004212e902",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-build GOMODCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-mod make verify"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:08a4b74cc332b5b0264cd00fdbf85ab2c3da3dc078324b65f5d67a8bd3201a45"
+        },
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-build GOMODCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-mod make test GO_TEST_FLAGS=-race"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:7402998d90bf4c2c6a91a93ad1c03b5b063e42978794de2180796eac6b0fa808"
+        },
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-build GOMODCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-mod make test-compatibility"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:4cd0edc5b4599c5780f106a870e4dd1952718ba9d17c3b01c0aa50248a4a7179"
+        },
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-build GOMODCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-mod go build ./..."
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-build GOMODCACHE=/tmp/kubeseer-cross-namespace-aggregation-go-mod go mod tidy -diff"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-31T10:10:11Z"
+    }
+  }
+}
