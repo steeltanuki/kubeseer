@@ -48,6 +48,7 @@ type KubeseerSpec struct {
 	// +optional
 	// +listType=map
 	// +listMapKey=id
+	// +kubebuilder:validation:MaxItems=32
 	Sources []KubeseerSource `json:"sources,omitempty"`
 }
 
@@ -73,11 +74,13 @@ type KubeseerSource struct {
 	// +optional
 	// +listType=map
 	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=64
 	Fields []KubeseerField `json:"fields,omitempty"`
 
 	// +optional
 	// +listType=map
 	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=32
 	Aggregations []KubeseerAggregation `json:"aggregations,omitempty"`
 }
 
@@ -127,6 +130,7 @@ type KubeseerAggregation struct {
 
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=16
 	GroupBy []string `json:"groupBy,omitempty"`
 
 	// +optional
@@ -162,6 +166,7 @@ type KubeseerField struct {
 
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=16
 	Operators []KubeseerOperator `json:"operators,omitempty"`
 }
 
@@ -215,6 +220,7 @@ type KubeseerOperator struct {
 
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=128
 	Values []KubeseerOperatorOperand `json:"values,omitempty"`
 }
 
@@ -271,6 +277,7 @@ type ResourceReference struct {
 // distinguishable from an omitted namespace block after serialization.
 type NamespaceSelection struct {
 	// +listType=set
+	// +kubebuilder:validation:MaxItems=64
 	// +kubebuilder:validation:items:MaxLength=63
 	// +kubebuilder:validation:items:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
 	Names []string `json:"names"`
@@ -284,10 +291,12 @@ type ResourceSelector struct {
 	Name string `json:"name,omitempty"`
 
 	// +optional
+	// +kubebuilder:validation:MaxProperties=64
 	MatchLabels map[string]string `json:"matchLabels,omitempty"`
 
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=64
 	MatchExpressions []metav1.LabelSelectorRequirement `json:"matchExpressions,omitempty"`
 
 	// +optional

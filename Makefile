@@ -35,6 +35,7 @@ manifests:
 verify:
 	./hack/verify-generated.sh
 	./hack/verify-test-layer-policy.sh
+	./hack/verify-admission-boundaries.sh
 
 test:
 	@set -eu; \
@@ -60,7 +61,8 @@ test-api:
 	GO_TEST_FLAGS="$(GO_TEST_FLAGS)" KUBEBUILDER_ASSETS="$$assets" ./hack/test-layer-runner.sh kubernetes-api $(API_PACKAGE) '^TestAPIContract$$' required; \
 	GO_TEST_FLAGS="$(GO_TEST_FLAGS)" KUBEBUILDER_ASSETS="$$assets" ./hack/test-layer-runner.sh kubernetes-api ./internal/discovery '^TestEnvtestDiscovery$$' required; \
 	GO_TEST_FLAGS="$(GO_TEST_FLAGS)" KUBEBUILDER_ASSETS="$$assets" ./hack/test-layer-runner.sh kubernetes-api ./internal/selection '^TestEnvtestSelection$$' required; \
-	GO_TEST_FLAGS="$(GO_TEST_FLAGS)" KUBEBUILDER_ASSETS="$$assets" ./hack/test-layer-runner.sh kubernetes-api ./test/envtest '^TestEnvtestReconciliationRuntime$$' required
+	GO_TEST_FLAGS="$(GO_TEST_FLAGS)" KUBEBUILDER_ASSETS="$$assets" ./hack/test-layer-runner.sh kubernetes-api ./test/envtest '^TestEnvtestReconciliationRuntime$$' required; \
+	GO_TEST_FLAGS="$(GO_TEST_FLAGS)" KUBEBUILDER_ASSETS="$$assets" ./hack/test-layer-runner.sh kubernetes-api ./test/envtest '^TestEnvtestAdmissionValidation$$' required
 
 test-compatibility:
 	@set -eu; \

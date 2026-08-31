@@ -59,6 +59,7 @@ type KubeseerAccessPolicySpec struct {
 	Namespaces NamespacePolicy `json:"namespaces"`
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=128
 	Resources []ResourceRule `json:"resources,omitempty"`
 	// +optional
 	// +kubebuilder:default:=false
@@ -72,12 +73,14 @@ type NamespacePolicy struct {
 
 	// +optional
 	// +listType=set
+	// +kubebuilder:validation:MaxItems=256
 	// +kubebuilder:validation:items:MaxLength=63
 	// +kubebuilder:validation:items:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
 	Include []string `json:"include,omitempty"`
 
 	// +optional
 	// +listType=set
+	// +kubebuilder:validation:MaxItems=256
 	// +kubebuilder:validation:items:MaxLength=63
 	// +kubebuilder:validation:items:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
 	Exclude []string `json:"exclude,omitempty"`
@@ -86,6 +89,7 @@ type NamespacePolicy struct {
 	// have different defaulting semantics for system namespace classification.
 	// +optional
 	// +listType=set
+	// +kubebuilder:validation:MaxItems=256
 	// +kubebuilder:default:={"kube-system", "kube-public", "kube-node-lease"}
 	// +kubebuilder:validation:items:MaxLength=63
 	// +kubebuilder:validation:items:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
@@ -96,11 +100,13 @@ type NamespacePolicy struct {
 type ResourceRule struct {
 	// +listType=set
 	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=64
 	// +kubebuilder:validation:items:MaxLength=253
 	// +kubebuilder:validation:items:Pattern=`^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	APIGroups []string `json:"apiGroups"`
 	// +listType=set
 	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=64
 	// +kubebuilder:validation:items:MaxLength=63
 	// +kubebuilder:validation:items:Pattern=`^[A-Z][A-Za-z0-9]*$`
 	Kinds []string `json:"kinds"`

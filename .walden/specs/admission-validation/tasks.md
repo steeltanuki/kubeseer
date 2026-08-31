@@ -2,7 +2,7 @@
 walden_schema_version: v1alpha1
 status: approved
 approved_at: 2026-08-31T13:33:39Z
-last_modified: 2026-08-31T13:33:39Z
+last_modified: 2026-08-31T14:58:31Z
 approved_fingerprint: sha256:5e00abc086fe0bf48be82b6643f6bf9b3d50777226cab56fe631a4ba7b06de9e
 source_design_approved_at: 2026-08-31T11:23:51Z
 source_design_fingerprint: sha256:1de1e7d444390d4970bc924e74f5f3e34ba03c7c053712f1d03e72560bef69a6
@@ -12,8 +12,8 @@ source_design_fingerprint: sha256:1de1e7d444390d4970bc924e74f5f3e34ba03c7c053712
 
 <!-- assumed: all automated proof remains in genuine cross-module integration and envtest layers, with no dedicated package-local unit suite (source: approved Design / Testing Strategy and .walden/constitution.md) -->
 
-- [ ] 1. Enforce structural schemas and bounded admission input
-  - [ ] 1.1 Add generated schema constraints, immutable limits, and pre-I/O budget guards
+- [x] 1. Enforce structural schemas and bounded admission input
+  - [x] 1.1 Add generated schema constraints, immutable limits, and pre-I/O budget guards
     - Add the approved required, enum, pattern, length, range, list-map/set,
       maximum-items, and maximum-properties markers across every public
       `Kubeseer` and `KubeseerAccessPolicy` configuration field. Keep the API
@@ -46,8 +46,8 @@ source_design_fingerprint: sha256:1de1e7d444390d4970bc924e74f5f3e34ba03c7c053712
         timeout: 35m
         covers: ["R2.AC6", "R2.AC7", "R2.AC8", "R2.AC9", "R2.AC10", "R2.AC11", "R2.AC12", "R2.AC13", "R2.AC14", "R2.AC15", "R2.AC16", "R2.AC17", "R2.AC18", "R2.AC19", "R2.AC20", "R2.AC21", "R2.AC22", "R2.AC23", "R2.AC24", "NFR4", "C8"]
 
-- [ ] 2. Expose complete shared declarative validation outcomes
-  - [ ] 2.1 Extend approved planners and the policy compiler with sorted multi-error contracts
+- [x] 2. Expose complete shared declarative validation outcomes
+  - [x] 2.1 Extend approved planners and the policy compiler with sorted multi-error contracts
     - Extend selection/static parsing, extraction, typed output, operators,
       aggregation, and access-policy validation to expose every independent
       declaration failure with stable source, field, operator, aggregate, and
@@ -78,8 +78,8 @@ source_design_fingerprint: sha256:1de1e7d444390d4970bc924e74f5f3e34ba03c7c053712
         timeout: 35m
         covers: ["R3.AC1", "R3.AC2", "R3.AC3", "R3.AC4", "R3.AC5", "R3.AC6", "R3.AC7", "R3.AC8", "R3.AC9", "R3.AC10", "R3.AC11", "R3.AC12", "R3.AC13", "R3.AC14", "R4.AC1", "R4.AC2", "R4.AC3", "R4.AC4", "R4.AC5", "R4.AC6", "R4.AC7", "R4.AC8", "R4.AC9", "R4.AC10", "R4.AC11", "R4.AC12", "R4.AC13", "R4.AC14", "R4.AC15", "R4.AC16", "R4.AC17", "R4.AC18", "R6.AC9", "R6.AC10", "R6.AC11", "R7.AC2", "R7.AC3", "R7.AC4", "R7.AC5", "R7.AC12", "R7.AC13", "R8.AC8", "NFR3", "NFR5", "NFR8", "C1", "C4", "C9"]
 
-- [ ] 3. Orchestrate current discovery and exact-target installation policy validation
-  - [ ] 3.1 Build the staged Kubeseer validator without resource-instance I/O or capabilities
+- [x] 3. Orchestrate current discovery and exact-target installation policy validation
+  - [x] 3.1 Build the staged Kubeseer validator without resource-instance I/O or capabilities
     - Implement `internal/admission.Validator` so static/budget failures stop
       dynamic work, then every otherwise valid source is planned sequentially
       through current discovery and `selection.Planner`. Retain discovered GVR,
@@ -108,8 +108,8 @@ source_design_fingerprint: sha256:1de1e7d444390d4970bc924e74f5f3e34ba03c7c053712
         timeout: 35m
         covers: ["R1.AC11", "R5.AC1", "R5.AC2", "R5.AC3", "R5.AC4", "R5.AC5", "R5.AC6", "R5.AC7", "R5.AC8", "R5.AC9", "R6.AC1", "R6.AC2", "R6.AC3", "R6.AC4", "R6.AC5", "R6.AC6", "R6.AC7", "R6.AC8", "R6.AC13", "R7.AC1", "R7.AC7", "R7.AC8", "R7.AC9", "R7.AC10", "R7.AC11", "R7.AC14", "NFR1", "NFR3", "NFR5", "NFR6", "C5", "C6"]
 
-- [ ] 4. Expose the AdmissionReview v1 handler and installable registration contract
-  - [ ] 4.1 Add typed handlers, Kubernetes Status mapping, and endpoint-agnostic webhook configuration
+- [x] 4. Expose the AdmissionReview v1 handler and installable registration contract
+  - [x] 4.1 Add typed handlers, Kubernetes Status mapping, and endpoint-agnostic webhook configuration
     - Register generic controller-runtime validators for `Kubeseer` and
       `KubeseerAccessPolicy` at the two approved stable paths. Validate proposed
       objects on CREATE/UPDATE, defensively allow DELETE, preserve dry-run
@@ -139,8 +139,8 @@ source_design_fingerprint: sha256:1de1e7d444390d4970bc924e74f5f3e34ba03c7c053712
         timeout: 35m
         covers: ["R1.AC2", "R1.AC3", "R1.AC4", "R1.AC5", "R1.AC6", "R1.AC7", "R1.AC8", "R1.AC9", "R1.AC10", "R1.AC11", "R1.AC12", "R7.AC1", "R7.AC3", "R7.AC4", "R7.AC5", "R7.AC6", "R7.AC7", "R7.AC8", "R7.AC12", "R7.AC13", "R7.AC14", "NFR1", "NFR2", "NFR3", "NFR5", "NFR6", "NFR8", "C7", "C10"]
 
-- [ ] 5. Prove the complete TLS webhook boundary with a real API server
-  - [ ] 5.1 Add the envtest webhook harness and covered-operation scenario matrix
+- [x] 5. Prove the complete TLS webhook boundary with a real API server
+  - [x] 5.1 Add the envtest webhook harness and covered-operation scenario matrix
     - Add `TestEnvtestAdmissionValidation` under the approved envtest layer.
       Start a controller-runtime TLS webhook server with envtest serving
       material, install the generated CRDs and endpoint-injected registration
@@ -169,8 +169,8 @@ source_design_fingerprint: sha256:1de1e7d444390d4970bc924e74f5f3e34ba03c7c053712
         timeout: 50m
         covers: ["R1.AC2", "R1.AC3", "R1.AC4", "R1.AC5", "R1.AC6", "R1.AC7", "R1.AC8", "R1.AC9", "R1.AC10", "R1.AC12", "R5.AC1", "R5.AC2", "R5.AC3", "R5.AC4", "R5.AC5", "R5.AC6", "R5.AC7", "R5.AC8", "R6.AC1", "R6.AC2", "R6.AC3", "R6.AC4", "R6.AC5", "R6.AC6", "R6.AC7", "R6.AC9", "R6.AC10", "R6.AC11", "R7.AC1", "R7.AC6", "R7.AC7", "R7.AC8", "R7.AC14", "NFR2", "NFR6", "NFR7", "NFR8", "C7", "C10"]
 
-- [ ] 6. Preserve runtime authority across legacy objects and cluster drift
-  - [ ] 6.1 Prove independent replanning, rediscovery, authorization, and policy invalidation
+- [x] 6. Preserve runtime authority across legacy objects and cluster drift
+  - [x] 6.1 Prove independent replanning, rediscovery, authorization, and policy invalidation
     - Extend the production module collaboration to show that an admitted
       object yields no retained plan, discovery proof, policy snapshot, or
       authorization capability. At reconciliation, repeat semantic planning,
@@ -201,8 +201,8 @@ source_design_fingerprint: sha256:1de1e7d444390d4970bc924e74f5f3e34ba03c7c053712
         timeout: 50m
         covers: ["R6.AC12", "R8.AC1", "R8.AC2", "R8.AC3", "R8.AC4", "R8.AC5", "R8.AC6", "R8.AC7", "R8.AC8", "R8.AC9", "NFR1", "NFR5", "NFR7", "NFR8", "C6", "C9"]
 
-- [ ] 7. Complete higher-layer and repository verification
-  - [ ] 7.1 Verify comprehensive coverage, boundaries, race safety, compatibility, and generated state
+- [x] 7. Complete higher-layer and repository verification
+  - [x] 7.1 Verify comprehensive coverage, boundaries, race safety, compatibility, and generated state
     - Complete the cross-module scenario matrix so every approved admission
       requirement is exercised through production collaborations, with only
       discovery and policy-reader infrastructure adapted at their existing

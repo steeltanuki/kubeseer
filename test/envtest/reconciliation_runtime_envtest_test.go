@@ -28,6 +28,7 @@ import (
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
 	"github.com/steeltanuki/kubeseer/internal/accesspolicy"
+	"github.com/steeltanuki/kubeseer/internal/admission"
 	"github.com/steeltanuki/kubeseer/internal/authorization"
 	discoveryruntime "github.com/steeltanuki/kubeseer/internal/discovery"
 	"github.com/steeltanuki/kubeseer/internal/operators"
@@ -802,6 +803,7 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	t.Log("API_CONTRACT=status-and-conditions-transitions STATUS=passed")
 	t.Log("API_CONTRACT=value-operators-pipeline STATUS=passed")
 	t.Log("API_CONTRACT=cross-namespace-aggregation-pipeline STATUS=passed")
+	t.Log("API_CONTRACT=admission-validation-runtime STATUS=passed")
 }
 
 func runtimeEnvtestKubeseer(key types.NamespacedName, source v1alpha1.KubeseerSource) *v1alpha1.Kubeseer {
@@ -1803,6 +1805,132 @@ func runRuntimeEnvtestAdapterScenarios(t *testing.T, ctx context.Context, apiCli
 	}
 
 	runRuntimeEnvtestAuthorizationPaginationScenario(t, ctx, apiClient, clients, resolver, namespace, adapterKey)
+	runAdmissionValidationRuntimeEnvtestScenario(t, ctx, apiClient, clients, resolver, discoveryClient, namespace, runtimeInstance, resourceLister, tracker)
+}
+
+func runAdmissionValidationRuntimeEnvtestScenario(t *testing.T, ctx context.Context, apiClient crclient.Client, clients Clients, resolver *discoveryruntime.Resolver, discoveryClient *runtimeEnvtestDiscoveryAdapter, namespace string, runtimeInstance *reconciliation.Runtime, resourceLister *runtimeEnvtestResourceListerAdapter, tracker *reconciliation.FreshnessTracker) {
+	t.Helper()
+	legacyKey := types.NamespacedName{Namespace: namespace, Name: "runtime-admission-legacy"}
+	admittedKey := types.NamespacedName{Namespace: namespace, Name: "runtime-admission-admitted"}
+	source := runtimeEnvtestObservedSource("runtime-admission-source")
+	source.Selector = &v1alpha1.ResourceSelector{MatchLabels: map[string]string{"admission-runtime": "yes"}}
+	observedResources := clients.Dynamic.Resource(schema.GroupVersionResource{Group: "runtime.kubeseer.io", Version: "v1", Resource: "observations"}).Namespace(namespace)
+	fixture := runtimeEnvtestObservation("runtime-admission-observation", namespace, "yes", "runtime-admission-value")
+	fixture.SetLabels(map[string]string{"admission-runtime": "yes"})
+	if _, err := observedResources.Create(ctx, fixture, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("create admission-runtime observed fixture: %v", err)
+	}
+	defer func() {
+		for _, key := range []types.NamespacedName{legacyKey, admittedKey} {
+			object := &v1alpha1.Kubeseer{}
+			if err := apiClient.Get(ctx, key, object); err == nil {
+				if err := apiClient.Delete(ctx, object); err != nil && !apierrors.IsNotFound(err) {
+					t.Errorf("delete admission-runtime Kubeseer %s/%s: %v", key.Namespace, key.Name, err)
+				}
+			}
+		}
+		if err := observedResources.Delete(ctx, fixture.GetName(), metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+			t.Errorf("delete admission-runtime observed fixture: %v", err)
+		}
+	}()
+
+	legacy := runtimeEnvtestKubeseer(legacyKey, source)
+	if err := apiClient.Create(ctx, legacy); err != nil {
+		t.Fatalf("create pre-webhook legacy Kubeseer: %v", err)
+	}
+	admitted := runtimeEnvtestKubeseer(admittedKey, source)
+	validator := admission.NewValidator(discoveryruntime.NewResolver(discoveryClient), accesspolicy.NewClientPolicySource(apiClient))
+	if result := validator.ValidateKubeseer(ctx, admitted); !result.Valid() {
+		t.Fatalf("admitted runtime fixture was rejected: %#v", result.IssuesCopy())
+	}
+	if err := apiClient.Create(ctx, admitted); err != nil {
+		t.Fatalf("create previously admitted Kubeseer: %v", err)
+	}
+
+	resolver.InvalidateAll()
+	for _, key := range []types.NamespacedName{legacyKey, admittedKey} {
+		if _, err := runtimeInstance.Reconcile(ctx, reconcile.Request{NamespacedName: key}); err != nil {
+			t.Fatalf("initial runtime revalidation for %s/%s: %v", key.Namespace, key.Name, err)
+		}
+		waitRuntimeSourceStates(t, ctx, apiClient, key, 1, v1alpha1.SourceStateValues, 1, "")
+	}
+
+	listCallsBeforeDiscoveryDrift := len(resourceLister.Calls())
+	for _, key := range []types.NamespacedName{legacyKey, admittedKey} {
+		discoveryClient.FailNext()
+		resolver.InvalidateAll()
+		_, err := runtimeInstance.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+		if !reconciliation.IsRetryable(err) {
+			t.Fatalf("runtime discovery drift for %s/%s = %v, want retryable error", key.Namespace, key.Name, err)
+		}
+		waitRuntimeSourceStates(t, ctx, apiClient, key, 1, v1alpha1.SourceStateError, 0, "")
+	}
+	if len(resourceLister.Calls()) != listCallsBeforeDiscoveryDrift {
+		t.Fatalf("discovery drift issued resource LIST: before=%d after=%d", listCallsBeforeDiscoveryDrift, len(resourceLister.Calls()))
+	}
+
+	resolver.InvalidateAll()
+	for _, key := range []types.NamespacedName{legacyKey, admittedKey} {
+		if _, err := runtimeInstance.Reconcile(ctx, reconcile.Request{NamespacedName: key}); err != nil {
+			t.Fatalf("runtime discovery recovery for %s/%s: %v", key.Namespace, key.Name, err)
+		}
+		waitRuntimeSourceStates(t, ctx, apiClient, key, 1, v1alpha1.SourceStateValues, 1, "")
+	}
+
+	policy := &v1alpha1.KubeseerAccessPolicy{}
+	if err := apiClient.Get(ctx, types.NamespacedName{Name: v1alpha1.InstallationAccessCeilingName}, policy); err != nil {
+		t.Fatalf("read policy before runtime narrowing: %v", err)
+	}
+	policy.Spec.Resources = []v1alpha1.ResourceRule{{APIGroups: []string{""}, Kinds: []string{"Node"}}}
+	if err := apiClient.Update(ctx, policy); err != nil {
+		t.Fatalf("narrow runtime policy after admission: %v", err)
+	}
+	tracker.InvalidateAll()
+	listCallsBeforeNarrowing := len(resourceLister.Calls())
+	for _, key := range []types.NamespacedName{legacyKey, admittedKey} {
+		if _, err := runtimeInstance.Reconcile(ctx, reconcile.Request{NamespacedName: key}); err != nil {
+			t.Fatalf("runtime policy narrowing for %s/%s: %v", key.Namespace, key.Name, err)
+		}
+		waitRuntimeSourceStates(t, ctx, apiClient, key, 1, v1alpha1.SourceStateError, 0, "")
+	}
+	if len(resourceLister.Calls()) != listCallsBeforeNarrowing {
+		t.Fatalf("narrowed policy issued resource LIST: before=%d after=%d", listCallsBeforeNarrowing, len(resourceLister.Calls()))
+	}
+
+	if err := apiClient.Delete(ctx, policy); err != nil {
+		t.Fatalf("delete runtime policy after admission: %v", err)
+	}
+	tracker.InvalidateAll()
+	listCallsBeforeDeletion := len(resourceLister.Calls())
+	for _, key := range []types.NamespacedName{legacyKey, admittedKey} {
+		if _, err := runtimeInstance.Reconcile(ctx, reconcile.Request{NamespacedName: key}); err != nil {
+			t.Fatalf("runtime policy deletion for %s/%s: %v", key.Namespace, key.Name, err)
+		}
+		waitRuntimeSourceStates(t, ctx, apiClient, key, 1, v1alpha1.SourceStateError, 0, "")
+		status := &v1alpha1.Kubeseer{}
+		if err := apiClient.Get(ctx, key, status); err != nil {
+			t.Fatalf("read policy-deletion status for %s/%s: %v", key.Namespace, key.Name, err)
+		}
+		assertRuntimeCondition(t, status.Status, statuscontract.ConditionAuthorized, metav1.ConditionFalse, statuscontract.ReasonPolicyMissing)
+	}
+	if len(resourceLister.Calls()) != listCallsBeforeDeletion {
+		t.Fatalf("missing policy issued resource LIST: before=%d after=%d", listCallsBeforeDeletion, len(resourceLister.Calls()))
+	}
+
+	if err := apiClient.Create(ctx, runtimeEnvtestPolicy(namespace)); err != nil {
+		t.Fatalf("recreate runtime policy after admission drift: %v", err)
+	}
+	tracker.InvalidateAll()
+	listCallsBeforeRecovery := len(resourceLister.Calls())
+	for _, key := range []types.NamespacedName{legacyKey, admittedKey} {
+		if _, err := runtimeInstance.Reconcile(ctx, reconcile.Request{NamespacedName: key}); err != nil {
+			t.Fatalf("runtime policy recovery for %s/%s: %v", key.Namespace, key.Name, err)
+		}
+		waitRuntimeSourceStates(t, ctx, apiClient, key, 1, v1alpha1.SourceStateValues, 1, "")
+	}
+	if len(resourceLister.Calls()) != listCallsBeforeRecovery+2 {
+		t.Fatalf("runtime policy recovery LIST calls = %d, want %d", len(resourceLister.Calls()), listCallsBeforeRecovery+2)
+	}
 }
 
 func runRuntimeEnvtestAuthorizationPaginationScenario(t *testing.T, ctx context.Context, apiClient crclient.Client, clients Clients, resolver *discoveryruntime.Resolver, namespace string, key types.NamespacedName) {
@@ -2022,6 +2150,7 @@ type runtimeEnvtestResourceListerAdapter struct {
 	failNext   bool
 	forbidNext bool
 	block      *runtimeEnvtestListBlock
+	calls      []selection.ReadTarget
 }
 
 type runtimeEnvtestListBlock struct {
@@ -2047,9 +2176,19 @@ func (a *runtimeEnvtestResourceListerAdapter) BlockNext(release <-chan struct{},
 	a.mu.Unlock()
 }
 
+func (a *runtimeEnvtestResourceListerAdapter) Calls() []selection.ReadTarget {
+	if a == nil {
+		return nil
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]selection.ReadTarget(nil), a.calls...)
+}
+
 func (a *runtimeEnvtestResourceListerAdapter) List(ctx context.Context, read selection.AuthorizedRead, options metav1.ListOptions) (*unstructured.UnstructuredList, error) {
 	target := read.Target()
 	a.mu.Lock()
+	a.calls = append(a.calls, target)
 	fail := a.failNext
 	a.failNext = false
 	forbid := a.forbidNext

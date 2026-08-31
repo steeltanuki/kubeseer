@@ -17,6 +17,7 @@ package v1alpha1_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -129,6 +130,7 @@ func TestAPIContract(t *testing.T) {
 	assertSelectionSourceAdmissionRejected(t, ctx, resources, namespace)
 	assertNegativeObservedGenerationRejected(t, ctx, resources, namespace)
 	assertStatusUpdatePreservesSpec(t, ctx, resources, namespace)
+	assertAdmissionValidationStructureRejected(t, ctx, resources, accessPolicies, namespace)
 	assertUnservedVersionRejected(t, ctx, clients.Dynamic, namespace)
 	assertAccessPolicyDefaultingAndEmptyOverride(t, ctx, accessPolicies)
 	assertAccessPolicyValidation(t, ctx, accessPolicies)
@@ -144,6 +146,7 @@ func TestAPIContract(t *testing.T) {
 	t.Log("API_CONTRACT=value-operators-types STATUS=passed")
 	t.Log("API_CONTRACT=status-and-conditions-api STATUS=passed")
 	t.Log("API_CONTRACT=cross-namespace-aggregation-types STATUS=passed")
+	t.Log("API_CONTRACT=admission-validation-structure STATUS=passed")
 }
 
 func assertTypedSchemeAndClient(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface, namespace string, config *rest.Config) {
@@ -1066,6 +1069,7 @@ func assertInstalledCRDContract(t *testing.T, ctx context.Context, client apiext
 	if !found || sources.Type != "array" || sources.Items == nil || sources.Items.Schema == nil || sources.XListType == nil || *sources.XListType != "map" || len(sources.XListMapKeys) != 1 || sources.XListMapKeys[0] != "id" {
 		t.Fatalf("installed CRD sources schema is incorrect: %#v", sources)
 	}
+	assertSchemaMaxItems(t, sources, "sources", 32)
 	source := sources.Items.Schema
 	idSchema, found := source.Properties["id"]
 	if !found || source.Type != "object" || !apiContractContains(source.Required, "id") || !apiContractContains(source.Required, "resource") || idSchema.Type != "string" || idSchema.MaxLength == nil || *idSchema.MaxLength != 63 || idSchema.Pattern != `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$` {
@@ -1089,6 +1093,7 @@ func assertInstalledCRDContract(t *testing.T, ctx context.Context, client apiext
 	if !found || names.Type != "array" || names.XListType == nil || *names.XListType != "set" || names.Items == nil || names.Items.Schema == nil || names.Items.Schema.MaxLength == nil || *names.Items.Schema.MaxLength != 63 || names.Items.Schema.Pattern != `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$` {
 		t.Fatalf("installed CRD namespace names schema is incorrect: %#v", names)
 	}
+	assertSchemaMaxItems(t, names, "source namespaces", 64)
 	selector, found := source.Properties["selector"]
 	if !found || selector.Type != "object" {
 		t.Fatalf("installed CRD selector schema is incorrect: %#v", selector)
@@ -1101,14 +1106,19 @@ func assertInstalledCRDContract(t *testing.T, ctx context.Context, client apiext
 	}
 	if labels, found := selector.Properties["matchLabels"]; !found || labels.Type != "object" || labels.AdditionalProperties == nil || labels.AdditionalProperties.Schema == nil || labels.AdditionalProperties.Schema.Type != "string" {
 		t.Fatalf("installed CRD matchLabels schema is incorrect: %#v", selector.Properties["matchLabels"])
+	} else {
+		assertSchemaMaxProperties(t, labels, "matchLabels", 64)
 	}
 	if expressions, found := selector.Properties["matchExpressions"]; !found || expressions.Type != "array" || expressions.Items == nil || expressions.Items.Schema == nil || expressions.XListType == nil || *expressions.XListType != "atomic" {
 		t.Fatalf("installed CRD matchExpressions schema is incorrect: %#v", selector.Properties["matchExpressions"])
+	} else {
+		assertSchemaMaxItems(t, expressions, "matchExpressions", 64)
 	}
 	fields, found := source.Properties["fields"]
 	if !found || fields.Type != "array" || fields.Items == nil || fields.Items.Schema == nil || fields.XListType == nil || *fields.XListType != "map" || len(fields.XListMapKeys) != 1 || fields.XListMapKeys[0] != "name" {
 		t.Fatalf("installed CRD fields schema is incorrect: %#v", fields)
 	}
+	assertSchemaMaxItems(t, fields, "fields", 64)
 	field := fields.Items.Schema
 	if field.Type != "object" || !apiContractContains(field.Required, "name") || !apiContractContains(field.Required, "path") {
 		t.Fatalf("installed CRD field declaration schema is incorrect: %#v", field)
@@ -1129,6 +1139,7 @@ func assertInstalledCRDContract(t *testing.T, ctx context.Context, client apiext
 	if !found || operators.Type != "array" || operators.Items == nil || operators.Items.Schema == nil || operators.XListType == nil || *operators.XListType != "atomic" {
 		t.Fatalf("installed CRD field operators schema is incorrect: %#v", operators)
 	}
+	assertSchemaMaxItems(t, operators, "operators", 16)
 	operator := operators.Items.Schema
 	if operator.Type != "object" || !apiContractContains(operator.Required, "operator") {
 		t.Fatalf("installed CRD operator entry schema is incorrect: %#v", operator)
@@ -1141,6 +1152,7 @@ func assertInstalledCRDContract(t *testing.T, ctx context.Context, client apiext
 	if !found || operatorValues.Type != "array" || operatorValues.Items == nil || operatorValues.Items.Schema == nil || operatorValues.XListType == nil || *operatorValues.XListType != "atomic" {
 		t.Fatalf("installed CRD operator values schema is incorrect: %#v", operatorValues)
 	}
+	assertSchemaMaxItems(t, operatorValues, "operator values", 128)
 	operatorOperand := operatorValues.Items.Schema
 	if operatorOperand.Type != "object" || !apiContractContains(operatorOperand.Required, "state") || operatorOperand.AdditionalProperties != nil || operatorOperand.XPreserveUnknownFields != nil {
 		t.Fatalf("installed CRD operator operand schema is incorrect: %#v", operatorOperand)
@@ -1165,6 +1177,7 @@ func assertInstalledCRDContract(t *testing.T, ctx context.Context, client apiext
 	if !found || aggregations.Type != "array" || aggregations.Items == nil || aggregations.Items.Schema == nil || aggregations.XListType == nil || *aggregations.XListType != "map" || len(aggregations.XListMapKeys) != 1 || aggregations.XListMapKeys[0] != "name" {
 		t.Fatalf("installed CRD aggregation declaration schema is incorrect: %#v", aggregations)
 	}
+	assertSchemaMaxItems(t, aggregations, "aggregations", 32)
 	aggregation := aggregations.Items.Schema
 	if aggregation.Type != "object" || !apiContractContains(aggregation.Required, "name") || !apiContractContains(aggregation.Required, "function") || !apiContractContains(aggregation.Required, "field") {
 		t.Fatalf("installed CRD aggregation declaration required fields are incorrect: %#v", aggregation)
@@ -1185,6 +1198,7 @@ func assertInstalledCRDContract(t *testing.T, ctx context.Context, client apiext
 	if !found || aggregationGroupBy.Type != "array" || aggregationGroupBy.XListType == nil || *aggregationGroupBy.XListType != "atomic" || aggregationGroupBy.Items == nil || aggregationGroupBy.Items.Schema == nil || aggregationGroupBy.Items.Schema.Type != "string" {
 		t.Fatalf("installed CRD aggregation groupBy schema is incorrect: %#v", aggregationGroupBy)
 	}
+	assertSchemaMaxItems(t, aggregationGroupBy, "aggregation groupBy", 16)
 	aggregationProvenance, found := aggregation.Properties["includeProvenance"]
 	if !found || aggregationProvenance.Type != "boolean" || aggregationProvenance.Default != nil {
 		t.Fatalf("installed CRD aggregation provenance schema is incorrect: %#v", aggregationProvenance)
@@ -1385,6 +1399,7 @@ func assertInstalledAccessPolicyCRDContract(t *testing.T, ctx context.Context, c
 		if !found || list.Type != "array" || list.Items == nil || list.Items.Schema == nil || list.XListType == nil || *list.XListType != "set" {
 			t.Fatalf("installed namespace list %q is not a set: %#v", field, list)
 		}
+		assertSchemaMaxItems(t, list, "policy namespace "+field, 256)
 		item := list.Items.Schema
 		if item.Type != "string" || item.MaxLength == nil || *item.MaxLength != 63 || item.Pattern != `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$` {
 			t.Fatalf("installed namespace list %q item validation is incorrect: %#v", field, item)
@@ -1399,6 +1414,7 @@ func assertInstalledAccessPolicyCRDContract(t *testing.T, ctx context.Context, c
 	if !found || resources.Type != "array" || resources.Items == nil || resources.Items.Schema == nil || resources.XListType == nil || *resources.XListType != "atomic" {
 		t.Fatalf("installed resource rules are not atomic: %#v", resources)
 	}
+	assertSchemaMaxItems(t, resources, "policy resource rules", 128)
 	resourceRule := resources.Items.Schema
 	if resourceRule.Type != "object" || !apiContractContains(resourceRule.Required, "apiGroups") || !apiContractContains(resourceRule.Required, "kinds") {
 		t.Fatalf("installed resource rule required fields are incorrect: %#v", resourceRule)
@@ -1407,10 +1423,12 @@ func assertInstalledAccessPolicyCRDContract(t *testing.T, ctx context.Context, c
 	if apiGroups.Type != "array" || apiGroups.MinItems == nil || *apiGroups.MinItems != 1 || apiGroups.XListType == nil || *apiGroups.XListType != "set" || apiGroups.Items == nil || apiGroups.Items.Schema == nil || apiGroups.Items.Schema.MaxLength == nil || *apiGroups.Items.Schema.MaxLength != 253 || apiGroups.Items.Schema.Pattern != `^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` {
 		t.Fatalf("installed API group validation contract is incorrect: %#v", apiGroups)
 	}
+	assertSchemaMaxItems(t, apiGroups, "policy API groups", 64)
 	kinds := resourceRule.Properties["kinds"]
 	if kinds.Type != "array" || kinds.MinItems == nil || *kinds.MinItems != 1 || kinds.XListType == nil || *kinds.XListType != "set" || kinds.Items == nil || kinds.Items.Schema == nil || kinds.Items.Schema.MaxLength == nil || *kinds.Items.Schema.MaxLength != 63 || kinds.Items.Schema.Pattern != `^[A-Z][A-Za-z0-9]*$` {
 		t.Fatalf("installed Kind validation contract is incorrect: %#v", kinds)
 	}
+	assertSchemaMaxItems(t, kinds, "policy Kinds", 64)
 
 	allowClusterScoped, found := spec.Properties["allowClusterScoped"]
 	if !found || allowClusterScoped.Type != "boolean" || allowClusterScoped.Default == nil || string(allowClusterScoped.Default.Raw) != "false" {
@@ -1428,6 +1446,20 @@ func apiContractContains(values []string, expected string) bool {
 		}
 	}
 	return false
+}
+
+func assertSchemaMaxItems(t *testing.T, schema apiextensionsv1.JSONSchemaProps, name string, want int64) {
+	t.Helper()
+	if schema.MaxItems == nil || *schema.MaxItems != want {
+		t.Fatalf("installed %s maxItems = %v, want %d", name, schema.MaxItems, want)
+	}
+}
+
+func assertSchemaMaxProperties(t *testing.T, schema apiextensionsv1.JSONSchemaProps, name string, want int64) {
+	t.Helper()
+	if schema.MaxProperties == nil || *schema.MaxProperties != want {
+		t.Fatalf("installed %s maxProperties = %v, want %d", name, schema.MaxProperties, want)
+	}
 }
 
 func equalJSONValues(values []apiextensionsv1.JSON, expected []string) bool {
@@ -1708,6 +1740,227 @@ func assertNegativeObservedGenerationRejected(t *testing.T, ctx context.Context,
 	_, err = resources.UpdateStatus(ctx, statusUpdate, metav1.UpdateOptions{})
 	if !apierrors.IsInvalid(err) {
 		t.Fatalf("invalid resultHash was not rejected as invalid: %v", err)
+	}
+}
+
+func assertAdmissionValidationStructureRejected(t *testing.T, ctx context.Context, resources, accessPolicies dynamic.ResourceInterface, namespace string) {
+	t.Helper()
+
+	validSource := func(id string) map[string]interface{} {
+		return map[string]interface{}{
+			"id":       id,
+			"resource": map[string]interface{}{"apiVersion": "v1", "kind": "Pod"},
+		}
+	}
+	validField := func(name string) map[string]interface{} {
+		return map[string]interface{}{"name": name, "path": "{.metadata.name}"}
+	}
+	validAggregation := func(name string) map[string]interface{} {
+		return map[string]interface{}{"name": name, "function": "count", "field": "value"}
+	}
+	validOperator := func() map[string]interface{} {
+		return map[string]interface{}{"operator": "exists"}
+	}
+	validOperand := func() map[string]interface{} {
+		return map[string]interface{}{"state": "value", "stringValue": "value"}
+	}
+
+	kubeseerCases := []struct {
+		name string
+		spec map[string]interface{}
+	}{
+		{
+			name: "sources",
+			spec: func() map[string]interface{} {
+				items := make([]interface{}, 33)
+				for index := range items {
+					items[index] = validSource(fmt.Sprintf("source-%03d", index))
+				}
+				return map[string]interface{}{"sources": items}
+			}(),
+		},
+		{
+			name: "source namespaces",
+			spec: map[string]interface{}{"sources": []interface{}{func() map[string]interface{} {
+				source := validSource("namespaces")
+				items := make([]interface{}, 65)
+				for index := range items {
+					items[index] = fmt.Sprintf("team-%03d", index)
+				}
+				source["namespaces"] = map[string]interface{}{"names": items}
+				return source
+			}()}},
+		},
+		{
+			name: "source fields",
+			spec: map[string]interface{}{"sources": []interface{}{func() map[string]interface{} {
+				source := validSource("fields")
+				items := make([]interface{}, 65)
+				for index := range items {
+					items[index] = validField(fmt.Sprintf("field-%03d", index))
+				}
+				source["fields"] = items
+				return source
+			}()}},
+		},
+		{
+			name: "field operators",
+			spec: map[string]interface{}{"sources": []interface{}{func() map[string]interface{} {
+				source := validSource("operators")
+				operators := make([]interface{}, 17)
+				for index := range operators {
+					operators[index] = validOperator()
+				}
+				source["fields"] = []interface{}{map[string]interface{}{"name": "value", "path": "{.metadata.name}", "operators": operators}}
+				return source
+			}()}},
+		},
+		{
+			name: "operator values",
+			spec: map[string]interface{}{"sources": []interface{}{func() map[string]interface{} {
+				source := validSource("operator-values")
+				values := make([]interface{}, 129)
+				for index := range values {
+					values[index] = validOperand()
+				}
+				source["fields"] = []interface{}{map[string]interface{}{
+					"name": "value", "path": "{.metadata.name}",
+					"operators": []interface{}{map[string]interface{}{"operator": "in", "values": values}},
+				}}
+				return source
+			}()}},
+		},
+		{
+			name: "source aggregations",
+			spec: map[string]interface{}{"sources": []interface{}{func() map[string]interface{} {
+				source := validSource("aggregations")
+				items := make([]interface{}, 33)
+				for index := range items {
+					items[index] = validAggregation(fmt.Sprintf("aggregate-%03d", index))
+				}
+				source["aggregations"] = items
+				return source
+			}()}},
+		},
+		{
+			name: "aggregation groupBy",
+			spec: map[string]interface{}{"sources": []interface{}{func() map[string]interface{} {
+				source := validSource("group-by")
+				items := make([]interface{}, 17)
+				for index := range items {
+					items[index] = fmt.Sprintf("field-%03d", index)
+				}
+				source["aggregations"] = []interface{}{map[string]interface{}{"name": "aggregate", "function": "count", "field": "value", "groupBy": items}}
+				return source
+			}()}},
+		},
+		{
+			name: "selector matchExpressions",
+			spec: map[string]interface{}{"sources": []interface{}{func() map[string]interface{} {
+				source := validSource("expressions")
+				items := make([]interface{}, 65)
+				for index := range items {
+					items[index] = map[string]interface{}{"key": fmt.Sprintf("label-%03d", index), "operator": "In", "values": []interface{}{"backend"}}
+				}
+				source["selector"] = map[string]interface{}{"matchExpressions": items}
+				return source
+			}()}},
+		},
+		{
+			name: "selector matchLabels",
+			spec: map[string]interface{}{"sources": []interface{}{func() map[string]interface{} {
+				source := validSource("labels")
+				labels := make(map[string]interface{}, 65)
+				for index := 0; index < 65; index++ {
+					labels[fmt.Sprintf("label-%03d", index)] = "backend"
+				}
+				source["selector"] = map[string]interface{}{"matchLabels": labels}
+				return source
+			}()}},
+		},
+	}
+	for _, test := range kubeseerCases {
+		t.Run("Kubeseer "+test.name, func(t *testing.T) {
+			name := "budget-" + strings.ReplaceAll(test.name, " ", "-")
+			assertInvalidCreate(t, ctx, resources, newKubeseer(name, namespace, test.spec), test.name)
+			assertNotPersisted(t, ctx, resources, name)
+		})
+	}
+
+	validRule := func() map[string]interface{} {
+		return map[string]interface{}{"apiGroups": []interface{}{""}, "kinds": []interface{}{"Pod"}}
+	}
+	policyCases := []struct {
+		name   string
+		mutate func(map[string]interface{})
+	}{
+		{
+			name: "namespace include",
+			mutate: func(spec map[string]interface{}) {
+				items := make([]interface{}, 257)
+				for index := range items {
+					items[index] = fmt.Sprintf("include-%03d", index)
+				}
+				spec["namespaces"].(map[string]interface{})["include"] = items
+			},
+		},
+		{
+			name: "namespace exclude",
+			mutate: func(spec map[string]interface{}) {
+				items := make([]interface{}, 257)
+				for index := range items {
+					items[index] = fmt.Sprintf("exclude-%03d", index)
+				}
+				spec["namespaces"].(map[string]interface{})["exclude"] = items
+			},
+		},
+		{
+			name: "system namespaces",
+			mutate: func(spec map[string]interface{}) {
+				items := make([]interface{}, 257)
+				for index := range items {
+					items[index] = fmt.Sprintf("system-%03d", index)
+				}
+				spec["namespaces"].(map[string]interface{})["systemNamespaces"] = items
+			},
+		},
+		{
+			name: "resource rules",
+			mutate: func(spec map[string]interface{}) {
+				items := make([]interface{}, 129)
+				for index := range items {
+					items[index] = validRule()
+				}
+				spec["resources"] = items
+			},
+		},
+		{
+			name: "resource API groups",
+			mutate: func(spec map[string]interface{}) {
+				items := make([]interface{}, 65)
+				for index := range items {
+					items[index] = fmt.Sprintf("group-%03d.example.com", index)
+				}
+				spec["resources"] = []interface{}{map[string]interface{}{"apiGroups": items, "kinds": []interface{}{"Pod"}}}
+			},
+		},
+		{
+			name: "resource Kinds",
+			mutate: func(spec map[string]interface{}) {
+				items := make([]interface{}, 65)
+				for index := range items {
+					items[index] = fmt.Sprintf("Kind%03d", index)
+				}
+				spec["resources"] = []interface{}{map[string]interface{}{"apiGroups": []interface{}{""}, "kinds": items}}
+			},
+		},
+	}
+	for _, test := range policyCases {
+		t.Run("KubeseerAccessPolicy "+test.name, func(t *testing.T) {
+			spec := validAccessPolicySpec()
+			test.mutate(spec)
+			assertInvalidCreate(t, ctx, accessPolicies, newAccessPolicy(InstallationAccessCeilingName, spec), test.name)
+		})
 	}
 }
 

@@ -75,6 +75,7 @@ spec:
                           groupBy:
                             items:
                               type: string
+                            maxItems: 16
                             type: array
                             x-kubernetes-list-type: atomic
                           includeProvenance:
@@ -102,6 +103,7 @@ spec:
                         - function
                         - name
                         type: object
+                      maxItems: 32
                       type: array
                       x-kubernetes-list-map-keys:
                       - name
@@ -215,11 +217,13 @@ spec:
                                     required:
                                     - state
                                     type: object
+                                  maxItems: 128
                                   type: array
                                   x-kubernetes-list-type: atomic
                               required:
                               - operator
                               type: object
+                            maxItems: 16
                             type: array
                             x-kubernetes-list-type: atomic
                           path:
@@ -246,6 +250,7 @@ spec:
                         - name
                         - path
                         type: object
+                      maxItems: 64
                       type: array
                       x-kubernetes-list-map-keys:
                       - name
@@ -264,6 +269,7 @@ spec:
                             maxLength: 63
                             pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                             type: string
+                          maxItems: 64
                           type: array
                           x-kubernetes-list-type: set
                       required:
@@ -321,11 +327,13 @@ spec:
                             - key
                             - operator
                             type: object
+                          maxItems: 64
                           type: array
                           x-kubernetes-list-type: atomic
                         matchLabels:
                           additionalProperties:
                             type: string
+                          maxProperties: 64
                           type: object
                         name:
                           type: string
@@ -334,6 +342,7 @@ spec:
                   - id
                   - resource
                   type: object
+                maxItems: 32
                 type: array
                 x-kubernetes-list-map-keys:
                 - id

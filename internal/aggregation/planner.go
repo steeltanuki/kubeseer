@@ -28,9 +28,16 @@ const defaultAveragePrecision int32 = 6
 // no declaration cache is consulted or populated.
 func PlanSource(source v1alpha1.KubeseerSource, limits Limits) PlanOutcome {
 	limits = normalizeLimits(limits)
-	declarations := append([]v1alpha1.KubeseerAggregation(nil), source.Aggregations...)
+	type indexedAggregation struct {
+		declaration v1alpha1.KubeseerAggregation
+		index       int
+	}
+	declarations := make([]indexedAggregation, len(source.Aggregations))
+	for index, declaration := range source.Aggregations {
+		declarations[index] = indexedAggregation{declaration: declaration, index: index}
+	}
 	sort.SliceStable(declarations, func(left, right int) bool {
-		return declarations[left].Name < declarations[right].Name
+		return declarations[left].declaration.Name < declarations[right].declaration.Name
 	})
 
 	outcome := PlanOutcome{sourceID: source.ID, limits: limits}
@@ -46,17 +53,21 @@ func PlanSource(source v1alpha1.KubeseerSource, limits Limits) PlanOutcome {
 		}
 	}
 	nameCounts := make(map[string]int, len(declarations))
-	for _, declaration := range declarations {
-		nameCounts[declaration.Name]++
+	for _, indexed := range declarations {
+		nameCounts[indexed.declaration.Name]++
 	}
 
-	for _, declaration := range declarations {
+	for _, indexed := range declarations {
+		declaration := indexed.declaration
 		if nameCounts[declaration.Name] > 1 {
-			outcome.entries = append(outcome.entries, planEntry{failure: planningFailure(source.ID, declaration.Name, declaration.Function, declaration.Field, ReasonDuplicateAggregate, "aggregate name is duplicated")})
+			failure := planningFailure(source.ID, declaration.Name, declaration.Function, declaration.Field, ReasonDuplicateAggregate, "aggregate name is duplicated")
+			failure.AggregateIndex = indexed.index
+			outcome.entries = append(outcome.entries, planEntry{failure: failure})
 			continue
 		}
 		plan, failure := planDeclaration(source.ID, declaration, fieldTypes, limits)
 		if failure != nil {
+			failure.AggregateIndex = indexed.index
 			outcome.entries = append(outcome.entries, planEntry{failure: failure})
 			continue
 		}
@@ -98,17 +109,23 @@ func planDeclaration(sourceID string, declaration v1alpha1.KubeseerAggregation, 
 
 	groupBy := make([]GroupFieldPlan, 0, len(declaration.GroupBy))
 	seenGroupFields := make(map[string]struct{}, len(declaration.GroupBy))
-	for _, groupField := range declaration.GroupBy {
+	for groupIndex, groupField := range declaration.GroupBy {
 		if _, duplicate := seenGroupFields[groupField]; duplicate {
-			return AggregatePlan{}, planningFailure(sourceID, declaration.Name, declaration.Function, groupField, ReasonDuplicateGroupField, "grouping field is duplicated")
+			failure := planningFailure(sourceID, declaration.Name, declaration.Function, groupField, ReasonDuplicateGroupField, "grouping field is duplicated")
+			failure.GroupByIndex = groupIndex
+			return AggregatePlan{}, failure
 		}
 		seenGroupFields[groupField] = struct{}{}
 		groupType, found := fieldTypes[groupField]
 		if !found {
-			return AggregatePlan{}, planningFailure(sourceID, declaration.Name, declaration.Function, groupField, ReasonUnknownField, "grouping field is not declared")
+			failure := planningFailure(sourceID, declaration.Name, declaration.Function, groupField, ReasonUnknownField, "grouping field is not declared")
+			failure.GroupByIndex = groupIndex
+			return AggregatePlan{}, failure
 		}
 		if !supportedGroupType(groupType) {
-			return AggregatePlan{}, planningFailure(sourceID, declaration.Name, declaration.Function, groupField, ReasonUnsupportedGroupType, "grouping field type is not orderable")
+			failure := planningFailure(sourceID, declaration.Name, declaration.Function, groupField, ReasonUnsupportedGroupType, "grouping field type is not orderable")
+			failure.GroupByIndex = groupIndex
+			return AggregatePlan{}, failure
 		}
 		groupBy = append(groupBy, GroupFieldPlan{name: groupField, typeName: groupType})
 	}

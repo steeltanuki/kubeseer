@@ -36,7 +36,6 @@ type Limits struct {
 	MaxProvenanceEntries int
 }
 
-
 // DefaultLimits returns the positive implementation-owned ceilings used when
 // a caller does not inject a test or deployment-specific limit.
 func DefaultLimits() Limits {
@@ -72,13 +71,15 @@ func normalizeLimits(input Limits) Limits {
 // AggregateError is a sanitized planning or evaluation failure. Its wrapped
 // cause is intentionally private and never appears in the diagnostic text.
 type AggregateError struct {
-	SourceID      string
-	AggregateName string
-	Function      v1alpha1.KubeseerAggregationFunction
-	FieldName     string
-	Provenance    *selection.Provenance
-	Reason        Reason
-	Message       string
+	SourceID       string
+	AggregateName  string
+	AggregateIndex int
+	Function       v1alpha1.KubeseerAggregationFunction
+	FieldName      string
+	GroupByIndex   int
+	Provenance     *selection.Provenance
+	Reason         Reason
+	Message        string
 
 	cause error
 }
@@ -109,13 +110,15 @@ func NewAggregateError(sourceID string, aggregateName string, function v1alpha1.
 		copied = &value
 	}
 	return &AggregateError{
-		SourceID:      sourceID,
-		AggregateName: aggregateName,
-		Function:      function,
-		FieldName:     fieldName,
-		Provenance:    copied,
-		Reason:        reason,
-		Message:       message,
+		SourceID:       sourceID,
+		AggregateName:  aggregateName,
+		AggregateIndex: -1,
+		Function:       function,
+		FieldName:      fieldName,
+		GroupByIndex:   -1,
+		Provenance:     copied,
+		Reason:         reason,
+		Message:        message,
 	}
 }
 
@@ -287,6 +290,8 @@ func cloneAggregateError(input *AggregateError) *AggregateError {
 		return nil
 	}
 	copy := NewAggregateError(input.SourceID, input.AggregateName, input.Function, input.FieldName, input.Provenance, input.Reason, input.Message)
+	copy.AggregateIndex = input.AggregateIndex
+	copy.GroupByIndex = input.GroupByIndex
 	copy.cause = input.cause
 	return copy
 }

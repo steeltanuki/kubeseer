@@ -47,7 +47,9 @@ const (
 type OperatorError struct {
 	SourceID      string
 	FieldName     string
+	FieldIndex    int
 	OperatorIndex int
+	ValueIndex    int
 	OperatorName  string
 	Provenance    *selection.Provenance
 	Reason        Reason
@@ -67,7 +69,9 @@ func NewOperatorError(sourceID, fieldName string, operatorIndex int, operatorNam
 	return &OperatorError{
 		SourceID:      sourceID,
 		FieldName:     fieldName,
+		FieldIndex:    -1,
 		OperatorIndex: operatorIndex,
+		ValueIndex:    -1,
 		OperatorName:  operatorName,
 		Provenance:    copied,
 		Reason:        reason,
@@ -282,6 +286,8 @@ func cloneOperatorErrors(input []*OperatorError) []*OperatorError {
 			continue
 		}
 		copy := NewOperatorError(err.SourceID, err.FieldName, err.OperatorIndex, err.OperatorName, err.Provenance, err.Reason, err.Message)
+		copy.FieldIndex = err.FieldIndex
+		copy.ValueIndex = err.ValueIndex
 		copy.cause = err.cause
 		output[index] = copy
 	}

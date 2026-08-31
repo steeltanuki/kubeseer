@@ -25,6 +25,7 @@ import (
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
 	"github.com/steeltanuki/kubeseer/internal/accesspolicy"
+	"github.com/steeltanuki/kubeseer/internal/admission"
 	"github.com/steeltanuki/kubeseer/internal/authorization"
 	"github.com/steeltanuki/kubeseer/internal/discovery"
 	"github.com/steeltanuki/kubeseer/internal/reconciliation"
@@ -354,6 +355,134 @@ func assertReconciliationRuntimePipelineScenarios(t *testing.T, ctx context.Cont
 			t.Fatalf("publication count = %d, want busy, independent, and follow-up", got)
 		}
 	})
+}
+
+func assertAdmissionValidationRuntimeScenarios(t *testing.T, ctx context.Context, _ *discovery.Resolver) {
+	t.Helper()
+
+	policy := basePolicy()
+	source := runtimePipelineValuesSource("admission-runtime-source")
+	legacyKey := types.NamespacedName{Namespace: "team-a", Name: "admission-runtime-legacy"}
+	admittedKey := types.NamespacedName{Namespace: "team-a", Name: "admission-runtime-admitted"}
+	legacy := runtimePipelineKubeseer(legacyKey, "admission-runtime-legacy-uid", 1, source)
+	admitted := runtimePipelineKubeseer(admittedKey, "admission-runtime-admitted-uid", 1, source)
+
+	discoveryClient := newPolicyDiscoveryClient()
+	admissionResolver := discovery.NewResolver(discoveryClient)
+	runtimeResolver := discovery.NewResolver(discoveryClient)
+	policySource := &authorizationPipelinePolicySource{policy: policy}
+	validator := admission.NewValidator(admissionResolver, policySource)
+	if result := validator.ValidateKubeseer(ctx, admitted); !result.Valid() {
+		t.Fatalf("admission accepted fixture with issues: %#v", result.IssuesCopy())
+	}
+	if policySource.Calls() != 1 {
+		t.Fatalf("admission policy loads = %d, want one", policySource.Calls())
+	}
+
+	reader := newRuntimePipelineReader(legacy, admitted)
+	lister := newRuntimePipelineLister()
+	lister.SetResponse(source.ID, &unstructured.UnstructuredList{Items: []unstructured.Unstructured{
+		*runtimePipelineResource("admission-runtime-resource", "admission-runtime-resource-uid", "admission-runtime-value", "7"),
+	}})
+	routes := &runtimePipelineRoutes{}
+	publisher := &runtimePipelinePublisher{}
+	tracker := reconciliation.NewFreshnessTracker()
+	runtime := mustAuthorizationPipelineRuntime(t, runtimeResolver, reader, lister, policySource, routes, publisher, tracker, authorization.NewEnforcer(nil))
+
+	// A successful admission result must not retain a discovery proof. Make the
+	// resource disappear before the first runtime pass and require the runtime
+	// resolver to observe that current state for both legacy and new objects.
+	discoveryClient.mu.Lock()
+	savedV1 := discoveryClient.resources["v1"]
+	discoveryClient.resources["v1"] = &metav1.APIResourceList{GroupVersion: "v1", APIResources: []metav1.APIResource{{Name: "nodes", Kind: "Node", Namespaced: false}}}
+	discoveryClient.mu.Unlock()
+	runtimeResolver.InvalidateAll()
+	for _, key := range []types.NamespacedName{legacyKey, admittedKey} {
+		if _, err := runtime.Reconcile(ctx, reconcile.Request{NamespacedName: key}); err != nil {
+			t.Fatalf("runtime discovery drift for %s/%s: %v", key.Namespace, key.Name, err)
+		}
+		publication, ok := latestRuntimePipelinePublication(publisher.Publications(), key)
+		if !ok || publication.Result.Sources[0].State != v1alpha1.SourceStateError || len(publication.Result.Sources[0].Resources) != 0 {
+			t.Fatalf("runtime discovery drift publication for %s/%s = %#v", key.Namespace, key.Name, publication)
+		}
+	}
+	if len(lister.Calls()) != 0 || routes.LastRouteCount() != 0 {
+		t.Fatalf("unserved resource reached runtime I/O: calls=%#v routes=%d", lister.Calls(), routes.LastRouteCount())
+	}
+
+	discoveryClient.mu.Lock()
+	discoveryClient.resources["v1"] = savedV1
+	discoveryClient.mu.Unlock()
+	runtimeResolver.InvalidateAll()
+	for _, key := range []types.NamespacedName{legacyKey, admittedKey} {
+		if _, err := runtime.Reconcile(ctx, reconcile.Request{NamespacedName: key}); err != nil {
+			t.Fatalf("runtime rediscovery for %s/%s: %v", key.Namespace, key.Name, err)
+		}
+	}
+	if len(lister.Calls()) != 2 {
+		t.Fatalf("runtime rediscovery LIST calls = %d, want one per object", len(lister.Calls()))
+	}
+	for _, key := range []types.NamespacedName{legacyKey, admittedKey} {
+		publication, ok := latestRuntimePipelinePublication(publisher.Publications(), key)
+		if !ok || publication.Result.Sources[0].State != v1alpha1.SourceStateValues || len(publication.Result.Sources[0].Resources) != 1 {
+			t.Fatalf("runtime rediscovery publication for %s/%s = %#v", key.Namespace, key.Name, publication)
+		}
+	}
+
+	tracker.InvalidateAll()
+	policySource.SetPolicy(mutatePolicy(policy, func(next *v1alpha1.KubeseerAccessPolicy) {
+		next.Spec.Resources = []v1alpha1.ResourceRule{{APIGroups: []string{""}, Kinds: []string{"Node"}}}
+	}))
+	listCallsBeforeNarrowing := len(lister.Calls())
+	for _, key := range []types.NamespacedName{legacyKey, admittedKey} {
+		if _, err := runtime.Reconcile(ctx, reconcile.Request{NamespacedName: key}); err != nil {
+			t.Fatalf("runtime policy narrowing for %s/%s: %v", key.Namespace, key.Name, err)
+		}
+		publication, ok := latestRuntimePipelinePublication(publisher.Publications(), key)
+		if !ok || publication.Result.Sources[0].State != v1alpha1.SourceStateError || len(publication.Result.Sources[0].Resources) != 0 {
+			t.Fatalf("runtime policy narrowing publication for %s/%s = %#v", key.Namespace, key.Name, publication)
+		}
+	}
+	if len(lister.Calls()) != listCallsBeforeNarrowing || routes.LastRouteCount() != 0 {
+		t.Fatalf("narrowed policy allowed stale runtime access: calls=%d before=%d routes=%d", len(lister.Calls()), listCallsBeforeNarrowing, routes.LastRouteCount())
+	}
+
+	tracker.InvalidateAll()
+	policySource.SetError(apierrors.NewNotFound(schema.GroupResource{Group: "kubeseer.io", Resource: "kubeseeraccesspolicies"}, v1alpha1.InstallationAccessCeilingName))
+	listCallsBeforeDeletion := len(lister.Calls())
+	for _, key := range []types.NamespacedName{legacyKey, admittedKey} {
+		if _, err := runtime.Reconcile(ctx, reconcile.Request{NamespacedName: key}); err != nil {
+			t.Fatalf("runtime policy deletion for %s/%s: %v", key.Namespace, key.Name, err)
+		}
+		publication, ok := latestRuntimePipelinePublication(publisher.Publications(), key)
+		if !ok || publication.Result.Sources[0].State != v1alpha1.SourceStateError || len(publication.Result.Sources[0].Resources) != 0 {
+			t.Fatalf("runtime policy deletion publication for %s/%s = %#v", key.Namespace, key.Name, publication)
+		}
+	}
+	if len(lister.Calls()) != listCallsBeforeDeletion {
+		t.Fatalf("missing policy allowed stale runtime access: calls=%d before=%d", len(lister.Calls()), listCallsBeforeDeletion)
+	}
+
+	tracker.InvalidateAll()
+	policySource.SetPolicy(policy)
+	listCallsBeforeRecovery := len(lister.Calls())
+	for _, key := range []types.NamespacedName{legacyKey, admittedKey} {
+		if _, err := runtime.Reconcile(ctx, reconcile.Request{NamespacedName: key}); err != nil {
+			t.Fatalf("runtime policy recovery for %s/%s: %v", key.Namespace, key.Name, err)
+		}
+	}
+	if len(lister.Calls()) != listCallsBeforeRecovery+2 {
+		t.Fatalf("runtime policy recovery LIST calls = %d, want %d", len(lister.Calls()), listCallsBeforeRecovery+2)
+	}
+}
+
+func latestRuntimePipelinePublication(publications []runtimePipelinePublication, key types.NamespacedName) (runtimePipelinePublication, bool) {
+	for index := len(publications) - 1; index >= 0; index-- {
+		if publications[index].Lease.Key == key {
+			return publications[index], true
+		}
+	}
+	return runtimePipelinePublication{}, false
 }
 
 func runtimePipelineValuesSource(id string) v1alpha1.KubeseerSource {

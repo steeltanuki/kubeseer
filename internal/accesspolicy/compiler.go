@@ -60,13 +60,9 @@ type validationIssue struct {
 // valid deny-all boundaries; nil systemNamespaces receives the documented
 // default while a non-nil empty slice remains empty.
 func Compile(policy *v1alpha1.KubeseerAccessPolicy) (*CompiledPolicy, error) {
-	issues := validatePolicy(policy)
+	issues := Validate(policy)
 	if len(issues) != 0 {
-		return nil, &PolicyError{
-			Reason:  ReasonPolicyInvalid,
-			Field:   issues[0].field,
-			Message: issues[0].message,
-		}
+		return nil, issues[0]
 	}
 
 	namespaces := policy.Spec.Namespaces
@@ -102,6 +98,27 @@ func Compile(policy *v1alpha1.KubeseerAccessPolicy) (*CompiledPolicy, error) {
 	}
 
 	return compiled, nil
+}
+
+// Validate returns every independent policy declaration failure in stable
+// field order. It performs no compilation, I/O, or mutation.
+func Validate(policy *v1alpha1.KubeseerAccessPolicy) []*PolicyError {
+	issues := validatePolicy(policy)
+	result := make([]*PolicyError, len(issues))
+	for index, issue := range issues {
+		result[index] = &PolicyError{
+			Reason:  ReasonPolicyInvalid,
+			Field:   issue.field,
+			Message: issue.message,
+		}
+	}
+	return result
+}
+
+// ValidateAll is an explicit alias for callers that prefer the multi-error
+// terminology at an admission boundary.
+func ValidateAll(policy *v1alpha1.KubeseerAccessPolicy) []*PolicyError {
+	return Validate(policy)
 }
 
 func validatePolicy(policy *v1alpha1.KubeseerAccessPolicy) []validationIssue {

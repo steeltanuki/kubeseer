@@ -42,6 +42,7 @@ import (
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	admissionregistrationclient "k8s.io/client-go/kubernetes/typed/admissionregistration/v1"
 	"k8s.io/client-go/rest"
 	controllerenvtest "sigs.k8s.io/controller-runtime/pkg/envtest"
 )
@@ -100,10 +101,11 @@ type CleanupFunc func(context.Context) error
 // envtest control plane. No client in this package loads kubeconfig or cloud
 // credentials.
 type Clients struct {
-	Core          kubernetes.Interface
-	APIExtensions apiextensionsclient.Interface
-	Dynamic       dynamic.Interface
-	Discovery     discovery.DiscoveryInterface
+	Core                  kubernetes.Interface
+	APIExtensions         apiextensionsclient.Interface
+	AdmissionRegistration admissionregistrationclient.AdmissionregistrationV1Interface
+	Dynamic               dynamic.Interface
+	Discovery             discovery.DiscoveryInterface
 }
 
 // Harness owns one disposable local Kubernetes control plane.
@@ -264,12 +266,17 @@ func (h *Harness) Clients() (Clients, error) {
 	if err != nil {
 		return Clients{}, fmt.Errorf("create discovery client for scope %s: %w", h.scope.Prefix, err)
 	}
+	admissionRegistrationClient, err := admissionregistrationclient.NewForConfig(config)
+	if err != nil {
+		return Clients{}, fmt.Errorf("create admissionregistration client for scope %s: %w", h.scope.Prefix, err)
+	}
 
 	return Clients{
-		Core:          core,
-		APIExtensions: apiExtensions,
-		Dynamic:       dynamicClient,
-		Discovery:     discoveryClient,
+		Core:                  core,
+		APIExtensions:         apiExtensions,
+		AdmissionRegistration: admissionRegistrationClient,
+		Dynamic:               dynamicClient,
+		Discovery:             discoveryClient,
 	}, nil
 }
 

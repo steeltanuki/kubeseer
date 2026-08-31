@@ -53,6 +53,7 @@ spec:
                       maxLength: 63
                       pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                       type: string
+                    maxItems: 256
                     type: array
                     x-kubernetes-list-type: set
                   include:
@@ -60,6 +61,7 @@ spec:
                       maxLength: 63
                       pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                       type: string
+                    maxItems: 256
                     type: array
                     x-kubernetes-list-type: set
                   mode:
@@ -81,6 +83,7 @@ spec:
                       maxLength: 63
                       pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                       type: string
+                    maxItems: 256
                     type: array
                     x-kubernetes-list-type: set
                 required:
@@ -96,6 +99,7 @@ spec:
                         maxLength: 253
                         pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                         type: string
+                      maxItems: 64
                       minItems: 1
                       type: array
                       x-kubernetes-list-type: set
@@ -104,6 +108,7 @@ spec:
                         maxLength: 63
                         pattern: ^[A-Z][A-Za-z0-9]*$
                         type: string
+                      maxItems: 64
                       minItems: 1
                       type: array
                       x-kubernetes-list-type: set
@@ -111,6 +116,7 @@ spec:
                   - apiGroups
                   - kinds
                   type: object
+                maxItems: 128
                 type: array
                 x-kubernetes-list-type: atomic
             required:

@@ -42,6 +42,7 @@ const (
 type ExtractionError struct {
 	SourceID   string
 	FieldName  string
+	FieldIndex int
 	Provenance *selection.Provenance
 	Reason     ExtractionErrorReason
 	Message    string

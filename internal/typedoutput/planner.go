@@ -24,19 +24,31 @@ import (
 // converted. Valid plans are sorted by field name; invalid declarations remain
 // field-local failures so independent plans survive.
 func CompileSource(source v1alpha1.KubeseerSource) PlanOutcome {
-	fields := append([]v1alpha1.KubeseerField(nil), source.Fields...)
+	type indexedField struct {
+		field v1alpha1.KubeseerField
+		index int
+	}
+	fields := make([]indexedField, len(source.Fields))
+	for index, field := range source.Fields {
+		fields[index] = indexedField{field: field, index: index}
+	}
 	sort.SliceStable(fields, func(left, right int) bool {
-		return fields[left].Name < fields[right].Name
+		return fields[left].field.Name < fields[right].field.Name
 	})
 
 	valid := make([]FieldPlan, 0, len(fields))
 	failures := make([]*ConversionError, 0)
-	for _, field := range fields {
+	for _, indexed := range fields {
+		field := indexed.field
 		switch {
 		case field.Type == "":
-			failures = append(failures, invalidPlanError(source.ID, field.Name, ReasonMissingType, "field type is required"))
+			err := invalidPlanError(source.ID, field.Name, ReasonMissingType, "field type is required")
+			err.FieldIndex = indexed.index
+			failures = append(failures, err)
 		case !IsSupportedType(field.Type):
-			failures = append(failures, invalidPlanError(source.ID, field.Name, ReasonUnsupportedType, "field type is unsupported"))
+			err := invalidPlanError(source.ID, field.Name, ReasonUnsupportedType, "field type is unsupported")
+			err.FieldIndex = indexed.index
+			failures = append(failures, err)
 		default:
 			valid = append(valid, FieldPlan{sourceID: source.ID, name: field.Name, typeName: field.Type})
 		}

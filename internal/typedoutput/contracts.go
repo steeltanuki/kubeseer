@@ -42,6 +42,7 @@ const (
 type ConversionError struct {
 	SourceID   string
 	FieldName  string
+	FieldIndex int
 	Provenance *selection.Provenance
 	Reason     ConversionErrorReason
 	Message    string
@@ -60,6 +61,7 @@ func NewConversionError(sourceID, fieldName string, provenance *selection.Proven
 	return &ConversionError{
 		SourceID:   sourceID,
 		FieldName:  fieldName,
+		FieldIndex: -1,
 		Provenance: copied,
 		Reason:     reason,
 		Message:    message,
@@ -174,6 +176,7 @@ func cloneErrors(errorsIn []*ConversionError) []*ConversionError {
 			continue
 		}
 		copy := NewConversionError(err.SourceID, err.FieldName, err.Provenance, err.Reason, err.Message)
+		copy.FieldIndex = err.FieldIndex
 		copy.cause = err.cause
 		errorsOut[index] = copy
 	}

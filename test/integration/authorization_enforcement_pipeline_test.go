@@ -424,6 +424,12 @@ func (s *authorizationPipelinePolicySource) SetPolicy(policy *v1alpha1.KubeseerA
 	s.err = nil
 }
 
+func (s *authorizationPipelinePolicySource) SetError(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.err = err
+}
+
 func (s *authorizationPipelinePolicySource) Calls() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
