@@ -57,6 +57,112 @@ spec:
                             maxLength: 63
                             pattern: ^[a-z][A-Za-z0-9]*(?:-[a-z0-9]+)*$
                             type: string
+                          operators:
+                            items:
+                              description: KubeseerOperator declares one ordered operation
+                                over a typed field.
+                              properties:
+                                operator:
+                                  description: KubeseerOperatorName identifies one
+                                    supported field operator.
+                                  enum:
+                                  - eq
+                                  - ne
+                                  - gt
+                                  - gte
+                                  - lt
+                                  - lte
+                                  - contains
+                                  - startsWith
+                                  - endsWith
+                                  - matches
+                                  - exists
+                                  - notExists
+                                  - in
+                                  - notIn
+                                  - default
+                                  - coalesce
+                                  type: string
+                                value:
+                                  description: |-
+                                    KubeseerOperatorOperand is a structural typed operand. Exactly one payload
+                                    branch is valid when State is MatchStateValue; MatchStateNull is rejected by
+                                    runtime operator planning and exists to keep an explicit null distinct from
+                                    an omitted operand.
+                                  properties:
+                                    booleanValue:
+                                      type: boolean
+                                    durationValue:
+                                      type: string
+                                    integerValue:
+                                      format: int64
+                                      type: integer
+                                    listValue:
+                                      type: string
+                                    numberValue:
+                                      type: string
+                                    objectValue:
+                                      type: string
+                                    quantityValue:
+                                      type: string
+                                    state:
+                                      description: KubeseerMatchState distinguishes
+                                        a non-null value from an explicit null.
+                                      enum:
+                                      - value
+                                      - "null"
+                                      type: string
+                                    stringValue:
+                                      type: string
+                                    timestampValue:
+                                      type: string
+                                  required:
+                                  - state
+                                  type: object
+                                values:
+                                  items:
+                                    description: |-
+                                      KubeseerOperatorOperand is a structural typed operand. Exactly one payload
+                                      branch is valid when State is MatchStateValue; MatchStateNull is rejected by
+                                      runtime operator planning and exists to keep an explicit null distinct from
+                                      an omitted operand.
+                                    properties:
+                                      booleanValue:
+                                        type: boolean
+                                      durationValue:
+                                        type: string
+                                      integerValue:
+                                        format: int64
+                                        type: integer
+                                      listValue:
+                                        type: string
+                                      numberValue:
+                                        type: string
+                                      objectValue:
+                                        type: string
+                                      quantityValue:
+                                        type: string
+                                      state:
+                                        description: KubeseerMatchState distinguishes
+                                          a non-null value from an explicit null.
+                                        enum:
+                                        - value
+                                        - "null"
+                                        type: string
+                                      stringValue:
+                                        type: string
+                                      timestampValue:
+                                        type: string
+                                    required:
+                                    - state
+                                    type: object
+                                  type: array
+                                  x-kubernetes-list-type: atomic
+                              required:
+                              - operator
+                              type: object
+                            type: array
+                            x-kubernetes-list-type: atomic
                           path:
                             maxLength: 1024
                             minLength: 1
@@ -289,6 +395,17 @@ spec:
                             properties:
                               apiVersion:
                                 type: string
+                              error:
+                                description: KubeseerResultError is a sanitized runtime
+                                  or source-level failure.
+                                properties:
+                                  message:
+                                    type: string
+                                  reason:
+                                    type: string
+                                required:
+                                - reason
+                                type: object
                               fields:
                                 items:
                                   description: KubeseerFieldResult is one field-scoped

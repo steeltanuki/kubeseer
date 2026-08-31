@@ -94,6 +94,10 @@ type KubeseerField struct {
 	// omitted.
 	// +optional
 	Type KubeseerValueType `json:"type,omitempty"`
+
+	// +optional
+	// +listType=atomic
+	Operators []KubeseerOperator `json:"operators,omitempty"`
 }
 
 // KubeseerValueType identifies the explicit logical type requested for one
@@ -112,6 +116,78 @@ const (
 	ValueTypeObject    KubeseerValueType = "object"
 	ValueTypeList      KubeseerValueType = "list"
 )
+
+// KubeseerOperatorName identifies one supported field operator.
+// +kubebuilder:validation:Enum=eq;ne;gt;gte;lt;lte;contains;startsWith;endsWith;matches;exists;notExists;in;notIn;default;coalesce
+type KubeseerOperatorName string
+
+const (
+	OperatorEq         KubeseerOperatorName = "eq"
+	OperatorNe         KubeseerOperatorName = "ne"
+	OperatorGt         KubeseerOperatorName = "gt"
+	OperatorGte        KubeseerOperatorName = "gte"
+	OperatorLt         KubeseerOperatorName = "lt"
+	OperatorLte        KubeseerOperatorName = "lte"
+	OperatorContains   KubeseerOperatorName = "contains"
+	OperatorStartsWith KubeseerOperatorName = "startsWith"
+	OperatorEndsWith   KubeseerOperatorName = "endsWith"
+	OperatorMatches    KubeseerOperatorName = "matches"
+	OperatorExists     KubeseerOperatorName = "exists"
+	OperatorNotExists  KubeseerOperatorName = "notExists"
+	OperatorIn         KubeseerOperatorName = "in"
+	OperatorNotIn      KubeseerOperatorName = "notIn"
+	OperatorDefault    KubeseerOperatorName = "default"
+	OperatorCoalesce   KubeseerOperatorName = "coalesce"
+)
+
+// KubeseerOperator declares one ordered operation over a typed field.
+type KubeseerOperator struct {
+	// +kubebuilder:validation:Required
+	Operator KubeseerOperatorName `json:"operator"`
+
+	// +optional
+	Value *KubeseerOperatorOperand `json:"value,omitempty"`
+
+	// +optional
+	// +listType=atomic
+	Values []KubeseerOperatorOperand `json:"values,omitempty"`
+}
+
+// KubeseerOperatorOperand is a structural typed operand. Exactly one payload
+// branch is valid when State is MatchStateValue; MatchStateNull is rejected by
+// runtime operator planning and exists to keep an explicit null distinct from
+// an omitted operand.
+type KubeseerOperatorOperand struct {
+	// +kubebuilder:validation:Required
+	State KubeseerMatchState `json:"state"`
+
+	// +optional
+	StringValue *string `json:"stringValue,omitempty"`
+
+	// +optional
+	IntegerValue *int64 `json:"integerValue,omitempty"`
+
+	// +optional
+	NumberValue *string `json:"numberValue,omitempty"`
+
+	// +optional
+	BooleanValue *bool `json:"booleanValue,omitempty"`
+
+	// +optional
+	TimestampValue *string `json:"timestampValue,omitempty"`
+
+	// +optional
+	DurationValue *string `json:"durationValue,omitempty"`
+
+	// +optional
+	QuantityValue *string `json:"quantityValue,omitempty"`
+
+	// +optional
+	ObjectValue *string `json:"objectValue,omitempty"`
+
+	// +optional
+	ListValue *string `json:"listValue,omitempty"`
+}
 
 // ResourceReference identifies the API version and Kind resolved through
 // Kubernetes discovery.
@@ -265,6 +341,9 @@ type KubeseerResourceResult struct {
 	// +optional
 	// +listType=atomic
 	Fields []KubeseerFieldResult `json:"fields,omitempty"`
+
+	// +optional
+	Error *KubeseerResultError `json:"error,omitempty"`
 }
 
 // KubeseerFieldResult is one field-scoped typed outcome.

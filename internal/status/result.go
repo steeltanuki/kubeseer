@@ -109,6 +109,9 @@ func HasResultErrors(result *v1alpha1.KubeseerResult) bool {
 			return true
 		}
 		for _, resource := range source.Resources {
+			if resource.Error != nil {
+				return true
+			}
 			for _, field := range resource.Fields {
 				if field.State == v1alpha1.FieldStateError || field.Error != nil {
 					return true

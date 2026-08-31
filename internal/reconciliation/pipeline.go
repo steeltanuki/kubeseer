@@ -24,6 +24,7 @@ import (
 	"github.com/steeltanuki/kubeseer/internal/authorization"
 	"github.com/steeltanuki/kubeseer/internal/discovery"
 	"github.com/steeltanuki/kubeseer/internal/extraction"
+	"github.com/steeltanuki/kubeseer/internal/operators"
 	"github.com/steeltanuki/kubeseer/internal/selection"
 	statuscontract "github.com/steeltanuki/kubeseer/internal/status"
 	"github.com/steeltanuki/kubeseer/internal/typedoutput"
@@ -41,6 +42,7 @@ type plannedSource struct {
 	retryableErr    error
 	authorizedSet   []AuthorizedRoute
 	authorizations  []authorization.DecisionOutcome
+	operatorPlan    operators.PlanOutcome
 	assessment      statuscontract.SourceAssessment
 	originalPlanErr error
 }
@@ -120,13 +122,19 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 			return reconcile.Result{}, nil
 		}
 		entry := plannedSource{
-			source: source,
+			source:       source,
+			operatorPlan: operators.CompileSource(source),
 			assessment: statuscontract.SourceAssessment{
 				Index:         index,
 				Configuration: configurationOutcome(source),
 				Authorization: statuscontract.AuthorizationNotEvaluatedOutcome,
 				Resolution:    statuscontract.ResolutionNotEvaluatedOutcome,
 			},
+		}
+		if !entry.operatorPlan.Valid() {
+			entry.assessment.Configuration = statuscontract.ConfigurationInvalidOutcome
+			planned[index] = entry
+			continue
 		}
 		plan, planErr := r.deps.Planner.Plan(child, object.Namespace, source)
 		if planErr != nil {
@@ -260,7 +268,15 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
 		return reconcile.Result{}, nil
 	}
-	result, err := typedoutput.BuildResult(converted)
+	operatorInputs := make([]operators.SourceInput, len(sources))
+	for index := range sources {
+		operatorInputs[index] = operators.SourceInput{Plan: planned[index].operatorPlan, Typed: converted[index]}
+	}
+	operatorOutcomes := operators.EvaluateBatch(child, operatorInputs)
+	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
+		return reconcile.Result{}, nil
+	}
+	result, err := operators.BuildResult(operatorOutcomes)
 	if err != nil {
 		buildErr := transientRuntimeError("result-build", "", ReasonBuildFailure, "candidate result construction failed", err)
 		unavailable := statuscontract.Evaluation{
@@ -353,6 +369,9 @@ func configurationOutcome(source v1alpha1.KubeseerSource) statuscontract.Configu
 		return statuscontract.ConfigurationInvalidOutcome
 	}
 	if len(typedoutput.CompileSource(source).Failures()) != 0 {
+		return statuscontract.ConfigurationInvalidOutcome
+	}
+	if !operators.CompileSource(source).Valid() {
 		return statuscontract.ConfigurationInvalidOutcome
 	}
 	return statuscontract.ConfigurationAcceptedOutcome

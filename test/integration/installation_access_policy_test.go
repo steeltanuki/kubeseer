@@ -92,6 +92,21 @@ func TestModuleIntegration(t *testing.T) {
 	t.Run("typed-output batches isolate fields, sources, and cancellation", func(t *testing.T) {
 		assertTypedOutputIsolationScenarios(t)
 	})
+	t.Run("value operators reuse typed conversion and plan complete sources", func(t *testing.T) {
+		assertValueOperatorPlanningScenarios(t)
+	})
+	t.Run("value operators compare normalized scalar multi-match outcomes", func(t *testing.T) {
+		assertValueOperatorComparisonScenarios(t)
+	})
+	t.Run("value operators apply string presence and membership predicates", func(t *testing.T) {
+		assertValueOperatorPredicateScenarios(t)
+	})
+	t.Run("value operators apply ordered transformations and project outcomes", func(t *testing.T) {
+		assertValueOperatorTransformationScenarios(t)
+	})
+	t.Run("value operators isolate sources and cancellation partitions", func(t *testing.T) {
+		assertValueOperatorIsolationScenarios(t)
+	})
 	t.Run("reconciliation runtime scheduling preserves lifecycle and queue semantics", func(t *testing.T) {
 		assertReconciliationRuntimeSchedulingScenarios(t)
 	})
@@ -140,6 +155,11 @@ func TestModuleIntegration(t *testing.T) {
 	t.Log("MODULE_INTEGRATION=typed-output-model-cardinality STATUS=passed")
 	t.Log("MODULE_INTEGRATION=typed-output-model-serialization STATUS=passed")
 	t.Log("MODULE_INTEGRATION=typed-output-model-isolation STATUS=passed")
+	t.Log("MODULE_INTEGRATION=value-operators-planning STATUS=passed")
+	t.Log("MODULE_INTEGRATION=value-operators-comparisons STATUS=passed")
+	t.Log("MODULE_INTEGRATION=value-operators-predicates STATUS=passed")
+	t.Log("MODULE_INTEGRATION=value-operators-transformations STATUS=passed")
+	t.Log("MODULE_INTEGRATION=value-operators-isolation STATUS=passed")
 	t.Log("MODULE_INTEGRATION=reconciliation-runtime-scheduling STATUS=passed")
 	t.Log("MODULE_INTEGRATION=reconciliation-runtime-watch-routing STATUS=passed")
 	t.Log("MODULE_INTEGRATION=authorization-enforcement-watch STATUS=passed")

@@ -30,6 +30,7 @@ import (
 	"github.com/steeltanuki/kubeseer/internal/accesspolicy"
 	"github.com/steeltanuki/kubeseer/internal/authorization"
 	discoveryruntime "github.com/steeltanuki/kubeseer/internal/discovery"
+	"github.com/steeltanuki/kubeseer/internal/operators"
 	"github.com/steeltanuki/kubeseer/internal/reconciliation"
 	"github.com/steeltanuki/kubeseer/internal/selection"
 	statuscontract "github.com/steeltanuki/kubeseer/internal/status"
@@ -151,6 +152,10 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	busyKey := types.NamespacedName{Namespace: namespace, Name: "runtime-busy"}
 	freeKey := types.NamespacedName{Namespace: namespace, Name: "runtime-free"}
 	deterministicKey := types.NamespacedName{Namespace: namespace, Name: "runtime-deterministic"}
+	operatorKey := types.NamespacedName{Namespace: namespace, Name: "runtime-operators"}
+	operatorInvalidKey := types.NamespacedName{Namespace: namespace, Name: "runtime-operators-invalid"}
+	operatorFailureKey := types.NamespacedName{Namespace: namespace, Name: "runtime-operators-failure"}
+	operatorSiblingKey := types.NamespacedName{Namespace: namespace, Name: "runtime-operators-sibling"}
 	for _, object := range []*v1alpha1.Kubeseer{
 		runtimeEnvtestKubeseer(existingKey, initialSource),
 		runtimeEnvtestKubeseer(fanoutKey, initialSource),
@@ -162,7 +167,7 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	policy := runtimeEnvtestPolicy(namespace)
 	environment.AddCleanup("delete reconciliation runtime fixtures", func(ctx context.Context) error {
 		var cleanupErr error
-		for _, key := range []types.NamespacedName{existingKey, fanoutKey, newKey, watchKey, watchPeerKey, statusKey, allFailedKey, emptyKey, adapterKey, busyKey, freeKey, deterministicKey} {
+		for _, key := range []types.NamespacedName{existingKey, fanoutKey, newKey, watchKey, watchPeerKey, statusKey, allFailedKey, emptyKey, adapterKey, busyKey, freeKey, deterministicKey, operatorKey, operatorInvalidKey, operatorFailureKey, operatorSiblingKey} {
 			object := &v1alpha1.Kubeseer{}
 			err := apiClient.Get(ctx, key, object)
 			if apierrors.IsNotFound(err) {
@@ -230,6 +235,78 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	assertRuntimeStatusSnapshot(t, successStatus, successStatus.Generation, true)
 	assertRuntimeCondition(t, successStatus.Status, statuscontract.ConditionReady, metav1.ConditionTrue, statuscontract.ReasonEvaluationSucceeded)
 	assertRuntimeCondition(t, successStatus.Status, statuscontract.ConditionDegraded, metav1.ConditionFalse, statuscontract.ReasonEvaluationSucceeded)
+
+	operatorPods := []*corev1.Pod{
+		runtimeEnvtestOperatorPod("runtime-operator-kept", namespace, "yes", "keep-me"),
+		runtimeEnvtestOperatorPod("runtime-operator-dropped", namespace, "yes", "drop-me"),
+		runtimeEnvtestOperatorPod("runtime-operator-good", namespace, "failure", "1"),
+		runtimeEnvtestOperatorPod("runtime-operator-bad", namespace, "failure", "bad"),
+	}
+	for _, pod := range operatorPods {
+		if _, err := clients.Core.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{}); err != nil {
+			t.Fatalf("create value-operator Pod %s: %v", pod.Name, err)
+		}
+	}
+	operatorValid := runtimeEnvtestValueOperatorSource("operator-filter", "yes", v1alpha1.ValueTypeString, v1alpha1.OperatorContains, stringOperatorOperand("keep"))
+	operatorObject := runtimeEnvtestKubeseer(operatorKey, operatorValid)
+	if err := apiClient.Create(ctx, operatorObject); err != nil {
+		t.Fatalf("create value-operator Kubeseer: %v", err)
+	}
+	waitRuntimeValueOperatorState(t, ctx, apiClient, operatorKey, "operator-filter", v1alpha1.SourceStateValues, 1, "keep-me")
+	operatorStatus := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, operatorKey, operatorStatus); err != nil {
+		t.Fatalf("read value-operator status: %v", err)
+	}
+	assertRuntimeStatusSnapshot(t, operatorStatus, operatorStatus.Generation, true)
+	assertRuntimeCondition(t, operatorStatus.Status, statuscontract.ConditionReady, metav1.ConditionTrue, statuscontract.ReasonEvaluationSucceeded)
+
+	operatorInvalid := runtimeEnvtestValueOperatorSource("operator-invalid", "yes", v1alpha1.ValueTypeString, v1alpha1.OperatorMatches, stringOperatorOperand("["))
+	invalidObject := runtimeEnvtestKubeseer(operatorInvalidKey, operatorInvalid)
+	if err := apiClient.Create(ctx, invalidObject); err != nil {
+		t.Fatalf("create invalid value-operator Kubeseer: %v", err)
+	}
+	waitRuntimeValueOperatorState(t, ctx, apiClient, operatorInvalidKey, "operator-invalid", v1alpha1.SourceStateValues, 0, "")
+	invalidStatus := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, operatorInvalidKey, invalidStatus); err != nil {
+		t.Fatalf("read invalid value-operator status: %v", err)
+	}
+	if len(invalidStatus.Status.Result.Sources[0].FieldErrors) != 1 || invalidStatus.Status.Result.Sources[0].FieldErrors[0].Reason != string(operators.ReasonInvalidPattern) {
+		t.Fatalf("invalid value-operator field errors = %#v", invalidStatus.Status.Result.Sources[0].FieldErrors)
+	}
+	assertRuntimeStatusSnapshot(t, invalidStatus, invalidStatus.Generation, true)
+	assertRuntimeCondition(t, invalidStatus.Status, statuscontract.ConditionAccepted, metav1.ConditionFalse, statuscontract.ReasonInvalidConfiguration)
+
+	operatorFailure := runtimeEnvtestValueOperatorSource("operator-failure", "failure", v1alpha1.ValueTypeInteger, v1alpha1.OperatorEq, integerOperatorOperand(1))
+	failureObject := runtimeEnvtestKubeseer(operatorFailureKey, operatorFailure)
+	if err := apiClient.Create(ctx, failureObject); err != nil {
+		t.Fatalf("create failing value-operator Kubeseer: %v", err)
+	}
+	waitRuntimeValueOperatorState(t, ctx, apiClient, operatorFailureKey, "operator-failure", v1alpha1.SourceStateValues, 2, "")
+	failureStatus := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, operatorFailureKey, failureStatus); err != nil {
+		t.Fatalf("read failing value-operator status: %v", err)
+	}
+	var failureResource *v1alpha1.KubeseerResourceResult
+	for index := range failureStatus.Status.Result.Sources[0].Resources {
+		resource := &failureStatus.Status.Result.Sources[0].Resources[index]
+		if resource.Name == "runtime-operator-bad" {
+			failureResource = resource
+			break
+		}
+	}
+	if failureResource == nil || len(failureResource.Fields) != 0 || failureResource.Error == nil || failureResource.Error.Reason != string(operators.ReasonInvalidInput) || strings.Contains(failureResource.Error.Message, "bad") {
+		t.Fatalf("failing value-operator resource = %#v", failureResource)
+	}
+	assertRuntimeStatusSnapshot(t, failureStatus, failureStatus.Generation, true)
+	assertRuntimeCondition(t, failureStatus.Status, statuscontract.ConditionDegraded, metav1.ConditionTrue, statuscontract.ReasonEvaluationDegraded)
+
+	siblingObject := runtimeEnvtestKubeseer(operatorSiblingKey, operatorValid)
+	siblingObject.Spec.Sources = []v1alpha1.KubeseerSource{operatorValid, runtimeEnvtestValueOperatorSource("operator-plain", "yes", v1alpha1.ValueTypeString, "", nil)}
+	if err := apiClient.Create(ctx, siblingObject); err != nil {
+		t.Fatalf("create sibling value-operator Kubeseer: %v", err)
+	}
+	waitRuntimeValueOperatorState(t, ctx, apiClient, operatorSiblingKey, "operator-filter", v1alpha1.SourceStateValues, 1, "keep-me")
+	waitRuntimeValueOperatorState(t, ctx, apiClient, operatorSiblingKey, "operator-plain", v1alpha1.SourceStateValues, 2, "")
 
 	newObject := runtimeEnvtestKubeseer(newKey, runtimeEnvtestPodSource("runtime-new-source", false))
 	if err := apiClient.Create(ctx, newObject); err != nil {
@@ -642,6 +719,7 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	t.Log("API_CONTRACT=reconciliation-runtime-status STATUS=passed")
 	t.Log("API_CONTRACT=status-and-conditions-snapshots STATUS=passed")
 	t.Log("API_CONTRACT=status-and-conditions-transitions STATUS=passed")
+	t.Log("API_CONTRACT=value-operators-pipeline STATUS=passed")
 }
 
 func runtimeEnvtestKubeseer(key types.NamespacedName, source v1alpha1.KubeseerSource) *v1alpha1.Kubeseer {
@@ -677,6 +755,70 @@ func runtimeEnvtestInvalidSelectorSource(id string) v1alpha1.KubeseerSource {
 	source := runtimeEnvtestPodSource(id, false)
 	source.Selector = &v1alpha1.ResourceSelector{FieldSelector: "metadata.name in ("}
 	return source
+}
+
+func runtimeEnvtestOperatorPod(name, namespace, selector, value string) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"value-operator":  selector,
+				"operator-result": value,
+			},
+		},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "main", Image: "busybox"}}},
+	}
+}
+
+func runtimeEnvtestValueOperatorSource(id, selector string, typeName v1alpha1.KubeseerValueType, operator v1alpha1.KubeseerOperatorName, operand *v1alpha1.KubeseerOperatorOperand) v1alpha1.KubeseerSource {
+	source := runtimeEnvtestPodSource(id, false)
+	source.Selector = &v1alpha1.ResourceSelector{MatchLabels: map[string]string{"value-operator": selector}}
+	field := v1alpha1.KubeseerField{Name: "value", Path: "{.metadata.labels['operator-result']}", Type: typeName}
+	if operator != "" {
+		field.Operators = []v1alpha1.KubeseerOperator{{Operator: operator, Value: operand}}
+	}
+	source.Fields = []v1alpha1.KubeseerField{field}
+	return source
+}
+
+func stringOperatorOperand(value string) *v1alpha1.KubeseerOperatorOperand {
+	return &v1alpha1.KubeseerOperatorOperand{State: v1alpha1.MatchStateValue, StringValue: &value}
+}
+
+func integerOperatorOperand(value int64) *v1alpha1.KubeseerOperatorOperand {
+	return &v1alpha1.KubeseerOperatorOperand{State: v1alpha1.MatchStateValue, IntegerValue: &value}
+}
+
+func waitRuntimeValueOperatorState(t *testing.T, ctx context.Context, client crclient.Client, key types.NamespacedName, sourceID string, want v1alpha1.KubeseerSourceState, resourceCount int, value string) {
+	t.Helper()
+	if err := WaitFor(ctx, 10*time.Second, func(ctx context.Context) (bool, error) {
+		object := &v1alpha1.Kubeseer{}
+		if err := client.Get(ctx, key, object); err != nil {
+			return false, err
+		}
+		if object.Status.Result == nil {
+			return false, nil
+		}
+		for _, source := range object.Status.Result.Sources {
+			if source.ID != sourceID {
+				continue
+			}
+			if source.State != want || want == v1alpha1.SourceStateValues && source.Error != nil || want == v1alpha1.SourceStateError && source.Error == nil {
+				return false, nil
+			}
+			if resourceCount >= 0 && len(source.Resources) != resourceCount {
+				return false, nil
+			}
+			if value != "" && !runtimeSourceHasFieldStringValue(source, "value", value) {
+				return false, nil
+			}
+			return true, nil
+		}
+		return false, nil
+	}); err != nil {
+		t.Fatalf("wait %s/%s value-operator source %q: %v", key.Namespace, key.Name, sourceID, err)
+	}
 }
 
 func runtimeEnvtestStatusPod(name, namespace string) *corev1.Pod {

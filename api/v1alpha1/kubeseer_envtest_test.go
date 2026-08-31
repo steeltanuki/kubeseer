@@ -101,7 +101,7 @@ func TestAPIContract(t *testing.T) {
 	resources := clients.Dynamic.Resource(kubeseerResourceGVR).Namespace(namespace)
 	accessPolicies := clients.Dynamic.Resource(accessPolicyResourceGVR)
 	environment.AddCleanup("delete Kubeseer API contract fixtures", func(ctx context.Context) error {
-		for _, name := range []string{"minimal", "valid-source", "negative-generation", "status-isolation", "typed-persistence", "untyped-field-compatible", "invalid-field-type", "typed-result-persistence", "duplicate-source-ids", "missing-resource", "invalid-namespace", "duplicate-namespaces", "missing-field-name", "missing-field-path", "invalid-field-name", "overlong-field-path", "duplicate-field-names"} {
+		for _, name := range []string{"minimal", "valid-source", "negative-generation", "status-isolation", "typed-persistence", "untyped-field-compatible", "invalid-field-type", "typed-result-persistence", "operator-persistence", "operator-empty", "invalid-operator-name", "duplicate-source-ids", "missing-resource", "invalid-namespace", "duplicate-namespaces", "missing-field-name", "missing-field-path", "invalid-field-name", "overlong-field-path", "duplicate-field-names"} {
 			err := resources.Delete(ctx, name, metav1.DeleteOptions{})
 			if err != nil && !apierrors.IsNotFound(err) {
 				return err
@@ -119,6 +119,7 @@ func TestAPIContract(t *testing.T) {
 
 	assertTypedSchemeAndClient(t, ctx, resources, namespace, environment.Config())
 	assertTypedOutputAPIScenarios(t, ctx, resources, namespace)
+	assertValueOperatorsAPIScenarios(t, ctx, resources, namespace)
 	createMinimalResource(t, ctx, resources, namespace)
 	createValidSourceResource(t, ctx, resources, namespace)
 	assertMissingSpecRejected(t, ctx, resources, namespace)
@@ -139,11 +140,14 @@ func TestAPIContract(t *testing.T) {
 	t.Log("API_CONTRACT=kubeseer-access-policy STATUS=passed")
 	t.Log("API_CONTRACT=kubeseer-access-policy-admission STATUS=passed")
 	t.Log("API_CONTRACT=typed-output-model-types STATUS=passed")
+	t.Log("API_CONTRACT=value-operators-types STATUS=passed")
 	t.Log("API_CONTRACT=status-and-conditions-api STATUS=passed")
 }
 
 func assertTypedSchemeAndClient(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface, namespace string, config *rest.Config) {
 	t.Helper()
+	operatorPrefix := "demo"
+	operatorMember := "demo"
 
 	typeScheme := runtime.NewScheme()
 	if err := AddToScheme(typeScheme); err != nil {
@@ -184,7 +188,10 @@ func assertTypedSchemeAndClient(t *testing.T, ctx context.Context, resources dyn
 				FieldSelector: "metadata.namespace=team-a",
 			},
 			Fields: []KubeseerField{
-				{Name: "resourceName", Path: "{.metadata.name}", Type: ValueTypeString},
+				{Name: "resourceName", Path: "{.metadata.name}", Type: ValueTypeString, Operators: []KubeseerOperator{
+					{Operator: OperatorStartsWith, Value: &KubeseerOperatorOperand{State: MatchStateValue, StringValue: &operatorPrefix}},
+					{Operator: OperatorIn, Values: []KubeseerOperatorOperand{{State: MatchStateValue, StringValue: &operatorMember}}},
+				}},
 				{Name: "display-key", Path: "{.data['display-name']}", Type: ValueTypeString},
 			},
 		}}},
@@ -317,10 +324,15 @@ func assertTypedSchemeAndClient(t *testing.T, ctx context.Context, resources dyn
 	copy.Spec.Sources[0].Fields[0].Name = "changed"
 	copy.Spec.Sources[0].Fields[1].Path = "{.changed}"
 	copy.Spec.Sources[0].Fields[0].Type = ValueTypeInteger
+	*copy.Spec.Sources[0].Fields[0].Operators[0].Value.StringValue = "changed"
+	*copy.Spec.Sources[0].Fields[0].Operators[1].Values[0].StringValue = "changed"
 	copy.Status.Conditions[0].Reason = "Changed"
 	copy.Status.Summary.SuccessfulSources = 99
-	if persisted.Labels["contract"] != "typed" || persisted.Spec.Sources[0].ID != "typed-source" || persisted.Spec.Sources[0].Namespaces.Names[0] != "team-a" || persisted.Spec.Sources[0].Selector.MatchLabels["app"] != "demo" || persisted.Spec.Sources[0].Selector.MatchExpressions[0].Values[0] != "backend" || persisted.Spec.Sources[0].Selector.FieldSelector != "metadata.namespace=team-a" || persisted.Spec.Sources[0].Fields[0].Name != "resourceName" || persisted.Spec.Sources[0].Fields[0].Type != ValueTypeString || persisted.Spec.Sources[0].Fields[1].Path != "{.data['display-name']}" || persisted.Status.Conditions[0].Reason != "Available" || persisted.Status.Summary == nil || persisted.Status.Summary.SuccessfulSources != 2 {
+	if persisted.Labels["contract"] != "typed" || persisted.Spec.Sources[0].ID != "typed-source" || persisted.Spec.Sources[0].Namespaces.Names[0] != "team-a" || persisted.Spec.Sources[0].Selector.MatchLabels["app"] != "demo" || persisted.Spec.Sources[0].Selector.MatchExpressions[0].Values[0] != "backend" || persisted.Spec.Sources[0].Selector.FieldSelector != "metadata.namespace=team-a" || persisted.Spec.Sources[0].Fields[0].Name != "resourceName" || persisted.Spec.Sources[0].Fields[0].Type != ValueTypeString || len(persisted.Spec.Sources[0].Fields[0].Operators) != 2 || persisted.Spec.Sources[0].Fields[0].Operators[0].Operator != OperatorStartsWith || persisted.Spec.Sources[0].Fields[0].Operators[1].Operator != OperatorIn || persisted.Spec.Sources[0].Fields[0].Operators[0].Value == nil || persisted.Spec.Sources[0].Fields[0].Operators[0].Value.StringValue == nil || *persisted.Spec.Sources[0].Fields[0].Operators[0].Value.StringValue != "demo" || persisted.Spec.Sources[0].Fields[1].Path != "{.data['display-name']}" || persisted.Status.Conditions[0].Reason != "Available" || persisted.Status.Summary == nil || persisted.Status.Summary.SuccessfulSources != 2 {
 		t.Fatalf("generated typed DeepCopy aliases the API-derived object: %#v", persisted)
+	}
+	if persisted.Spec.Sources[0].Fields[0].Operators[1].Values == nil || len(persisted.Spec.Sources[0].Fields[0].Operators[1].Values) != 1 || persisted.Spec.Sources[0].Fields[0].Operators[1].Values[0].StringValue == nil || *persisted.Spec.Sources[0].Fields[0].Operators[1].Values[0].StringValue != "demo" {
+		t.Fatalf("generated typed DeepCopy aliases operator operands: %#v", persisted.Spec.Sources[0].Fields[0].Operators)
 	}
 
 	assertAccessPolicyTypedContract(t, ctx, config)
@@ -438,6 +450,128 @@ func assertTypedOutputAPIScenarios(t *testing.T, ctx context.Context, resources 
 	}
 }
 
+func assertValueOperatorsAPIScenarios(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface, namespace string) {
+	t.Helper()
+
+	operatorResource := newKubeseer("operator-persistence", namespace, map[string]interface{}{
+		"sources": []interface{}{map[string]interface{}{
+			"id":       "operator-source",
+			"resource": map[string]interface{}{"apiVersion": "v1", "kind": "Pod"},
+			"fields": []interface{}{map[string]interface{}{
+				"name": "resourceName",
+				"path": "{.metadata.name}",
+				"type": "string",
+				"operators": []interface{}{
+					map[string]interface{}{
+						"operator": "startsWith",
+						"value": map[string]interface{}{
+							"state":       "value",
+							"stringValue": "demo",
+						},
+					},
+					map[string]interface{}{
+						"operator": "in",
+						"values": []interface{}{map[string]interface{}{
+							"state":       "value",
+							"stringValue": "demo",
+						}},
+					},
+				},
+			}},
+		}},
+	})
+	created, err := resources.Create(ctx, operatorResource, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("create operator persistence fixture: %v", err)
+	}
+	sources, found, err := unstructured.NestedSlice(created.Object, "spec", "sources")
+	if err != nil || !found || len(sources) != 1 {
+		t.Fatalf("read persisted operator source: found=%t err=%v object=%#v", found, err, created.Object)
+	}
+	source, ok := sources[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("persisted operator source has unexpected shape: %#v", sources[0])
+	}
+	fields, ok := source["fields"].([]interface{})
+	if !ok || len(fields) != 1 {
+		t.Fatalf("persisted operator field has unexpected shape: %#v", source["fields"])
+	}
+	field, ok := fields[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("persisted operator field has unexpected shape: %#v", fields[0])
+	}
+	operators, ok := field["operators"].([]interface{})
+	if !ok || len(operators) != 2 {
+		t.Fatalf("persisted operator list lost order or values: %#v", field["operators"])
+	}
+	first, ok := operators[0].(map[string]interface{})
+	if !ok || first["operator"] != "startsWith" {
+		t.Fatalf("first persisted operator changed: %#v", operators[0])
+	}
+	firstValue, ok := first["value"].(map[string]interface{})
+	if !ok || firstValue["state"] != "value" || firstValue["stringValue"] != "demo" {
+		t.Fatalf("first persisted operator operand changed: %#v", first["value"])
+	}
+	second, ok := operators[1].(map[string]interface{})
+	if !ok || second["operator"] != "in" {
+		t.Fatalf("second persisted operator changed: %#v", operators[1])
+	}
+	secondValues, ok := second["values"].([]interface{})
+	if !ok || len(secondValues) != 1 {
+		t.Fatalf("second persisted operator values changed: %#v", second["values"])
+	}
+	secondValue, ok := secondValues[0].(map[string]interface{})
+	if !ok || secondValue["state"] != "value" || secondValue["stringValue"] != "demo" {
+		t.Fatalf("second persisted operator operand changed: %#v", secondValues[0])
+	}
+
+	empty := newKubeseer("operator-empty", namespace, map[string]interface{}{
+		"sources": []interface{}{map[string]interface{}{
+			"id":       "empty-operator-source",
+			"resource": map[string]interface{}{"apiVersion": "v1", "kind": "Pod"},
+			"fields": []interface{}{map[string]interface{}{
+				"name":      "resourceName",
+				"path":      "{.metadata.name}",
+				"type":      "string",
+				"operators": []interface{}{},
+			}},
+		}},
+	})
+	emptyCreated, err := resources.Create(ctx, empty, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("create explicit-empty operator fixture: %v", err)
+	}
+	emptySources, found, err := unstructured.NestedSlice(emptyCreated.Object, "spec", "sources")
+	if err != nil || !found || len(emptySources) != 1 {
+		t.Fatalf("read explicit-empty operator source: found=%t err=%v object=%#v", found, err, emptyCreated.Object)
+	}
+	emptySource := emptySources[0].(map[string]interface{})
+	emptyFields := emptySource["fields"].([]interface{})
+	emptyField := emptyFields[0].(map[string]interface{})
+	if persistedOperators, found := emptyField["operators"]; found && persistedOperators != nil {
+		if values, ok := persistedOperators.([]interface{}); !ok || len(values) != 0 {
+			t.Fatalf("explicit-empty operator list received a default: %#v", persistedOperators)
+		}
+	}
+
+	invalid := newKubeseer("invalid-operator-name", namespace, map[string]interface{}{
+		"sources": []interface{}{map[string]interface{}{
+			"id":       "invalid-operator-source",
+			"resource": map[string]interface{}{"apiVersion": "v1", "kind": "Pod"},
+			"fields": []interface{}{map[string]interface{}{
+				"name": "resourceName",
+				"path": "{.metadata.name}",
+				"type": "string",
+				"operators": []interface{}{map[string]interface{}{
+					"operator": "<",
+				}},
+			}},
+		}},
+	})
+	assertInvalidCreate(t, ctx, resources, invalid, "unsupported operator name")
+	assertNotPersisted(t, ctx, resources, invalid.GetName())
+}
+
 func typedResultSemanticallyEqual(left, right KubeseerResult) bool {
 	leftCopy := *left.DeepCopy()
 	rightCopy := *right.DeepCopy()
@@ -496,7 +630,16 @@ func typedResultFixture() KubeseerResult {
 						{Name: "object", Type: ValueTypeObject, State: FieldStateValues, Matches: []KubeseerTypedMatch{{State: MatchStateValue, ObjectValue: &object}}},
 						{Name: "list", Type: ValueTypeList, State: FieldStateValues, Matches: []KubeseerTypedMatch{{State: MatchStateValue, ListValue: &list}}},
 					},
-				}},
+				},
+					{
+						APIVersion: "v1",
+						Kind:       "Pod",
+						Namespace:  "team-a",
+						Name:       "failed",
+						UID:        types.UID("9e7d5e6b-4f7b-4c34-8ef6-typedout002"),
+						Error:      &KubeseerResultError{Reason: "OperatorFailed", Message: "operator evaluation failed"},
+					},
+				},
 			},
 			{
 				ID:    "failed-source",
@@ -821,6 +964,42 @@ func assertInstalledCRDContract(t *testing.T, ctx context.Context, client apiext
 	if !found || fieldType.Type != "string" || !equalJSONValues(fieldType.Enum, []string{"string", "integer", "number", "boolean", "timestamp", "duration", "quantity", "object", "list"}) || fieldType.Default != nil {
 		t.Fatalf("installed CRD field type schema is incorrect: %#v", fieldType)
 	}
+	operators, found := field.Properties["operators"]
+	if !found || operators.Type != "array" || operators.Items == nil || operators.Items.Schema == nil || operators.XListType == nil || *operators.XListType != "atomic" {
+		t.Fatalf("installed CRD field operators schema is incorrect: %#v", operators)
+	}
+	operator := operators.Items.Schema
+	if operator.Type != "object" || !apiContractContains(operator.Required, "operator") {
+		t.Fatalf("installed CRD operator entry schema is incorrect: %#v", operator)
+	}
+	operatorName, found := operator.Properties["operator"]
+	if !found || operatorName.Type != "string" || !equalJSONValues(operatorName.Enum, []string{"eq", "ne", "gt", "gte", "lt", "lte", "contains", "startsWith", "endsWith", "matches", "exists", "notExists", "in", "notIn", "default", "coalesce"}) || operatorName.Default != nil {
+		t.Fatalf("installed CRD operator name schema is incorrect: %#v", operatorName)
+	}
+	operatorValues, found := operator.Properties["values"]
+	if !found || operatorValues.Type != "array" || operatorValues.Items == nil || operatorValues.Items.Schema == nil || operatorValues.XListType == nil || *operatorValues.XListType != "atomic" {
+		t.Fatalf("installed CRD operator values schema is incorrect: %#v", operatorValues)
+	}
+	operatorOperand := operatorValues.Items.Schema
+	if operatorOperand.Type != "object" || !apiContractContains(operatorOperand.Required, "state") || operatorOperand.AdditionalProperties != nil || operatorOperand.XPreserveUnknownFields != nil {
+		t.Fatalf("installed CRD operator operand schema is incorrect: %#v", operatorOperand)
+	}
+	operandState, found := operatorOperand.Properties["state"]
+	if !found || operandState.Type != "string" || !equalJSONValues(operandState.Enum, []string{"value", "null"}) {
+		t.Fatalf("installed CRD operator operand state schema is incorrect: %#v", operandState)
+	}
+	for _, payload := range []string{"stringValue", "numberValue", "timestampValue", "durationValue", "quantityValue", "objectValue", "listValue"} {
+		value, found := operatorOperand.Properties[payload]
+		if !found || value.Type != "string" {
+			t.Fatalf("installed CRD operator operand string payload %q schema is incorrect: %#v", payload, value)
+		}
+	}
+	for _, payload := range []string{"integerValue", "booleanValue"} {
+		_, found := operatorOperand.Properties[payload]
+		if !found {
+			t.Fatalf("installed CRD operator operand payload %q schema is missing: %#v", payload, operatorOperand)
+		}
+	}
 	status, found := root.Properties["status"]
 	if !found || status.Type != "object" {
 		t.Fatalf("installed CRD status schema is incorrect: %#v", status)
@@ -868,6 +1047,10 @@ func assertInstalledCRDContract(t *testing.T, ctx context.Context, client apiext
 		t.Fatalf("installed CRD typed resources schema is incorrect: %#v", resourcesResult)
 	}
 	resourceResult := resourcesResult.Items.Schema
+	resourceError, found := resourceResult.Properties["error"]
+	if !found || resourceError.Type != "object" || resourceError.AdditionalProperties != nil || !apiContractContains(resourceError.Required, "reason") {
+		t.Fatalf("installed CRD resource error schema is incorrect: %#v", resourceError)
+	}
 	fieldsResult, found := resourceResult.Properties["fields"]
 	if !found || fieldsResult.Type != "array" || fieldsResult.Items == nil || fieldsResult.Items.Schema == nil || fieldsResult.XListType == nil || *fieldsResult.XListType != "atomic" {
 		t.Fatalf("installed CRD typed fields schema is incorrect: %#v", fieldsResult)
