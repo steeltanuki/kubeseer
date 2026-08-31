@@ -17,13 +17,13 @@ package reconciliation
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/steeltanuki/kubeseer/internal/authorization"
 	"github.com/steeltanuki/kubeseer/internal/discovery"
+	"github.com/steeltanuki/kubeseer/internal/observability"
 	"github.com/steeltanuki/kubeseer/internal/selection"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -214,6 +214,7 @@ func (w *ClientMetadataWatcher) Watch(ctx context.Context, permit WatchPermit, r
 type routeRegistryOptions struct {
 	watchBackoffBase time.Duration
 	watchBackoffMax  time.Duration
+	watchObserver    *observability.Observer
 }
 
 // RouteRegistryOption configures watch restart timing.
@@ -228,6 +229,14 @@ func WithRouteWatchBackoff(base, maximum time.Duration) RouteRegistryOption {
 		if maximum > 0 {
 			options.watchBackoffMax = maximum
 		}
+	}
+}
+
+// WithRouteWatchObserver reports unexpected source-watch stops and scheduled
+// restarts without changing route ownership or retry semantics.
+func WithRouteWatchObserver(observer *observability.Observer) RouteRegistryOption {
+	return func(options *routeRegistryOptions) {
+		options.watchObserver = observer
 	}
 }
 
@@ -369,7 +378,7 @@ func (r *RouteRegistry) Replace(lease Lease, routes []AuthorizedRoute) error {
 	ctx := r.ctx
 	for address := range r.byTarget {
 		if _, exists := r.watches[address]; !exists {
-			r.watches[address] = &watchSupervisor{registry: r, address: address, watcher: r.watcher, base: r.options.watchBackoffBase, maximum: r.options.watchBackoffMax}
+			r.watches[address] = &watchSupervisor{registry: r, address: address, watcher: r.watcher, base: r.options.watchBackoffBase, maximum: r.options.watchBackoffMax, observer: r.options.watchObserver}
 		}
 	}
 	toStart := make([]*watchSupervisor, 0)
@@ -640,6 +649,7 @@ type watchSupervisor struct {
 	watcher  MetadataWatcher
 	base     time.Duration
 	maximum  time.Duration
+	observer *observability.Observer
 
 	mu      sync.Mutex
 	started bool
@@ -740,11 +750,52 @@ func (s *watchSupervisor) run(ctx context.Context) {
 		if isExpiredWatchError(err) {
 			resourceVersion = ""
 		}
+		if _, current = s.registry.currentPermit(s.address); !current {
+			return
+		}
+		watchReason := classifyWatchReason(err)
+		if s.observer != nil {
+			s.observer.ObserveWatchStopped(ctx, observability.WatchObservation{
+				Target: watchObservationTarget(s.address),
+				Reason: watchReason,
+				Retry:  observability.RetryNone,
+			})
+			s.observer.ObserveWatchRestart(ctx, observability.WatchObservation{
+				Target: watchObservationTarget(s.address),
+				Reason: watchReason,
+				Retry:  observability.RetryScheduled,
+			})
+		}
 		if !waitFor(ctx, backoff) {
 			return
 		}
 		backoff = nextBackoff(backoff, s.maximum)
 	}
+}
+
+func watchObservationTarget(address WatchAddress) observability.WatchTarget {
+	return observability.WatchTarget{
+		APIGroup:  address.GVR.Group,
+		Resource:  address.GVR.Resource,
+		Scope:     observability.ScopeFromDiscovery(address.Scope),
+		Namespace: address.Namespace,
+	}
+}
+
+func classifyWatchReason(err error) observability.Reason {
+	if err == nil {
+		return observability.ReasonReadUnavailable
+	}
+	if apierrors.IsForbidden(err) {
+		return observability.ReasonReadForbidden
+	}
+	if isExpiredWatchError(err) {
+		return observability.ReasonListExpired
+	}
+	if apierrors.IsTimeout(err) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return observability.ReasonReadInterrupted
+	}
+	return observability.ReasonReadUnavailable
 }
 
 func signalWatchReady(s *watchSupervisor, firstAttempt *bool) {
@@ -814,10 +865,14 @@ func watchEventError(object runtime.Object) error {
 		return errors.New("metadata watch returned an unspecified error")
 	}
 	if status, ok := object.(*metav1.Status); ok {
-		if status.Reason != "" {
-			return fmt.Errorf("metadata watch returned %s", status.Reason)
+		switch status.Reason {
+		case metav1.StatusReasonForbidden:
+			return apierrors.NewForbidden(schema.GroupResource{Resource: "metadata"}, "watch", errors.New("metadata watch is forbidden"))
+		case metav1.StatusReasonExpired:
+			return apierrors.NewResourceExpired("metadata watch resource version expired")
+		case metav1.StatusReasonTimeout:
+			return apierrors.NewTimeoutError("metadata watch timed out", 0)
 		}
-		return errors.New("metadata watch returned an API error")
 	}
 	return errors.New("metadata watch returned an API error")
 }

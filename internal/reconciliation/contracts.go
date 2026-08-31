@@ -23,8 +23,10 @@ import (
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
 	"github.com/steeltanuki/kubeseer/internal/accesspolicy"
 	"github.com/steeltanuki/kubeseer/internal/authorization"
+	"github.com/steeltanuki/kubeseer/internal/observability"
 	"github.com/steeltanuki/kubeseer/internal/selection"
 	statuscontract "github.com/steeltanuki/kubeseer/internal/status"
+	"go.opentelemetry.io/otel/trace"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -40,6 +42,11 @@ const (
 // not a public Kubeseer API field; it belongs to manager configuration.
 type Options struct {
 	SafetyInterval time.Duration
+
+	// TraceProvider is the optional manager-wide OpenTelemetry provider. All
+	// other observability facilities come from the owning manager at setup
+	// time; a nil provider keeps direct construction tracing-free.
+	TraceProvider trace.TracerProvider
 
 	// The backoff knobs are useful for deterministic integration fixtures and
 	// retain bounded production defaults. They do not affect reconciliation
@@ -125,6 +132,7 @@ type Dependencies struct {
 	Publisher    StatusPublisherPort
 	Tracker      *FreshnessTracker
 	Trigger      *TriggerSource
+	Observer     *observability.Observer
 }
 
 // Lease is a process-local freshness capability. It is valid only for the
@@ -188,6 +196,9 @@ func NewRuntime(options Options, dependencies Dependencies) (*Runtime, error) {
 	}
 	if dependencies.Tracker == nil {
 		dependencies.Tracker = NewFreshnessTracker()
+	}
+	if dependencies.Observer == nil {
+		dependencies.Observer = observability.NewNoop()
 	}
 	trigger := dependencies.Trigger
 	if trigger == nil {

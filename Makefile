@@ -13,9 +13,12 @@
 # limitations under the License.
 
 CONTROLLER_GEN_VERSION := v0.20.1
-CONTROLLER_GEN := go run sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION)
 SETUP_ENVTEST_VERSION := v0.24.1
-SETUP_ENVTEST := go run sigs.k8s.io/controller-runtime/tools/setup-envtest@$(SETUP_ENVTEST_VERSION)
+GO_MODULE_CACHE := $(shell go env GOMODCACHE)
+LOCAL_GO_PROXY := file://$(GO_MODULE_CACHE)/cache/download
+GO_RUN_WITH_LOCAL_PROXY := GOPROXY=$(LOCAL_GO_PROXY),https://proxy.golang.org,direct go run
+CONTROLLER_GEN := $(GO_RUN_WITH_LOCAL_PROXY) sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION)
+SETUP_ENVTEST := $(GO_RUN_WITH_LOCAL_PROXY) sigs.k8s.io/controller-runtime/tools/setup-envtest@$(SETUP_ENVTEST_VERSION)
 API_PACKAGE := ./api/v1alpha1
 CRD_OUTPUT := config/crd/bases
 DEEP_COPY_HEADER := hack/boilerplate.go.txt
@@ -36,6 +39,7 @@ verify:
 	./hack/verify-generated.sh
 	./hack/verify-test-layer-policy.sh
 	./hack/verify-admission-boundaries.sh
+	./hack/verify-observability-boundaries.sh
 
 test:
 	@set -eu; \

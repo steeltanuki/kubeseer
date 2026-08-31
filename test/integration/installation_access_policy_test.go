@@ -186,6 +186,24 @@ func TestModuleIntegration(t *testing.T) {
 	t.Run("status publisher writes only complete semantic snapshots", func(t *testing.T) {
 		assertStatusAndConditionsPublisherScenarios(t, ctx)
 	})
+	t.Run("observability core keeps stable signals passive and bounded", func(t *testing.T) {
+		assertObservabilityCoreScenarios(t)
+	})
+	t.Run("observability instruments authorization and successful LIST boundaries", func(t *testing.T) {
+		assertObservabilityBoundaryScenarios(t, ctx, resolver)
+	})
+	t.Run("observability correlates production runtime outcomes and optional traces", func(t *testing.T) {
+		assertObservabilityRuntimeScenarios(t, ctx, resolver)
+	})
+	t.Run("observability reports semantic status publication and Events", func(t *testing.T) {
+		assertObservabilityStatusScenarios(t, ctx)
+	})
+	t.Run("observability reports unexpected WATCH stops and restarts", func(t *testing.T) {
+		assertObservabilityWatchScenarios(t, ctx, resolver)
+	})
+	t.Run("observability composes one manager-wide observer through production", func(t *testing.T) {
+		assertObservabilityManagerScenarios(t, ctx, resolver)
+	})
 
 	t.Log("MODULE_INTEGRATION=discovery-access-policy-evaluation STATUS=passed")
 	t.Log("MODULE_INTEGRATION=discovery-access-policy-loader STATUS=passed")
@@ -232,6 +250,12 @@ func TestModuleIntegration(t *testing.T) {
 	t.Log("MODULE_INTEGRATION=status-and-conditions-pipeline STATUS=passed")
 	t.Log("MODULE_INTEGRATION=status-and-conditions-publisher STATUS=passed")
 	t.Log("MODULE_INTEGRATION=admission-validation STATUS=passed")
+	t.Log("MODULE_INTEGRATION=observability-core STATUS=passed")
+	t.Log("MODULE_INTEGRATION=observability-boundaries STATUS=passed")
+	t.Log("MODULE_INTEGRATION=observability-runtime STATUS=passed")
+	t.Log("MODULE_INTEGRATION=observability-status STATUS=passed")
+	t.Log("MODULE_INTEGRATION=observability-watch STATUS=passed")
+	t.Log("MODULE_INTEGRATION=observability STATUS=passed")
 }
 
 func assertEvaluationScenarios(t *testing.T, ctx context.Context, resolver *discovery.Resolver) {

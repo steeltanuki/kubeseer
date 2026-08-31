@@ -2,7 +2,7 @@
 walden_schema_version: v1alpha1
 status: approved
 approved_at: 2026-08-31T16:39:28Z
-last_modified: 2026-08-31T16:39:28Z
+last_modified: 2026-08-31T17:57:04Z
 approved_fingerprint: sha256:c61137591fb06e534bea5544e8c49a69ecd0e66bec22782758b4273b7e5516c0
 source_design_approved_at: 2026-08-31T16:16:10Z
 source_design_fingerprint: sha256:169d2a8089da98599481ba8514e9284dabbd58f66b9b7f034ff9d6463ad064d8
@@ -13,8 +13,8 @@ source_design_fingerprint: sha256:169d2a8089da98599481ba8514e9284dabbd58f66b9b7f
 <!-- assumed: all automated proof remains in the existing TestModuleIntegration and TestEnvtestReconciliationRuntime entry points, with feature-specific success markers and no dedicated package-local unit suite (source: approved Design / Testing Strategy and .walden/constitution.md) -->
 <!-- assumed: Kubeseer introduces no owned asynchronous telemetry queue, so the conditional queue requirements are satisfied by the synchronous passive observer and a static absence check (source: approved Design / Sink isolation) -->
 
-- [ ] 1. Establish the passive observability core
-  - [ ] 1.1 Add stable signal contracts, collectors, logging, setup validation, and no-op behavior
+- [x] 1. Establish the passive observability core
+  - [x] 1.1 Add stable signal contracts, collectors, logging, setup validation, and no-op behavior
     - Create `internal/observability` with immutable allowlisted DTOs, closed
       event/outcome/reason/stage/kind/scope vocabularies, `InternalError`
       fallback, observer/no-op contracts, immutable attempt context, injected
@@ -42,8 +42,8 @@ source_design_fingerprint: sha256:169d2a8089da98599481ba8514e9284dabbd58f66b9b7f
         timeout: 35m
         covers: ["R1.AC1", "R1.AC9", "R3.AC1", "R3.AC11", "R3.AC12", "R3.AC13", "R3.AC14", "R3.AC15", "R5.AC5", "R5.AC7", "R6.AC1", "R6.AC2", "R6.AC3", "R6.AC4", "R6.AC5", "R6.AC6", "R7.AC2", "R7.AC3", "R7.AC5", "R7.AC6", "R7.AC7", "R7.AC8", "R7.AC9", "NFR1", "NFR2", "NFR3", "NFR5", "NFR6", "NFR7", "NFR8", "C1", "C2", "C3", "C4", "C6", "C7", "C8", "C9", "C10"]
 
-- [ ] 2. Instrument authorization evidence and successful resource reads
-  - [ ] 2.1 Wire ordered authorization audit and bounded LIST-page observations
+- [x] 2. Instrument authorization evidence and successful resource reads
+  - [x] 2.1 Wire ordered authorization audit and bounded LIST-page observations
     - Implement the observability adapter for the existing
       `authorization.Recorder`. Copy only `authorization.Record` fields,
       preserve batch order, choose the exact decision/read-forbidden event,
@@ -68,8 +68,8 @@ source_design_fingerprint: sha256:169d2a8089da98599481ba8514e9284dabbd58f66b9b7f
         timeout: 35m
         covers: ["R2.AC1", "R2.AC2", "R2.AC3", "R2.AC4", "R2.AC5", "R2.AC6", "R2.AC7", "R2.AC8", "R2.AC9", "R2.AC10", "R3.AC4", "R3.AC9", "R6.AC1", "R6.AC2", "R6.AC3", "R6.AC4", "R6.AC5", "R6.AC6", "R6.AC7", "R7.AC1", "R7.AC2", "R7.AC3", "R7.AC4", "R8.AC3", "R8.AC4", "R8.AC7", "NFR1", "NFR2", "NFR3", "NFR4", "NFR8", "C1", "C2", "C9"]
 
-- [ ] 3. Correlate runtime attempts, outcomes, metrics, and optional traces
-  - [ ] 3.1 Instrument the production reconciliation lifecycle with exactly-once completion
+- [x] 3. Correlate runtime attempts, outcomes, metrics, and optional traces
+  - [x] 3.1 Instrument the production reconciliation lifecycle with exactly-once completion
     - Add the optional observer dependency to the runtime and preserve no-op
       construction. Start one attempt before the first read, bind UID/generation
       after load, wrap fixed production stages, and route all private returns
@@ -95,8 +95,8 @@ source_design_fingerprint: sha256:169d2a8089da98599481ba8514e9284dabbd58f66b9b7f
         timeout: 40m
         covers: ["R1.AC2", "R1.AC3", "R1.AC4", "R1.AC5", "R1.AC9", "R1.AC10", "R1.AC11", "R1.AC12", "R3.AC2", "R3.AC3", "R3.AC5", "R3.AC6", "R3.AC7", "R5.AC1", "R5.AC2", "R5.AC3", "R5.AC4", "R5.AC5", "R5.AC6", "R5.AC7", "R6.AC1", "R6.AC2", "R6.AC3", "R6.AC4", "R6.AC5", "R6.AC6", "R6.AC8", "R7.AC1", "R7.AC2", "R7.AC3", "R7.AC4", "R7.AC8", "R8.AC1", "R8.AC2", "R8.AC6", "R8.AC7", "NFR1", "NFR2", "NFR4", "NFR5", "NFR6", "NFR8", "C1", "C2", "C6", "C9"]
 
-- [ ] 4. Observe status publication and persist semantic Kubernetes Events
-  - [ ] 4.1 Add publication outcomes, deterministic Event selection, and real API-server proof
+- [x] 4. Observe status publication and persist semantic Kubernetes Events
+  - [x] 4.1 Add publication outcomes, deterministic Event selection, and real API-server proof
     - Add a variadic no-error observer option to `NewStatusPublisher` while
       preserving existing callers. Report exactly one written, skipped,
       conflicted, or failed publication outcome; emit the required written and
@@ -128,8 +128,8 @@ source_design_fingerprint: sha256:169d2a8089da98599481ba8514e9284dabbd58f66b9b7f
         timeout: 50m
         covers: ["R4.AC1", "R4.AC2", "R4.AC3", "R4.AC4", "R4.AC5", "R4.AC6", "R4.AC7", "R4.AC8", "R4.AC9", "R6.AC1", "R6.AC2", "R6.AC5", "R7.AC1", "R7.AC4", "R8.AC5", "R8.AC7", "NFR1", "NFR2", "NFR4", "NFR6", "NFR8", "C5", "C9"]
 
-- [ ] 5. Observe authorized source watch lifecycle
-  - [ ] 5.1 Add sanitized unexpected-stop and restart observations to the route supervisor
+- [x] 5. Observe authorized source watch lifecycle
+  - [x] 5.1 Add sanitized unexpected-stop and restart observations to the route supervisor
     - Add the optional route-registry watch observer. Emit
       `SourceWatchStopped` for unexpected termination and
       `SourceWatchRestarted` immediately before a replacement is scheduled;
@@ -152,8 +152,8 @@ source_design_fingerprint: sha256:169d2a8089da98599481ba8514e9284dabbd58f66b9b7f
         timeout: 40m
         covers: ["R1.AC8", "R3.AC10", "R6.AC1", "R6.AC2", "R6.AC3", "R6.AC4", "R6.AC5", "R6.AC6", "R6.AC7", "R7.AC1", "R7.AC2", "R7.AC3", "R7.AC4", "NFR1", "NFR2", "NFR3", "NFR4", "NFR8", "C1", "C2", "C9"]
 
-- [ ] 6. Compose observability through the real manager and production pipeline
-  - [ ] 6.1 Wire every adapter once and prove the complete passive signal contract
+- [x] 6. Compose observability through the real manager and production pipeline
+  - [x] 6.1 Wire every adapter once and prove the complete passive signal contract
     - Extend manager-wide reconciliation options with only the optional trace
       provider. In `SetupWithManager`, create one observer from manager logger,
       controller-runtime registry, and manager Event recorder; inject its
@@ -183,8 +183,8 @@ source_design_fingerprint: sha256:169d2a8089da98599481ba8514e9284dabbd58f66b9b7f
         timeout: 50m
         covers: ["R4.AC1", "R4.AC2", "R4.AC3", "R4.AC4", "R4.AC5", "R4.AC6", "R4.AC7", "R4.AC8", "R4.AC9", "R8.AC5", "NFR1", "NFR2", "NFR4", "NFR6", "NFR8", "C5", "C9"]
 
-- [ ] 7. Complete repository-wide verification
-  - [ ] 7.1 Verify boundaries, generated state, race safety, compatibility, build, and module tidiness
+- [x] 7. Complete repository-wide verification
+  - [x] 7.1 Verify boundaries, generated state, race safety, compatibility, build, and module tidiness
     - Register observability integration/envtest helpers in the existing
       test-layer policy and add a static observability boundary verifier. Reject
       package-local tests, free-form/high-cardinality labels, Kubeseer-owned

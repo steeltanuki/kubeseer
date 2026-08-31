@@ -36,6 +36,30 @@ type ResourceLister interface {
 	List(context.Context, AuthorizedRead, metav1.ListOptions) (*unstructured.UnstructuredList, error)
 }
 
+// PageObservation contains only the scope and returned item count of one
+// successful LIST page. It intentionally cannot carry selectors, targets, or
+// resource instances across the selection boundary.
+type PageObservation struct {
+	Scope     discovery.Scope
+	ItemCount int
+}
+
+// PageObserver observes successful LIST pages without participating in
+// selection or authorization decisions.
+type PageObserver interface {
+	ObservePage(context.Context, PageObservation)
+}
+
+// PageObserverFunc adapts a function to PageObserver.
+type PageObserverFunc func(context.Context, PageObservation)
+
+// ObservePage implements PageObserver.
+func (f PageObserverFunc) ObservePage(ctx context.Context, observation PageObservation) {
+	if f != nil {
+		f(ctx, observation)
+	}
+}
+
 // DynamicResourceLister adapts client-go's dynamic client to ResourceLister.
 type DynamicResourceLister struct {
 	client   dynamic.Interface
@@ -89,9 +113,10 @@ func (l *DynamicResourceLister) List(ctx context.Context, read AuthorizedRead, o
 
 // Executor retrieves and normalizes all objects in an authorized plan.
 type Executor struct {
-	lister    ResourceLister
-	pageLimit int64
-	verifier  authorization.Verifier
+	lister       ResourceLister
+	pageLimit    int64
+	verifier     authorization.Verifier
+	pageObserver PageObserver
 }
 
 // ExecutorOption customizes executor behavior.
@@ -111,6 +136,13 @@ func WithPageLimit(limit int64) ExecutorOption {
 		if limit > 0 {
 			e.pageLimit = limit
 		}
+	}
+}
+
+// WithPageObserver reports successful LIST page counts to a passive observer.
+func WithPageObserver(observer PageObserver) ExecutorOption {
+	return func(e *Executor) {
+		e.pageObserver = observer
 	}
 }
 
@@ -199,6 +231,7 @@ func (e *Executor) listTarget(ctx context.Context, plan SelectionPlan, read Auth
 		if response == nil {
 			return nil, NewSelectionError(plan.SourceID(), ReasonReadUnavailable, "resource list returned no response")
 		}
+		notifyPageObserver(e.pageObserver, ctx, PageObservation{Scope: read.target.Scope, ItemCount: len(response.Items)})
 		for index := range response.Items {
 			item := response.Items[index]
 			name := item.GetName()
@@ -223,6 +256,14 @@ func (e *Executor) listTarget(ctx context.Context, plan SelectionPlan, read Auth
 			return items, nil
 		}
 	}
+}
+
+func notifyPageObserver(observer PageObserver, ctx context.Context, observation PageObservation) {
+	if observer == nil {
+		return
+	}
+	defer func() { _ = recover() }()
+	observer.ObservePage(ctx, observation)
 }
 
 func recordReadForbidden(ctx context.Context, read AuthorizedRead) {

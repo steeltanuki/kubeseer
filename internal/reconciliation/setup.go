@@ -22,12 +22,14 @@ import (
 	"github.com/steeltanuki/kubeseer/internal/accesspolicy"
 	"github.com/steeltanuki/kubeseer/internal/authorization"
 	discoveryruntime "github.com/steeltanuki/kubeseer/internal/discovery"
+	"github.com/steeltanuki/kubeseer/internal/observability"
 	"github.com/steeltanuki/kubeseer/internal/selection"
 	k8sdiscovery "k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/metadata"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
@@ -52,6 +54,15 @@ func SetupWithManager(mgr manager.Manager, options Options) error {
 	if config == nil {
 		return errors.New("manager must provide a REST config")
 	}
+	observer, err := observability.New(observability.Options{
+		Logger:         mgr.GetLogger(),
+		Registerer:     ctrlmetrics.Registry,
+		EventRecorder:  mgr.GetEventRecorderFor(controllerName),
+		TracerProvider: normalized.TraceProvider,
+	})
+	if err != nil {
+		return err
+	}
 
 	discoveryClient, err := k8sdiscovery.NewDiscoveryClientForConfig(config)
 	if err != nil {
@@ -67,12 +78,13 @@ func SetupWithManager(mgr manager.Manager, options Options) error {
 	}
 
 	tracker := NewFreshnessTracker()
-	enforcer := authorization.NewEnforcer(nil)
+	enforcer := authorization.NewEnforcer(observability.NewAuthorizationRecorder(observer))
 	store := NewClientKubeseerStore(apiReader)
 	routes := NewRouteRegistry(
 		NewClientMetadataWatcher(metadataClient),
 		tracker,
 		WithRouteWatchBackoff(normalized.WatchBackoffBase, normalized.WatchBackoffMax),
+		WithRouteWatchObserver(observer),
 	)
 	dependencies := Dependencies{
 		Reader:       store,
@@ -80,10 +92,14 @@ func SetupWithManager(mgr manager.Manager, options Options) error {
 		PolicySource: accesspolicy.NewClientPolicySource(apiReader),
 		Enforcer:     enforcer,
 		Planner:      selection.NewPlanner(discoveryruntime.NewResolver(discoveryClient)),
-		Executor:     selection.NewExecutor(selection.NewDynamicResourceLister(dynamicClient, tracker), selection.WithVerifier(tracker)),
-		Routes:       routes,
-		Publisher:    NewStatusPublisher(store, NewClientStatusWriter(managerClient.Status()), tracker),
-		Tracker:      tracker,
+		Executor: selection.NewExecutor(selection.NewDynamicResourceLister(dynamicClient, tracker),
+			selection.WithVerifier(tracker),
+			selection.WithPageObserver(observability.NewPageObserver(observer)),
+		),
+		Routes:    routes,
+		Publisher: NewStatusPublisher(store, NewClientStatusWriter(managerClient.Status()), tracker, WithStatusObserver(observer)),
+		Tracker:   tracker,
+		Observer:  observer,
 	}
 	runtime, err := NewRuntime(normalized, dependencies)
 	if err != nil {

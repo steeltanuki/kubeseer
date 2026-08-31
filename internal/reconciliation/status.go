@@ -20,6 +20,7 @@ import (
 	"reflect"
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
+	"github.com/steeltanuki/kubeseer/internal/observability"
 	statuscontract "github.com/steeltanuki/kubeseer/internal/status"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -71,26 +72,55 @@ func statusProjectionEqual(left, right StatusProjection) bool {
 
 // StatusPublisher performs one guarded status-subresource update at most.
 type StatusPublisher struct {
-	reader  KubeseerReader
-	writer  StatusWriter
-	tracker *FreshnessTracker
+	reader   KubeseerReader
+	writer   StatusWriter
+	tracker  *FreshnessTracker
+	observer *observability.Observer
 }
 
 var _ StatusPublisherPort = (*StatusPublisher)(nil)
 
+// StatusPublisherOption adds passive instrumentation without changing the
+// status publication contract.
+type StatusPublisherOption func(*StatusPublisher)
+
+// WithStatusObserver reports one authoritative publication outcome and emits
+// Events after successful semantic writes.
+func WithStatusObserver(observer *observability.Observer) StatusPublisherOption {
+	return func(publisher *StatusPublisher) {
+		publisher.observer = observer
+	}
+}
+
 // NewStatusPublisher constructs a direct-read, status-only publisher.
-func NewStatusPublisher(reader KubeseerReader, writer StatusWriter, tracker *FreshnessTracker) *StatusPublisher {
-	return &StatusPublisher{reader: reader, writer: writer, tracker: tracker}
+func NewStatusPublisher(reader KubeseerReader, writer StatusWriter, tracker *FreshnessTracker, options ...StatusPublisherOption) *StatusPublisher {
+	publisher := &StatusPublisher{reader: reader, writer: writer, tracker: tracker}
+	for _, option := range options {
+		if option != nil {
+			option(publisher)
+		}
+	}
+	return publisher
 }
 
 // Publish re-reads the current Kubeseer, preserves spec and conditions, and
 // writes the status subresource only when the normalized projection changes.
-func (p *StatusPublisher) Publish(ctx context.Context, lease Lease, evaluation statuscontract.Evaluation) error {
-	if p == nil || p.reader == nil || p.writer == nil {
-		return errors.New("status publisher dependencies are not configured")
-	}
+func (p *StatusPublisher) Publish(ctx context.Context, lease Lease, evaluation statuscontract.Evaluation) (err error) {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	publication := observability.StatusFailed
+	reason := observability.ReasonStatusUnavailable
+	if p != nil && p.observer != nil {
+		defer func() {
+			if err != nil {
+				publication, reason = classifyStatusPublication(err)
+			}
+			p.observer.ObserveStatus(ctx, publication, reason)
+		}()
+	}
+	if p == nil || p.reader == nil || p.writer == nil {
+		return errors.New("status publisher dependencies are not configured")
 	}
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -107,6 +137,8 @@ func (p *StatusPublisher) Publish(ctx context.Context, lease Lease, evaluation s
 		return transientRuntimeError("status-read", "", ReasonStatusUnavailable, "current Kubeseer status is unavailable", err)
 	}
 	if current.DeletionTimestamp != nil {
+		publication = observability.StatusSkipped
+		reason = observability.ReasonObjectDeleting
 		return nil
 	}
 	if lease.UID != current.UID {
@@ -126,6 +158,8 @@ func (p *StatusPublisher) Publish(ctx context.Context, lease Lease, evaluation s
 	candidate := current.DeepCopy()
 	candidate.Status = composed
 	if SemanticallyEqualStatus(current.Status, candidate.Status) {
+		publication = observability.StatusSkipped
+		reason = statusReasonFromConditions(candidate.Status.Conditions)
 		return nil
 	}
 	if ctx.Err() != nil {
@@ -137,7 +171,68 @@ func (p *StatusPublisher) Publish(ctx context.Context, lease Lease, evaluation s
 	if err := p.writer.Update(ctx, candidate); err != nil {
 		return classifyStatusWriteError(err)
 	}
+	publication = observability.StatusWritten
+	reason = statusReasonFromConditions(candidate.Status.Conditions)
+	if p.observer != nil {
+		p.observer.RecordStatusEvent(ctx, candidate, candidate.Status.Conditions)
+	}
 	return nil
+}
+
+func classifyStatusPublication(err error) (observability.StatusOutcome, observability.Reason) {
+	if err == nil {
+		return observability.StatusSkipped, observability.ReasonEvaluationSucceeded
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return observability.StatusSkipped, observability.ReasonReadInterrupted
+	}
+	if errors.Is(err, ErrStaleLease) {
+		return observability.StatusSkipped, observability.ReasonStaleLease
+	}
+	if apierrors.IsConflict(err) {
+		return observability.StatusConflicted, observability.ReasonStatusConflict
+	}
+	var runtimeErr *RuntimeError
+	if errors.As(err, &runtimeErr) {
+		switch runtimeErr.Reason {
+		case ReasonStatusConflict:
+			return observability.StatusConflicted, observability.ReasonStatusConflict
+		case ReasonBuildFailure:
+			return observability.StatusFailed, observability.ReasonBuildFailure
+		case ReasonStatusUnavailable:
+			return observability.StatusFailed, observability.ReasonStatusUnavailable
+		default:
+			return observability.StatusFailed, observability.Reason(runtimeErr.Reason)
+		}
+	}
+	return observability.StatusFailed, observability.ReasonStatusUnavailable
+}
+
+func statusReasonFromConditions(conditions []metav1.Condition) observability.Reason {
+	for _, conditionType := range []string{
+		statuscontract.ConditionAccepted,
+		statuscontract.ConditionAuthorized,
+		statuscontract.ConditionSourcesResolved,
+		statuscontract.ConditionReady,
+	} {
+		found := false
+		for _, condition := range conditions {
+			if condition.Type != conditionType {
+				continue
+			}
+			if found || condition.Reason == "" {
+				return observability.ReasonInternalError
+			}
+			found = true
+			if condition.Status != metav1.ConditionTrue {
+				return observability.Reason(condition.Reason)
+			}
+		}
+		if !found {
+			return observability.ReasonInternalError
+		}
+	}
+	return observability.ReasonEvaluationSucceeded
 }
 
 func classifyStatusWriteError(err error) error {

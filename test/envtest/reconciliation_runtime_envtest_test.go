@@ -147,6 +147,7 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	watchKey := types.NamespacedName{Namespace: namespace, Name: "runtime-watch"}
 	watchPeerKey := types.NamespacedName{Namespace: namespace, Name: "runtime-watch-peer"}
 	statusKey := types.NamespacedName{Namespace: namespace, Name: "runtime-status"}
+	observabilityKey := types.NamespacedName{Namespace: namespace, Name: "runtime-observability-event"}
 	allFailedKey := types.NamespacedName{Namespace: namespace, Name: "runtime-all-failed"}
 	emptyKey := types.NamespacedName{Namespace: namespace, Name: "runtime-empty"}
 	adapterKey := types.NamespacedName{Namespace: namespace, Name: "runtime-adapter"}
@@ -173,7 +174,7 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	policy := runtimeEnvtestPolicy(namespace)
 	environment.AddCleanup("delete reconciliation runtime fixtures", func(ctx context.Context) error {
 		var cleanupErr error
-		for _, key := range []types.NamespacedName{existingKey, fanoutKey, newKey, watchKey, watchPeerKey, statusKey, allFailedKey, emptyKey, adapterKey, busyKey, freeKey, deterministicKey, operatorKey, operatorInvalidKey, operatorFailureKey, operatorSiblingKey, aggregationKey} {
+		for _, key := range []types.NamespacedName{existingKey, fanoutKey, newKey, watchKey, watchPeerKey, statusKey, observabilityKey, allFailedKey, emptyKey, adapterKey, busyKey, freeKey, deterministicKey, operatorKey, operatorInvalidKey, operatorFailureKey, operatorSiblingKey, aggregationKey} {
 			object := &v1alpha1.Kubeseer{}
 			err := apiClient.Get(ctx, key, object)
 			if apierrors.IsNotFound(err) {
@@ -244,6 +245,22 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	assertRuntimeStatusSnapshot(t, successStatus, successStatus.Generation, true)
 	assertRuntimeCondition(t, successStatus.Status, statuscontract.ConditionReady, metav1.ConditionTrue, statuscontract.ReasonEvaluationSucceeded)
 	assertRuntimeCondition(t, successStatus.Status, statuscontract.ConditionDegraded, metav1.ConditionFalse, statuscontract.ReasonEvaluationSucceeded)
+
+	eventObject := runtimeEnvtestKubeseer(observabilityKey, runtimeEnvtestInvalidSource("observability-event-source"))
+	if err := apiClient.Create(ctx, eventObject); err != nil {
+		t.Fatalf("create observability Event Kubeseer: %v", err)
+	}
+	waitRuntimeSourceState(t, ctx, apiClient, observabilityKey, v1alpha1.SourceStateError)
+	observabilityEvents := waitRuntimeKubeseerEvents(t, ctx, clients, observabilityKey, 1)
+	if len(observabilityEvents) != 1 || observabilityEvents[0].Type != corev1.EventTypeWarning || observabilityEvents[0].Reason != statuscontract.ReasonAuthorizationNotEvaluated || strings.Contains(observabilityEvents[0].Message, "Missing") {
+		t.Fatalf("persisted observability Event = %#v", observabilityEvents)
+	}
+	if err := WaitFor(ctx, 300*time.Millisecond, func(ctx context.Context) (bool, error) {
+		events, err := listRuntimeKubeseerEvents(ctx, clients, observabilityKey)
+		return len(events) == 1, err
+	}); err != nil {
+		t.Fatalf("unchanged reconcile emitted duplicate observability Event: %v", err)
+	}
 
 	aggregationPolicy := &v1alpha1.KubeseerAccessPolicy{}
 	if err := apiClient.Get(ctx, types.NamespacedName{Name: v1alpha1.InstallationAccessCeilingName}, aggregationPolicy); err != nil {
@@ -804,6 +821,7 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	t.Log("API_CONTRACT=value-operators-pipeline STATUS=passed")
 	t.Log("API_CONTRACT=cross-namespace-aggregation-pipeline STATUS=passed")
 	t.Log("API_CONTRACT=admission-validation-runtime STATUS=passed")
+	t.Log("API_CONTRACT=observability-events STATUS=passed")
 }
 
 func runtimeEnvtestKubeseer(key types.NamespacedName, source v1alpha1.KubeseerSource) *v1alpha1.Kubeseer {
@@ -1478,6 +1496,35 @@ func waitRuntimeObservedGeneration(t *testing.T, ctx context.Context, client crc
 	}); err != nil {
 		t.Fatalf("wait %s/%s observed generation %d: %v", key.Namespace, key.Name, want, err)
 	}
+}
+
+func waitRuntimeKubeseerEvents(t *testing.T, ctx context.Context, clients Clients, key types.NamespacedName, want int) []corev1.Event {
+	t.Helper()
+	if err := WaitFor(ctx, 10*time.Second, func(ctx context.Context) (bool, error) {
+		events, err := listRuntimeKubeseerEvents(ctx, clients, key)
+		return len(events) >= want, err
+	}); err != nil {
+		t.Fatalf("wait %d Events for %s/%s: %v", want, key.Namespace, key.Name, err)
+	}
+	events, err := listRuntimeKubeseerEvents(ctx, clients, key)
+	if err != nil {
+		t.Fatalf("list Events for %s/%s: %v", key.Namespace, key.Name, err)
+	}
+	return events
+}
+
+func listRuntimeKubeseerEvents(ctx context.Context, clients Clients, key types.NamespacedName) ([]corev1.Event, error) {
+	list, err := clients.Core.CoreV1().Events(key.Namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]corev1.Event, 0, len(list.Items))
+	for _, event := range list.Items {
+		if event.InvolvedObject.Name == key.Name {
+			filtered = append(filtered, event)
+		}
+	}
+	return filtered, nil
 }
 
 func runRuntimeEnvtestAdapterScenarios(t *testing.T, ctx context.Context, apiClient crclient.Client, clients Clients, namespace string, adapterKey, busyKey, freeKey, deterministicKey, emptyKey types.NamespacedName) {

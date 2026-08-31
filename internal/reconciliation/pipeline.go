@@ -25,6 +25,7 @@ import (
 	"github.com/steeltanuki/kubeseer/internal/authorization"
 	"github.com/steeltanuki/kubeseer/internal/discovery"
 	"github.com/steeltanuki/kubeseer/internal/extraction"
+	"github.com/steeltanuki/kubeseer/internal/observability"
 	"github.com/steeltanuki/kubeseer/internal/operators"
 	"github.com/steeltanuki/kubeseer/internal/selection"
 	statuscontract "github.com/steeltanuki/kubeseer/internal/status"
@@ -59,41 +60,53 @@ func (r *Runtime) Reconcile(ctx context.Context, request reconcile.Request) (rec
 	}
 	release := r.gate.lock(request.NamespacedName)
 	defer release()
-	return r.reconcileKey(ctx, request.NamespacedName)
+	attemptCtx, attempt := r.deps.Observer.StartAttempt(ctx, observability.AttemptStart{
+		Namespace: request.Namespace,
+		Name:      request.Name,
+	})
+	result, err, terminal := r.reconcileKey(attemptCtx, request.NamespacedName, attempt)
+	attempt.Complete(nil, terminal)
+	return result, err
 }
 
-func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (reconcile.Result, error) {
+func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName, attempt *observability.Attempt) (reconcile.Result, error, observability.Terminal) {
 	object := new(v1alpha1.Kubeseer)
 	if err := r.deps.Reader.Get(ctx, key, object); err != nil {
 		if apierrors.IsNotFound(err) {
 			r.deps.Routes.RemoveOwner(key)
 			r.deps.Tracker.MarkAbsent(key)
-			return reconcile.Result{}, nil
+			return reconcile.Result{}, nil, observability.Terminal{Outcome: observability.OutcomeSkipped, Reason: observability.ReasonObjectAbsent}
 		}
 		if ctx.Err() != nil {
-			return reconcile.Result{}, nil
+			return reconcile.Result{}, nil, skippedTerminal(ctx)
 		}
-		return reconcile.Result{}, transientRuntimeError("kubeseer-read", "", ReasonReadUnavailable, "Kubeseer is unavailable", err)
+		runtimeErr := transientRuntimeError("kubeseer-read", "", ReasonReadUnavailable, "Kubeseer is unavailable", err)
+		return reconcile.Result{}, runtimeErr, terminalForError(runtimeErr)
+	}
+	if attempt != nil {
+		ctx = attempt.BindObject(ctx, observability.ObjectIdentity{UID: object.UID, Generation: object.Generation})
+		completeObservedStage(attempt, ctx, observability.StageLoad)
 	}
 	if object.DeletionTimestamp != nil {
 		r.deps.Tracker.Observe(object)
 		r.deps.Routes.RemoveOwner(key)
 		r.deps.Tracker.MarkAbsent(key)
-		return reconcile.Result{}, nil
+		return reconcile.Result{}, nil, observability.Terminal{Outcome: observability.OutcomeSkipped, Reason: observability.ReasonObjectDeleting}
 	}
 
 	lease, child, releaseLease, err := r.deps.Tracker.Acquire(ctx, key, object.UID, object.Generation)
 	if err != nil {
 		if errors.Is(err, ErrStaleLease) || ctx.Err() != nil {
-			return reconcile.Result{}, nil
+			return reconcile.Result{}, nil, skippedTerminal(ctx)
 		}
-		return reconcile.Result{}, err
+		return reconcile.Result{}, err, terminalForError(err)
 	}
 	defer releaseLease()
 
 	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
-		return reconcile.Result{}, nil
+		return reconcile.Result{}, nil, skippedTerminal(child)
 	}
+	completeObservedStage(attempt, child, observability.StageValidate)
 	sources := object.Spec.Sources
 	// A source-free object has no observation target. It receives the present
 	// empty result without loading or evaluating the policy, but still follows
@@ -102,7 +115,7 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 	if len(sources) > 0 {
 		snapshot = accesspolicy.Load(child, r.deps.PolicySource)
 		if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
-			return reconcile.Result{}, nil
+			return reconcile.Result{}, nil, skippedTerminal(child)
 		}
 	}
 	planned := make([]plannedSource, len(sources))
@@ -115,13 +128,13 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 		var subjectErr error
 		subject, subjectErr = authorization.NewSubject(key, lease.UID, lease.Generation, lease.PolicyEpoch)
 		if subjectErr != nil {
-			return reconcile.Result{}, nil
+			return reconcile.Result{}, nil, terminalForError(subjectErr)
 		}
 	}
 
 	for index, source := range sources {
 		if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
-			return reconcile.Result{}, nil
+			return reconcile.Result{}, nil, skippedTerminal(child)
 		}
 		entry := plannedSource{
 			source:          source,
@@ -160,7 +173,7 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 		batch, evaluateErr := r.deps.Enforcer.EvaluateBatch(child, subject, snapshot, requests)
 		if evaluateErr != nil {
 			if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
-				return reconcile.Result{}, nil
+				return reconcile.Result{}, nil, skippedTerminal(child)
 			}
 			entry.selectionErr = selection.NewSelectionError(source.ID, selection.ReasonAuthorizationMismatch, "source authorization could not be evaluated")
 			planned[index] = entry
@@ -210,9 +223,11 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 		}
 		planned[index] = entry
 	}
+	completeObservedStage(attempt, child, observability.StagePlan)
+	completeObservedStage(attempt, child, observability.StageAuthorize)
 
 	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
-		return reconcile.Result{}, nil
+		return reconcile.Result{}, nil, skippedTerminal(child)
 	}
 	routes := make([]AuthorizedRoute, 0)
 	for _, entry := range planned {
@@ -222,13 +237,14 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 	}
 	if err := r.deps.Routes.Replace(lease, routes); err != nil {
 		if errors.Is(err, ErrStaleLease) || IsRetryable(err) == false && !r.deps.Tracker.IsLeaseCurrent(lease) {
-			return reconcile.Result{}, nil
+			return reconcile.Result{}, nil, skippedTerminal(child)
 		}
-		return reconcile.Result{}, err
+		return reconcile.Result{}, err, terminalForError(err)
 	}
 	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
-		return reconcile.Result{}, nil
+		return reconcile.Result{}, nil, skippedTerminal(child)
 	}
+	completeObservedStage(attempt, child, observability.StageRead)
 
 	selectionOutcomes := make([]selection.SelectionOutcome, len(planned))
 	for index, entry := range planned {
@@ -238,7 +254,7 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 			continue
 		}
 		if child.Err() != nil {
-			return reconcile.Result{}, nil
+			return reconcile.Result{}, nil, skippedTerminal(child)
 		}
 		selectionOutcomes[index] = r.deps.Executor.Execute(child, entry.authorized)
 		if selectionOutcomes[index].Err != nil {
@@ -252,7 +268,7 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 		}
 	}
 	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
-		return reconcile.Result{}, nil
+		return reconcile.Result{}, nil, skippedTerminal(child)
 	}
 
 	extractionInputs := make([]extraction.SourceInput, len(sources))
@@ -261,15 +277,16 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 	}
 	extracted := extraction.ExtractBatch(child, extractionInputs)
 	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
-		return reconcile.Result{}, nil
+		return reconcile.Result{}, nil, skippedTerminal(child)
 	}
+	completeObservedStage(attempt, child, observability.StageExtract)
 	typedInputs := make([]typedoutput.SourceInput, len(sources))
 	for index, source := range sources {
 		typedInputs[index] = typedoutput.SourceInput{Source: source, Extraction: extracted[index]}
 	}
 	converted := typedoutput.ConvertBatch(child, typedInputs)
 	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
-		return reconcile.Result{}, nil
+		return reconcile.Result{}, nil, skippedTerminal(child)
 	}
 	operatorInputs := make([]operators.SourceInput, len(sources))
 	for index := range sources {
@@ -277,7 +294,7 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 	}
 	operatorOutcomes := operators.EvaluateBatch(child, operatorInputs)
 	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
-		return reconcile.Result{}, nil
+		return reconcile.Result{}, nil, skippedTerminal(child)
 	}
 	aggregationInputs := make([]aggregation.SourceInput, len(sources))
 	for index := range sources {
@@ -288,8 +305,9 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 	}
 	aggregationOutcomes := aggregation.EvaluateBatch(child, aggregationInputs)
 	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
-		return reconcile.Result{}, nil
+		return reconcile.Result{}, nil, skippedTerminal(child)
 	}
+	completeObservedStage(attempt, child, observability.StageAggregate)
 	result, err := aggregation.BuildResultChecked(aggregationOutcomes)
 	if err != nil {
 		buildErr := transientRuntimeError("result-build", "", ReasonBuildFailure, "candidate result construction failed", err)
@@ -300,15 +318,18 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 		}
 		if publishErr := r.deps.Publisher.Publish(child, lease, unavailable); publishErr != nil {
 			if errors.Is(publishErr, ErrStaleLease) || errors.Is(publishErr, context.Canceled) || errors.Is(publishErr, context.DeadlineExceeded) {
-				return reconcile.Result{}, buildErr
+				return reconcile.Result{}, buildErr, terminalForError(buildErr)
 			}
-			return reconcile.Result{}, errors.Join(buildErr, publishErr)
+			joined := errors.Join(buildErr, publishErr)
+			return reconcile.Result{}, joined, terminalForError(joined)
 		}
-		return reconcile.Result{}, buildErr
+		return reconcile.Result{}, buildErr, terminalForError(buildErr)
 	}
 	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
-		return reconcile.Result{}, nil
+		return reconcile.Result{}, nil, skippedTerminal(child)
 	}
+	observeRuntimeResult(child, r.deps.Observer, result, extracted)
+	completeObservedStage(attempt, child, observability.StageCompose)
 
 	evaluation := statuscontract.Evaluation{
 		Result:              &result,
@@ -317,18 +338,33 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName) (r
 	}
 	if err := r.deps.Publisher.Publish(child, lease, evaluation); err != nil {
 		if errors.Is(err, ErrStaleLease) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return reconcile.Result{}, nil
+			return reconcile.Result{}, nil, skippedTerminal(child)
 		}
 		if IsRetryable(err) {
 			retryable = append(retryable, err)
 		} else {
-			return reconcile.Result{}, err
+			return reconcile.Result{}, err, terminalForError(err)
 		}
 	}
+	completeObservedStage(attempt, child, observability.StagePublish)
 	if len(retryable) != 0 {
-		return reconcile.Result{}, errors.Join(retryable...)
+		joined := errors.Join(retryable...)
+		return reconcile.Result{}, joined, terminalForError(joined)
 	}
-	return reconcile.Result{}, nil
+	return reconcile.Result{}, nil, terminalForResult(result)
+}
+
+func completeObservedStage(attempt *observability.Attempt, ctx context.Context, stage observability.Stage) {
+	if attempt == nil {
+		return
+	}
+	_, handle := attempt.StartStage(ctx, stage)
+	handle.End(observability.StageObservation{
+		Stage:   stage,
+		Outcome: observability.OutcomeCompleted,
+		Reason:  observability.ReasonEvaluationSucceeded,
+		Retry:   observability.RetryNone,
+	})
 }
 
 func mapPlanningError(sourceID string, err error) *selection.SelectionError {
@@ -344,6 +380,157 @@ func mapPlanningError(sourceID string, err error) *selection.SelectionError {
 		return selection.NewSelectionError(sourceID, selection.ReasonInvalidSource, "source discovery failed: "+string(resolutionErr.Reason))
 	}
 	return selection.NewSelectionError(sourceID, selection.ReasonInvalidSource, "source planning failed")
+}
+
+func skippedTerminal(ctx context.Context) observability.Terminal {
+	if ctx != nil && ctx.Err() != nil {
+		return observability.Terminal{Outcome: observability.OutcomeSkipped, Reason: observability.ReasonReadInterrupted}
+	}
+	return observability.Terminal{Outcome: observability.OutcomeSkipped, Reason: observability.ReasonStaleLease}
+}
+
+func terminalForError(err error) observability.Terminal {
+	if err == nil {
+		return observability.Terminal{Outcome: observability.OutcomeCompleted, Reason: observability.ReasonEvaluationSucceeded}
+	}
+	if errors.Is(err, ErrStaleLease) {
+		return observability.Terminal{Outcome: observability.OutcomeSkipped, Reason: observability.ReasonStaleLease}
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return observability.Terminal{Outcome: observability.OutcomeSkipped, Reason: observability.ReasonReadInterrupted}
+	}
+	reason := reasonForRuntimeError(err)
+	if IsRetryable(err) {
+		return observability.Terminal{Outcome: observability.OutcomeRetry, Reason: reason, Retry: observability.RetryScheduled}
+	}
+	return observability.Terminal{Outcome: observability.OutcomeFailed, Reason: reason}
+}
+
+func terminalForResult(result v1alpha1.KubeseerResult) observability.Terminal {
+	if statuscontract.HasResultErrors(&result) {
+		return observability.Terminal{Outcome: observability.OutcomeDegraded, Reason: observability.ReasonEvaluationDegraded}
+	}
+	return observability.Terminal{Outcome: observability.OutcomeCompleted, Reason: observability.ReasonEvaluationSucceeded}
+}
+
+func reasonForRuntimeError(err error) observability.Reason {
+	var runtimeErr *RuntimeError
+	if errors.As(err, &runtimeErr) {
+		return observability.Reason(runtimeErr.Reason)
+	}
+	var selectionErr *selection.SelectionError
+	if errors.As(err, &selectionErr) {
+		return observability.Reason(selectionErr.Reason)
+	}
+	var resolutionErr *discovery.ResolutionError
+	if errors.As(err, &resolutionErr) {
+		return observability.Reason(resolutionErr.Reason)
+	}
+	var authorizationErr *authorization.AuthorizationError
+	if errors.As(err, &authorizationErr) {
+		return observability.Reason(authorizationErr.Reason)
+	}
+	return observability.ReasonInternalError
+}
+
+func observeRuntimeResult(ctx context.Context, observer *observability.Observer, result v1alpha1.KubeseerResult, extracted []extraction.SourceOutcome) {
+	if observer == nil {
+		return
+	}
+	derived, err := statuscontract.DeriveResult(&result)
+	if err == nil {
+		outcome := observability.OutcomeCompleted
+		if derived.Degraded {
+			outcome = observability.OutcomeDegraded
+		}
+		observer.ObserveResult(ctx, outcome)
+	}
+	for _, source := range result.Sources {
+		if !sourceHasResultFailure(source) {
+			continue
+		}
+		reason := sourceResultReason(source)
+		observer.ObserveSourceFailure(ctx, observability.SourceFailure{
+			SourceID: source.ID,
+			Stage:    stageForResultReason(reason),
+			Reason:   observability.Reason(reason),
+		})
+	}
+	for _, source := range extracted {
+		var extractionErr *extraction.ExtractionError
+		if errors.As(source.Err, &extractionErr) {
+			observer.ObserveJSONPathFailure(ctx, observability.Reason(extractionErr.Reason))
+		}
+	}
+}
+
+func sourceHasResultFailure(source v1alpha1.KubeseerSourceResult) bool {
+	if source.State == v1alpha1.SourceStateError || source.Error != nil || len(source.FieldErrors) != 0 {
+		return true
+	}
+	for _, resource := range source.Resources {
+		if resource.Error != nil {
+			return true
+		}
+		for _, field := range resource.Fields {
+			if field.State == v1alpha1.FieldStateError || field.Error != nil {
+				return true
+			}
+		}
+	}
+	for _, aggregate := range source.Aggregates {
+		if aggregate.State == v1alpha1.AggregateStateDegraded || aggregate.State == v1alpha1.AggregateStateError || aggregate.Error != nil || len(aggregate.Failures) != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceResultReason(source v1alpha1.KubeseerSourceResult) string {
+	if source.Error != nil && source.Error.Reason != "" {
+		return source.Error.Reason
+	}
+	for _, field := range source.FieldErrors {
+		if field.Reason != "" {
+			return field.Reason
+		}
+	}
+	for _, resource := range source.Resources {
+		if resource.Error != nil && resource.Error.Reason != "" {
+			return resource.Error.Reason
+		}
+		for _, field := range resource.Fields {
+			if field.Error != nil && field.Error.Reason != "" {
+				return field.Error.Reason
+			}
+		}
+	}
+	for _, aggregate := range source.Aggregates {
+		if aggregate.Error != nil && aggregate.Error.Reason != "" {
+			return aggregate.Error.Reason
+		}
+		for _, failure := range aggregate.Failures {
+			if failure.Error.Reason != "" {
+				return failure.Error.Reason
+			}
+		}
+	}
+	return string(observability.ReasonInternalError)
+}
+
+func stageForResultReason(reason string) observability.Stage {
+	switch reason {
+	case string(selection.ReasonReadUnavailable), string(selection.ReasonReadForbidden), string(selection.ReasonReadInterrupted), string(selection.ReasonListExpired), string(selection.ReasonUnsupportedSelector), string(selection.ReasonInvalidObject):
+		return observability.StageRead
+	case "InvalidExpression", "UnsupportedExpression", "EvaluationTypeMismatch", "InvalidResource", "InvalidInput", "ExtractionInterrupted", "MissingType", "UnsupportedType", "ConversionTypeMismatch", "InvalidValue", "ConversionOverflow", "ForbiddenConversion", "ConversionInterrupted":
+		return observability.StageExtract
+	case "unsupported-operator", "incompatible-operator", "invalid-arity", "invalid-operand", "invalid-pattern", "invalid-input", "operator-interrupted", "OperatorFailed":
+		return observability.StageValidate
+	case "duplicate-aggregate", "unknown-field", "duplicate-group-field", "unsupported-group-type", "incompatible-function", "invalid-average-options", "invalid-group-key", "target-field-error", "overflow", "cardinality-exceeded", "aggregation-interrupted", "AggregationInterrupted", "InvalidGroupKey", "TargetFieldError", "Overflow", "CardinalityExceeded":
+		return observability.StageAggregate
+	default:
+		return observability.StageValidate
+	}
 }
 
 func isDiscoveryUnavailable(err error) bool {
