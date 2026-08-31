@@ -154,3 +154,18 @@ Review this file before non-trivial work when the current request matches past m
 - Lesson: Reviewing a known patch guardrail is insufficient unless it becomes a pre-edit operation check
 - Guardrail: Before replacing any Walden scaffold, use exactly one Update File operation and verify that no patch targets the same path twice
 
+### 2026-08-31T08:04:24Z | cross-namespace-aggregation | requirements
+- Trigger: Opening Requirements review inserted trailing whitespace in empty YAML approval fields, detected by git diff --check
+- Lesson: Walden review transitions can leave whitespace-only values in empty frontmatter fields
+- Guardrail: After every walden review open transition, run git diff --check and normalize empty frontmatter fields before handoff
+
+### 2026-08-31T08:15:26Z | cross-namespace-aggregation | design
+- Trigger: Designing exact average exposed that valid decimal inputs can have a non-terminating arithmetic mean
+- Lesson: An exact decimal aggregation requirement is incomplete unless it defines behavior for rational results without a finite decimal representation
+- Guardrail: Before approving numeric aggregation Requirements, test zero, overflow, and non-terminating division cases against the public result representation
+
+### 2026-08-31T08:23:03Z | cross-namespace-aggregation | requirements
+- Trigger: Reconcile inserted trailing whitespace while clearing empty approval fields, extending the earlier review-open occurrence
+- Lesson: Any Walden transition that clears frontmatter values can leave whitespace-only YAML fields
+- Guardrail: After every Walden state transition that rewrites frontmatter, run git diff --check and normalize empty fields before handoff
+
