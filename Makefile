@@ -12,28 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-CONTROLLER_GEN_VERSION := v0.20.1
-SETUP_ENVTEST_VERSION := v0.24.1
-GO_MODULE_CACHE := $(shell go env GOMODCACHE)
-LOCAL_GO_PROXY := file://$(GO_MODULE_CACHE)/cache/download
-GO_RUN_WITH_LOCAL_PROXY := GOPROXY=$(LOCAL_GO_PROXY),https://proxy.golang.org,direct go run
-CONTROLLER_GEN := $(GO_RUN_WITH_LOCAL_PROXY) sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION)
-SETUP_ENVTEST := $(GO_RUN_WITH_LOCAL_PROXY) sigs.k8s.io/controller-runtime/tools/setup-envtest@$(SETUP_ENVTEST_VERSION)
-API_PACKAGE := ./api/v1alpha1
-CRD_OUTPUT := config/crd/bases
-DEEP_COPY_HEADER := hack/boilerplate.go.txt
-KUBERNETES_VERSION ?= 1.35.6
-KUBERNETES_COMPATIBILITY_VERSIONS := 1.35.6 1.36.2
-# kind publishes a stable image for the latest available patch in each
-# supported minor line; keep the API-compatibility version above independent
-# from the image tag so the mapping remains explicit and reproducible.
-KIND_NODE_IMAGE_1_35_6 ?= kindest/node:v1.35.5
-KIND_NODE_IMAGE_1_36_2 ?= kindest/node:v1.36.1
-CERT_MANAGER_VERSION ?= v1.18.2
+include hack/toolchain.mk
 GO_TEST_FLAGS ?=
 KUBEBUILDER_ASSETS ?=
 
-.PHONY: generate manifests package-sync-crds package-crd-check package-apply-crds build build-purge verify verify-package test test-integration test-api test-compatibility test-package-compatibility e2e
+.PHONY: generate manifests package-sync-crds package-crd-check package-apply-crds build build-purge verify verify-package test test-integration test-api test-compatibility test-package-compatibility e2e local-check local-up local-status local-examples local-verify local-diagnostics local-examples-down local-down local-example verify-local-environment test-local-environment
 
 generate:
 	$(CONTROLLER_GEN) object:headerFile=$(DEEP_COPY_HEADER) paths=$(API_PACKAGE)
@@ -49,6 +32,7 @@ verify:
 	./hack/verify-performance-and-limits-boundaries.sh
 	GOCACHE=$${GOCACHE:-/tmp/kubeseer-e2e-go-build} GOMODCACHE=$${GOMODCACHE:-/tmp/kubeseer-e2e-go-mod} ./hack/verify-e2e-boundaries.sh complete
 	./hack/verify-package.sh
+	./hack/verify-local-environment.sh complete
 
 verify-package:
 	./hack/verify-package.sh
@@ -114,3 +98,38 @@ e2e:
 	KIND_NODE_IMAGE_1_35_6="$(KIND_NODE_IMAGE_1_35_6)" \
 	KIND_NODE_IMAGE_1_36_2="$(KIND_NODE_IMAGE_1_36_2)" \
 	./hack/e2e-harness.sh ./test/e2e/... '^TestEndToEnd$$'
+
+# Persistent contributor environment. The shell router is the only public
+# implementation entry point; it validates arguments before touching state.
+local-check:
+	./hack/local-environment.sh check
+
+local-up:
+	./hack/local-environment.sh up
+
+local-status:
+	./hack/local-environment.sh status
+
+local-examples:
+	./hack/local-environment.sh examples
+
+local-verify:
+	./hack/local-environment.sh verify
+
+local-diagnostics:
+	./hack/local-environment.sh diagnostics
+
+local-examples-down:
+	./hack/local-environment.sh examples-down
+
+local-down:
+	./hack/local-environment.sh down
+
+local-example:
+	EXAMPLE="$(EXAMPLE)" LOCAL_EXAMPLE_ACTION="$(ACTION)" ./hack/local-environment.sh example
+
+verify-local-environment:
+	./hack/verify-local-environment.sh complete
+
+test-local-environment:
+	./hack/test-local-environment.sh

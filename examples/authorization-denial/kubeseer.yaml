@@ -1,0 +1,15 @@
+# Copyright 2026 Alessandro Rontani
+# Licensed under the Apache License, Version 2.0.
+apiVersion: kubeseer.io/v1alpha1
+kind: Kubeseer
+metadata:
+  name: denied
+  namespace: kubeseer-example-denial
+  labels: {kubeseer.io/example: authorization-denial}
+spec:
+  sources:
+    - id: outside-policy
+      resource: {apiVersion: v1, kind: Service}
+      namespaces: {names: [kubeseer-example-denial]}
+      selector: {name: denied}
+      fields: [{name: port, path: "{.spec.ports[0].port}", type: integer}]

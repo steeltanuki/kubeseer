@@ -1,0 +1,9 @@
+# Copyright 2026 Alessandro Rontani
+# Apache-2.0 example catalog; one stable verifier entry per directory.
+builtin-resource
+typed-extraction
+value-operator
+cross-namespace-aggregation
+custom-resource
+authorization-denial
+partial-degradation

@@ -1,0 +1,15 @@
+# Copyright 2026 Alessandro Rontani
+# Licensed under the Apache License, Version 2.0.
+apiVersion: kubeseer.io/v1alpha1
+kind: Kubeseer
+metadata:
+  name: custom
+  namespace: kubeseer-example-custom
+  labels: {kubeseer.io/example: custom-resource}
+spec:
+  sources:
+    - id: widget
+      resource: {apiVersion: fixtures.kubeseer.io/v1alpha1, kind: Widget}
+      namespaces: {names: [kubeseer-example-custom]}
+      selector: {name: widget}
+      fields: [{name: size, path: "{.spec.size}", type: integer}]

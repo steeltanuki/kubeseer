@@ -1,0 +1,23 @@
+# Copyright 2026 Alessandro Rontani
+# Licensed under the Apache License, Version 2.0.
+apiVersion: kubeseer.io/v1alpha1
+kind: Kubeseer
+metadata:
+  name: builtin
+  namespace: kubeseer-example-builtin
+  labels:
+    kubeseer.io/example: builtin-resource
+spec:
+  sources:
+    - id: deployment
+      resource:
+        apiVersion: apps/v1
+        kind: Deployment
+      namespaces:
+        names: [kubeseer-example-builtin]
+      selector:
+        name: builtin
+      fields:
+        - name: replicas
+          path: "{.spec.replicas}"
+          type: integer

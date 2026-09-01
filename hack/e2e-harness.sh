@@ -31,6 +31,11 @@ readonly KUBERNETES_VERSION="${KUBERNETES_VERSION:-1.35.6}"
 readonly CERT_MANAGER_VERSION="${CERT_MANAGER_VERSION:-v1.18.2}"
 readonly E2E_LIMIT_PROFILE="${KUBESEER_E2E_LIMIT_PROFILE:-$ROOT_DIR/test/e2e/values.yaml}"
 
+# Keep E2E's run-unique state machine independent while sharing only the
+# stateless, credential-sanitizing kind/Podman process primitives.
+# shellcheck source=hack/kind-podman-common.sh
+source "$ROOT_DIR/hack/kind-podman-common.sh"
+
 # These names are deliberately explicit. The E2E process must not inherit a
 # user's ambient cluster or cloud credentials, even when a provider CLI would
 # otherwise discover them automatically.
@@ -70,38 +75,30 @@ prepare_go_environment() {
 }
 
 sanitized_env() {
-	local variable
-	local env_args=()
-	for variable in "${SANITIZED_VARIABLES[@]}"; do
-		env_args+=(-u "$variable")
-	done
-	env "${env_args[@]}" "$@"
+	kp_sanitized_env "$@"
 }
 
 run_kind() {
-	sanitized_env KIND_EXPERIMENTAL_PROVIDER="$KIND_PROVIDER" kind "$@"
+	kp_run_kind "$KIND_PROVIDER" "$@"
 }
 
 run_podman() {
-	sanitized_env podman "$@"
+	kp_run_podman "$@"
 }
 
 run_kubectl() {
 	[[ -n "$kubeconfig_path" ]] || { printf '%s\n' 'E2E kubectl invoked before kubeconfig creation' >&2; return 70; }
-	sanitized_env kubectl --kubeconfig "$kubeconfig_path" --context "$kube_context" "$@"
+	kp_run_kubectl "$kubeconfig_path" "$kube_context" "$@"
 }
 
 run_helm() {
 	[[ -n "$kubeconfig_path" ]] || { printf '%s\n' 'E2E Helm invoked before kubeconfig creation' >&2; return 70; }
-	sanitized_env \
-		HELM_CONFIG_HOME="$owned_dir/helm/config" \
-		HELM_CACHE_HOME="$owned_dir/helm/cache" \
-		HELM_DATA_HOME="$owned_dir/helm/data" \
-		helm --kubeconfig "$kubeconfig_path" --kube-context "$kube_context" "$@"
+	kp_run_helm "$kubeconfig_path" "$kube_context" "$owned_dir/helm/config" \
+		"$owned_dir/helm/cache" "$owned_dir/helm/data" "$@"
 }
 
 run_curl() {
-	sanitized_env curl "$@"
+	kp_run_curl "$@"
 }
 
 require_prerequisite() {

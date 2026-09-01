@@ -139,8 +139,9 @@ helm template kubeseer "$chart_dir" --namespace team-a --kube-version 1.35.6 \
 helm package "$chart_dir" --destination "$temp_dir" >/dev/null || fail "chart packaging failed"
 archive="$(find "$temp_dir" -maxdepth 1 -type f -name 'kubeseer-*.tgz' -print -quit)"
 [[ -n "$archive" ]] || fail "versioned chart archive was not produced"
-tar -tzf "$archive" | rg -q '^kubeseer/Chart.yaml$' || fail "archive lacks Chart.yaml"
-if tar -tzf "$archive" | rg -i '(^|/)(id_rsa|.*\.key|.*\.pem|credentials|secret)' >/dev/null; then
+tar -tzf "$archive" >"$temp_dir/archive-files" || fail "archive listing failed"
+rg -q '^kubeseer/Chart.yaml$' "$temp_dir/archive-files" || fail "archive lacks Chart.yaml"
+if rg -i '(^|/)(id_rsa|.*\.key|.*\.pem|credentials|secret)' "$temp_dir/archive-files" >/dev/null; then
 	fail "archive contains credential-like content"
 fi
 
@@ -154,6 +155,31 @@ rg -q 'version: 0\.1\.0' "$chart_dir/Chart.yaml" || fail "chart version is not S
 rg -q 'kubeVersion:' "$chart_dir/Chart.yaml" || fail "Kubernetes compatibility range is missing"
 
 printf 'PACKAGE_VERIFY=chart-core STATUS=passed\n'
+
+# The persistent local profile composes the same chart and is checked here so
+# a package change cannot silently broaden the example policy or certificate
+# mode. The catalog is deliberately parsed as data (comments and blank lines
+# are ignored), never sourced as shell.
+local_values="$ROOT_DIR/config/local/values.yaml"
+local_catalog="$ROOT_DIR/examples/catalog.txt"
+[[ -f "$local_values" ]] || fail_complete "local values profile is missing"
+[[ -f "$local_catalog" ]] || fail_complete "local example catalog is missing"
+local_render="$temp_dir/local-render.yaml"
+helm template kubeseer "$chart_dir" --namespace kubeseer-system --kube-version 1.35.6 \
+	--values "$local_values" >"$local_render" || fail_complete "local values profile rejected by chart schema"
+rg -q '^  mode: certManager$' "$local_values" || fail_complete "local profile must use certManager mode"
+rg -q 'pullPolicy: IfNotPresent' "$local_values" || fail_complete "local profile must use IfNotPresent"
+rg -q 'installation-access-ceiling' "$local_render" || fail_complete "local profile policy singleton is missing"
+if rg -n "resources:[[:space:]]*\\[\\\"(\\*|secrets?)\\\"\\]|verbs:[[:space:]]*\\[\\\"\\*\\\"\\]" "$local_values" >/dev/null; then
+	fail_complete "local profile contains wildcard or Secret access"
+fi
+mapfile -t local_examples < <(sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' "$local_catalog")
+[[ "${#local_examples[@]}" == 7 ]] || fail_complete "local catalog must contain seven examples"
+for local_example in "${local_examples[@]}"; do
+	[[ -d "$ROOT_DIR/examples/$local_example" ]] || fail_complete "catalog directory is missing: $local_example"
+	rg -q -- "$local_example" "$local_values" || fail_complete "local policy does not document catalog example: $local_example"
+done
+printf 'PACKAGE_VERIFY=local-profile STATUS=passed\n'
 
 generated_dir="$temp_dir/generated-crds"
 mkdir -p "$generated_dir"

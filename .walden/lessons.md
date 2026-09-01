@@ -194,3 +194,13 @@ Review this file before non-trivial work when the current request matches past m
 - Lesson: A fresh approved Requirements gate plus a draft placeholder Design predicts a coverage failure and should be inspected without invoking full feature validation
 - Guardrail: When status identifies Design as current and the document is still a placeholder, inspect and author it first; run walden validate only after the required Design sections exist
 
+### 2026-09-01T18:47:18Z | local-development-environment | design
+- Trigger: Initial Design replacement targeted the existing scaffold with separate delete and add operations
+- Lesson: A known single-update scaffold guardrail must be enforced in patch construction, not only reviewed before editing
+- Guardrail: For every existing Walden scaffold, construct exactly one Update File operation and reject the patch locally if the path appears in more than one operation
+
+### 2026-09-01T18:59:44Z | local-development-environment | tasks
+- Trigger: Initial task sequence assigned catalog-to-values verification before the catalog task created its inputs
+- Lesson: A proof can be structurally valid yet unrunnable at its execution point when it depends on artifacts introduced by a later task
+- Guardrail: Before opening task review, walk leaf tasks in order and ensure every proof consumes only repository artifacts created by that task or an earlier one
+

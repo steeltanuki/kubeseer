@@ -1,0 +1,21 @@
+# Copyright 2026 Alessandro Rontani
+# Licensed under the Apache License, Version 2.0.
+apiVersion: kubeseer.io/v1alpha1
+kind: Kubeseer
+metadata:
+  name: operator
+  namespace: kubeseer-example-operator
+  labels: {kubeseer.io/example: value-operator}
+spec:
+  sources:
+    - id: deployment
+      resource: {apiVersion: apps/v1, kind: Deployment}
+      namespaces: {names: [kubeseer-example-operator]}
+      selector: {name: operator}
+      fields:
+        - name: replicas
+          path: "{.spec.replicas}"
+          type: integer
+          operators:
+            - operator: gte
+              value: {state: value, integerValue: 1}

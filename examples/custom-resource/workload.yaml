@@ -1,0 +1,9 @@
+# Copyright 2026 Alessandro Rontani
+# Licensed under the Apache License, Version 2.0.
+apiVersion: fixtures.kubeseer.io/v1alpha1
+kind: Widget
+metadata:
+  name: widget
+  namespace: kubeseer-example-custom
+  labels: {kubeseer.io/example: custom-resource}
+spec: {size: 7}

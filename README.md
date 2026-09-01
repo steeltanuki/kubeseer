@@ -24,6 +24,9 @@ The canonical Helm package and lifecycle procedures are documented in
 [docs/installation.md](docs/installation.md); chart defaults and the values
 contract are in [charts/kubeseer/README.md](charts/kubeseer/README.md).
 
+The persistent kind-on-rootless-Podman contributor workflow, bundled examples,
+and diagnostics are documented in [docs/local-development.md](docs/local-development.md).
+
 ## Walden and AI agent experimentation
 
 Kubeseer is also an experimental project for exploring spec-driven software delivery with [Walden](https://github.com/andrearaponi/walden) and AI coding agents.

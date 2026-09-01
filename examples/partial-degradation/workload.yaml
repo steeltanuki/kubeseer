@@ -1,0 +1,22 @@
+# Copyright 2026 Alessandro Rontani
+# Licensed under the Apache License, Version 2.0.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: degraded
+  namespace: kubeseer-example-degraded
+  labels: {kubeseer.io/example: partial-degradation, app.kubernetes.io/name: degraded}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: degraded}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: degraded, kubeseer.io/example: partial-degradation}}
+    spec: {containers: [{name: fixture, image: registry.k8s.io/pause:3.10, imagePullPolicy: IfNotPresent}]}
+---
+apiVersion: fixtures.kubeseer.io/v1alpha1
+kind: Widget
+metadata:
+  name: degraded-widget
+  namespace: kubeseer-example-degraded
+  labels: {kubeseer.io/example: partial-degradation}
+spec: {size: 3}

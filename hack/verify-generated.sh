@@ -26,6 +26,7 @@ trap cleanup EXIT
 mkdir -p -- "$TEMP_DIR/config/crd/bases" "$TEMP_DIR/hack"
 cp -R -- "$ROOT_DIR/api" "$TEMP_DIR/api"
 cp -R -- "$ROOT_DIR/hack/boilerplate.go.txt" "$TEMP_DIR/hack/boilerplate.go.txt"
+cp -- "$ROOT_DIR/hack/toolchain.mk" "$TEMP_DIR/hack/toolchain.mk"
 cp -- "$ROOT_DIR/Makefile" "$ROOT_DIR/go.mod" "$ROOT_DIR/go.sum" "$TEMP_DIR/"
 
 (

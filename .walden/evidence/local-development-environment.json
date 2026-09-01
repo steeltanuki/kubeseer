@@ -1,0 +1,314 @@
+{
+  "schema_version": "v1alpha1",
+  "feature": "local-development-environment",
+  "tasks": {
+    "1.1": {
+      "task_fingerprint": "sha256:b808abf100a4da0b9d05c422143d881b9dad12c3f86a22e539023409895f2036",
+      "requirements_fingerprint": "sha256:2e3cf860c2525787b1c145fa464358465ef84b327e619823b833c7b7f6b0e732",
+      "design_fingerprint": "sha256:516862975fc6af08a2c5e1d84a03481870bcda2b8746939cee5348cd97bfb58d",
+      "tasks_fingerprint": "sha256:d2dadb778a12e8875379abc4081b38c35e0768044f51e3d74140545120ce45b9",
+      "code_identity": "sha256:58070dbcffbb8c89a2ec02abc94348a079fd3061ec63c9677f9324fea0cac9f1",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "probe failed: exit 1",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "./hack/local-environment-acceptance.sh",
+            "preflight"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:5f5febe35ed70687a2404107670a495836a46bdc16ae63a5b673c0d51bc7ecd2"
+        },
+        {
+          "command": [
+            "./hack/e2e-harness-acceptance.sh"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:6bc42742cb3cfbd552a528fd3f88d841ab9a94a0f18b5057d66309f0edefb1ab"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-09-01T20:18:33Z"
+    },
+    "2.1": {
+      "task_fingerprint": "sha256:8bb1f8b6fb947715d757fb9cf42b94aeb43036280945b81654a9e1bc3f206321",
+      "requirements_fingerprint": "sha256:2e3cf860c2525787b1c145fa464358465ef84b327e619823b833c7b7f6b0e732",
+      "design_fingerprint": "sha256:516862975fc6af08a2c5e1d84a03481870bcda2b8746939cee5348cd97bfb58d",
+      "tasks_fingerprint": "sha256:d2dadb778a12e8875379abc4081b38c35e0768044f51e3d74140545120ce45b9",
+      "code_identity": "sha256:58070dbcffbb8c89a2ec02abc94348a079fd3061ec63c9677f9324fea0cac9f1",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "probe failed: exit 1",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "./hack/local-environment-acceptance.sh",
+            "ownership"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:79911bf795e133ec718d855f9349b4bfd8dc08ce4a55f00ce2f8a67cd8af6755"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-09-01T20:18:33Z"
+    },
+    "3.1": {
+      "task_fingerprint": "sha256:35b3746f4f6d194e5d533cdfd356efdc00aeabc50008acb15866bfebc7e4aff5",
+      "requirements_fingerprint": "sha256:2e3cf860c2525787b1c145fa464358465ef84b327e619823b833c7b7f6b0e732",
+      "design_fingerprint": "sha256:516862975fc6af08a2c5e1d84a03481870bcda2b8746939cee5348cd97bfb58d",
+      "tasks_fingerprint": "sha256:d2dadb778a12e8875379abc4081b38c35e0768044f51e3d74140545120ce45b9",
+      "code_identity": "sha256:58070dbcffbb8c89a2ec02abc94348a079fd3061ec63c9677f9324fea0cac9f1",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "probe failed: exit 1",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "./hack/local-environment-acceptance.sh",
+            "package"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:cf3fccbb4f828c24ad692daeb0aa12c7976caa9fd5e40c4b3c045867bbc41b76"
+        },
+        {
+          "command": [
+            "make",
+            "verify-package"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:deeeec844b6da2b6d3b9b7f2bf25d22169df52204e9efbc00d5ab76edd4f424f"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-09-01T20:18:33Z"
+    },
+    "4.1": {
+      "task_fingerprint": "sha256:ace1756381b57fcba242d5656df6686f0add16abf64be909d3ae41a612be5940",
+      "requirements_fingerprint": "sha256:2e3cf860c2525787b1c145fa464358465ef84b327e619823b833c7b7f6b0e732",
+      "design_fingerprint": "sha256:516862975fc6af08a2c5e1d84a03481870bcda2b8746939cee5348cd97bfb58d",
+      "tasks_fingerprint": "sha256:d2dadb778a12e8875379abc4081b38c35e0768044f51e3d74140545120ce45b9",
+      "code_identity": "sha256:58070dbcffbb8c89a2ec02abc94348a079fd3061ec63c9677f9324fea0cac9f1",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "probe failed: exit 1",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-local-go-build GOMODCACHE=/tmp/kubeseer-local-go-mod ./hack/verify-local-environment.sh probe"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:0ac042549c25270b863e99f3a3d626461e1c8542391c40498e7cc5a74da923d4"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-09-01T20:18:33Z"
+    },
+    "5.1": {
+      "task_fingerprint": "sha256:0b7e7c5275fa62404342cbdd2145b3390bbf76717b40325650e1aeb5a8adb4cb",
+      "requirements_fingerprint": "sha256:2e3cf860c2525787b1c145fa464358465ef84b327e619823b833c7b7f6b0e732",
+      "design_fingerprint": "sha256:516862975fc6af08a2c5e1d84a03481870bcda2b8746939cee5348cd97bfb58d",
+      "tasks_fingerprint": "sha256:d2dadb778a12e8875379abc4081b38c35e0768044f51e3d74140545120ce45b9",
+      "code_identity": "sha256:58070dbcffbb8c89a2ec02abc94348a079fd3061ec63c9677f9324fea0cac9f1",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "probe failed: exit 1",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "./hack/local-environment-acceptance.sh",
+            "examples"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:0c16e0e7849eb344f40d6e0f5bf86d21920fb25bc78068a2deb948d452bc899a"
+        },
+        {
+          "command": [
+            "./hack/verify-local-environment.sh",
+            "examples"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:afd550b3ccde97ffdb4dc1ee4341871f6b6a926ba08a80556678b0309aefc44a"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-09-01T20:18:33Z"
+    },
+    "6.1": {
+      "task_fingerprint": "sha256:8eedb2db30eb35608ee0c9123e037e7e253384eca609a6f2f133fae7b4baee52",
+      "requirements_fingerprint": "sha256:2e3cf860c2525787b1c145fa464358465ef84b327e619823b833c7b7f6b0e732",
+      "design_fingerprint": "sha256:516862975fc6af08a2c5e1d84a03481870bcda2b8746939cee5348cd97bfb58d",
+      "tasks_fingerprint": "sha256:d2dadb778a12e8875379abc4081b38c35e0768044f51e3d74140545120ce45b9",
+      "code_identity": "sha256:58070dbcffbb8c89a2ec02abc94348a079fd3061ec63c9677f9324fea0cac9f1",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "probe failed: exit 1",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "./hack/local-environment-acceptance.sh",
+            "verification"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:fe81749853b8a86dc7560494e770dd0e343e6b6aad7b74a1ad0465f1a19bab9f"
+        },
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-local-go-build GOMODCACHE=/tmp/kubeseer-local-go-mod ./hack/verify-local-environment.sh verification"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:b5be3688f63910ca713a1094907ffc7859c44a1dc3a784932e37daeb9a0f4d28"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-09-01T20:18:33Z"
+    },
+    "7.1": {
+      "task_fingerprint": "sha256:3217bf3db65beb40f55e12e599603ef0285d1c829fb20138a729605808cce21a",
+      "requirements_fingerprint": "sha256:2e3cf860c2525787b1c145fa464358465ef84b327e619823b833c7b7f6b0e732",
+      "design_fingerprint": "sha256:516862975fc6af08a2c5e1d84a03481870bcda2b8746939cee5348cd97bfb58d",
+      "tasks_fingerprint": "sha256:d2dadb778a12e8875379abc4081b38c35e0768044f51e3d74140545120ce45b9",
+      "code_identity": "sha256:58070dbcffbb8c89a2ec02abc94348a079fd3061ec63c9677f9324fea0cac9f1",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "probe failed: exit 1",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "./hack/local-environment-acceptance.sh",
+            "diagnostics"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:6412c54dde45749c856e0caa842cedc8ff4a4be9330e55de774369d97b05ffd3"
+        },
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-local-go-build GOMODCACHE=/tmp/kubeseer-local-go-mod ./hack/verify-local-environment.sh diagnostics"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:60f06675bd6044e32510b82890416b9c3ef5b51ef7d3d912758a021882b2e291"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-09-01T20:18:33Z"
+    },
+    "8.1": {
+      "task_fingerprint": "sha256:0bc3b46790bab6ca677c2d42a1cb05f078ea01a367d30612c1a41da3d1e8af4a",
+      "requirements_fingerprint": "sha256:2e3cf860c2525787b1c145fa464358465ef84b327e619823b833c7b7f6b0e732",
+      "design_fingerprint": "sha256:516862975fc6af08a2c5e1d84a03481870bcda2b8746939cee5348cd97bfb58d",
+      "tasks_fingerprint": "sha256:d2dadb778a12e8875379abc4081b38c35e0768044f51e3d74140545120ce45b9",
+      "code_identity": "sha256:58070dbcffbb8c89a2ec02abc94348a079fd3061ec63c9677f9324fea0cac9f1",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "probe failed: exit 1",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "make",
+            "verify-local-environment"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:0d8d7c38869cda0f970bbadbcee5af64cd3e71d03b1738a534fde1309fb45045"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-09-01T20:18:33Z"
+    },
+    "9.1": {
+      "task_fingerprint": "sha256:9d452f2a9ac05f248851ebac2791a5987fdc23cd093e5dec386d47dcd272f8a2",
+      "requirements_fingerprint": "sha256:2e3cf860c2525787b1c145fa464358465ef84b327e619823b833c7b7f6b0e732",
+      "design_fingerprint": "sha256:516862975fc6af08a2c5e1d84a03481870bcda2b8746939cee5348cd97bfb58d",
+      "tasks_fingerprint": "sha256:d2dadb778a12e8875379abc4081b38c35e0768044f51e3d74140545120ce45b9",
+      "code_identity": "sha256:58070dbcffbb8c89a2ec02abc94348a079fd3061ec63c9677f9324fea0cac9f1",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "probe failed: exit 1",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "make",
+            "verify-local-environment"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:0d8d7c38869cda0f970bbadbcee5af64cd3e71d03b1738a534fde1309fb45045"
+        },
+        {
+          "command": [
+            "make",
+            "test-local-environment"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:c158ad4b84ef4e22c84543103efbef65004b9158df7570a69cec43140698c7e5"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-09-01T20:18:33Z"
+    }
+  }
+}

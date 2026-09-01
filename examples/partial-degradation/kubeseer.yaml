@@ -1,0 +1,20 @@
+# Copyright 2026 Alessandro Rontani
+# Licensed under the Apache License, Version 2.0.
+apiVersion: kubeseer.io/v1alpha1
+kind: Kubeseer
+metadata:
+  name: degraded
+  namespace: kubeseer-example-degraded
+  labels: {kubeseer.io/example: partial-degradation}
+spec:
+  sources:
+    - id: successful-deployment
+      resource: {apiVersion: apps/v1, kind: Deployment}
+      namespaces: {names: [kubeseer-example-degraded]}
+      selector: {name: degraded}
+      fields: [{name: replicas, path: "{.spec.replicas}", type: integer}]
+    - id: unavailable-widget
+      resource: {apiVersion: fixtures.kubeseer.io/v1alpha1, kind: Widget}
+      namespaces: {names: [kubeseer-example-degraded]}
+      selector: {name: degraded-widget}
+      fields: [{name: size, path: "{.spec.size}", type: integer}]

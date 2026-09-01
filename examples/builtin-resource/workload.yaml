@@ -1,0 +1,25 @@
+# Copyright 2026 Alessandro Rontani
+# Licensed under the Apache License, Version 2.0.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: builtin
+  namespace: kubeseer-example-builtin
+  labels:
+    kubeseer.io/example: builtin-resource
+    app.kubernetes.io/name: kubeseer-example-builtin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubeseer-example-builtin
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kubeseer-example-builtin
+        kubeseer.io/example: builtin-resource
+    spec:
+      containers:
+        - name: fixture
+          image: registry.k8s.io/pause:3.10
+          imagePullPolicy: IfNotPresent

@@ -1,0 +1,101 @@
+# Copyright 2026 Alessandro Rontani
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+
+# This profile is intentionally explicit about the local certificate and
+# authorization boundary. The image is supplied by local-up from its content
+# bound Podman tag; no registry is consulted by the local workflow.
+# Catalog identities: builtin-resource, typed-extraction, value-operator,
+# cross-namespace-aggregation, custom-resource, authorization-denial,
+# partial-degradation.
+image:
+  pullPolicy: IfNotPresent
+
+certificate:
+  mode: certManager
+
+accessPolicy:
+  mode: managed
+  explicitNamespaces:
+    - kubeseer-example-builtin
+    - kubeseer-example-typed
+    - kubeseer-example-operator
+    - kubeseer-example-aggregation-a
+    - kubeseer-example-aggregation-b
+    - kubeseer-example-custom
+    - kubeseer-example-denial
+    - kubeseer-example-degraded
+  systemNamespaces:
+    - kube-system
+    - kube-public
+    - kube-node-lease
+  allowedResources:
+    - apiGroups: [""]
+      kinds: ["Pod"]
+    - apiGroups: ["apps"]
+      kinds: ["Deployment"]
+    - apiGroups: ["fixtures.kubeseer.io"]
+      kinds: ["Widget"]
+  allowClusterScoped: false
+
+# Kubernetes RBAC is a separate, narrow implementation permission. Logical
+# access is still checked against installation-access-ceiling for each source.
+rbac:
+  observed:
+    namespaced:
+      - namespace: kubeseer-example-builtin
+        apiGroups: ["apps"]
+        resources: ["deployments"]
+        verbs: ["get", "list", "watch"]
+      - namespace: kubeseer-example-typed
+        apiGroups: ["apps"]
+        resources: ["deployments"]
+        verbs: ["get", "list", "watch"]
+      - namespace: kubeseer-example-operator
+        apiGroups: ["apps"]
+        resources: ["deployments"]
+        verbs: ["get", "list", "watch"]
+      - namespace: kubeseer-example-aggregation-a
+        apiGroups: ["apps"]
+        resources: ["deployments"]
+        verbs: ["get", "list", "watch"]
+      - namespace: kubeseer-example-aggregation-b
+        apiGroups: ["apps"]
+        resources: ["deployments"]
+        verbs: ["get", "list", "watch"]
+      - namespace: kubeseer-example-custom
+        apiGroups: ["fixtures.kubeseer.io"]
+        resources: ["widgets"]
+        verbs: ["get", "list", "watch"]
+      - namespace: kubeseer-example-denial
+        apiGroups: [""]
+        resources: ["pods"]
+        verbs: ["get", "list", "watch"]
+      - namespace: kubeseer-example-denial
+        apiGroups: [""]
+        resources: ["services"]
+        verbs: ["get", "list", "watch"]
+      - namespace: kubeseer-example-degraded
+        apiGroups: ["apps"]
+        resources: ["deployments"]
+        verbs: ["get", "list", "watch"]
+      - namespace: kubeseer-example-degraded
+        apiGroups: ["fixtures.kubeseer.io"]
+        resources: ["widgets"]
+        verbs: ["get", "list", "watch"]
+    clusterScoped: []
+  authors:
+    namespaces:
+      - kubeseer-example-builtin
+      - kubeseer-example-typed
+      - kubeseer-example-operator
+      - kubeseer-example-aggregation-a
+      - kubeseer-example-aggregation-b
+      - kubeseer-example-custom
+      - kubeseer-example-denial
+      - kubeseer-example-degraded
+    subjects: []

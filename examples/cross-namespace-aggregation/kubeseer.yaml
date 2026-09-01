@@ -1,0 +1,16 @@
+# Copyright 2026 Alessandro Rontani
+# Licensed under the Apache License, Version 2.0.
+apiVersion: kubeseer.io/v1alpha1
+kind: Kubeseer
+metadata:
+  name: aggregation
+  namespace: kubeseer-example-aggregation-a
+  labels: {kubeseer.io/example: cross-namespace-aggregation}
+spec:
+  sources:
+    - id: deployments
+      resource: {apiVersion: apps/v1, kind: Deployment}
+      namespaces: {names: [kubeseer-example-aggregation-a, kubeseer-example-aggregation-b]}
+      fields: [{name: replicas, path: "{.spec.replicas}", type: integer}]
+      aggregations:
+        - {name: total, function: sum, field: replicas}
