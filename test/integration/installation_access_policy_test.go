@@ -228,6 +228,27 @@ func TestModuleIntegration(t *testing.T) {
 	t.Run("performance limits expose sanitized production diagnostics", func(t *testing.T) {
 		assertPerformanceLimitsObservabilityScenarios(t, ctx, resolver)
 	})
+	t.Run("packaging composes the production manager and lifecycle vocabulary", func(t *testing.T) {
+		assertPackagingManagerImageScenarios(t)
+	})
+	t.Run("packaging renders a secure manager workload", func(t *testing.T) {
+		assertPackagingWorkloadScenarios(t)
+	})
+	t.Run("packaging keeps RBAC and logical authorization separate", func(t *testing.T) {
+		assertPackagingRBACScenarios(t)
+	})
+	t.Run("packaging bootstraps the access ceiling through managed hooks", func(t *testing.T) {
+		assertPackagingPolicyScenarios(t)
+	})
+	t.Run("packaging keeps webhook certificates trusted across both modes", func(t *testing.T) {
+		assertPackagingWebhookTLSScenarios(t)
+	})
+	t.Run("packaging preserves deterministic upgrade and rollback boundaries", func(t *testing.T) {
+		assertPackagingUpgradeRollbackScenarios(t)
+	})
+	t.Run("packaging separates reversible uninstall from confirmed purge", func(t *testing.T) {
+		assertPackagingUninstallPurgeScenarios(t)
+	})
 
 	t.Log("MODULE_INTEGRATION=discovery-access-policy-evaluation STATUS=passed")
 	t.Log("MODULE_INTEGRATION=discovery-access-policy-loader STATUS=passed")
@@ -281,6 +302,9 @@ func TestModuleIntegration(t *testing.T) {
 	t.Log("MODULE_INTEGRATION=observability-watch STATUS=passed")
 	t.Log("MODULE_INTEGRATION=observability STATUS=passed")
 	t.Log("MODULE_INTEGRATION=performance-and-limits STATUS=passed")
+	t.Log("MODULE_INTEGRATION=packaging-webhook-tls STATUS=passed")
+	t.Log("MODULE_INTEGRATION=packaging-upgrade-rollback STATUS=passed")
+	t.Log("MODULE_INTEGRATION=packaging-uninstall-purge STATUS=passed")
 }
 
 func assertEvaluationScenarios(t *testing.T, ctx context.Context, resolver *discovery.Resolver) {

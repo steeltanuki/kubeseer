@@ -1,0 +1,74 @@
+{{- if eq .Values.certificate.mode "certManager" }}
+{{- $issuerName := default (include "kubeseer.webhookIssuerName" .) .Values.certificate.certManager.issuer.name }}
+{{- if eq .Values.certificate.certManager.issuer.name "" }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "kubeseer.webhookCAIssuerName" . }}
+  namespace: {{ include "kubeseer.namespace" . }}
+  labels:
+    {{- include "kubeseer.labels" . | nindent 4 }}
+  annotations:
+    {{- include "kubeseer.ownershipAnnotations" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "kubeseer.webhookCACertificateName" . }}
+  namespace: {{ include "kubeseer.namespace" . }}
+  labels:
+    {{- include "kubeseer.labels" . | nindent 4 }}
+  annotations:
+    {{- include "kubeseer.ownershipAnnotations" . | nindent 4 }}
+spec:
+  isCA: true
+  commonName: {{ include "kubeseer.webhookCACertificateName" . }}
+  secretName: {{ include "kubeseer.webhookCACertificateName" . }}
+  privateKey:
+    rotationPolicy: Always
+  issuerRef:
+    name: {{ include "kubeseer.webhookCAIssuerName" . }}
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "kubeseer.webhookIssuerName" . }}
+  namespace: {{ include "kubeseer.namespace" . }}
+  labels:
+    {{- include "kubeseer.labels" . | nindent 4 }}
+  annotations:
+    {{- include "kubeseer.ownershipAnnotations" . | nindent 4 }}
+spec:
+  ca:
+    secretName: {{ include "kubeseer.webhookCACertificateName" . }}
+{{- end }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "kubeseer.webhookCertificateName" . }}
+  namespace: {{ include "kubeseer.namespace" . }}
+  labels:
+    {{- include "kubeseer.labels" . | nindent 4 }}
+  annotations:
+    {{- include "kubeseer.ownershipAnnotations" . | nindent 4 }}
+spec:
+  secretName: {{ include "kubeseer.webhookSecretName" . }}
+  duration: {{ .Values.certificate.certManager.certificate.duration }}
+  renewBefore: {{ .Values.certificate.certManager.certificate.renewBefore }}
+  privateKey:
+    rotationPolicy: Always
+  dnsNames:
+    - {{ include "kubeseer.webhookServiceName" . }}
+    - {{ printf "%s.%s" (include "kubeseer.webhookServiceName" .) (include "kubeseer.namespace" .) }}
+    - {{ printf "%s.%s.svc" (include "kubeseer.webhookServiceName" .) (include "kubeseer.namespace" .) }}
+    - {{ printf "%s.%s.svc.cluster.local" (include "kubeseer.webhookServiceName" .) (include "kubeseer.namespace" .) }}
+  issuerRef:
+    name: {{ $issuerName }}
+    kind: {{ .Values.certificate.certManager.issuer.kind }}
+    group: {{ .Values.certificate.certManager.issuer.group }}
+{{- end }}

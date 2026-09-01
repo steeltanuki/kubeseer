@@ -20,6 +20,10 @@ The operator is designed around an administrator-defined access boundary. During
 
 The current functional breakdown and proposed implementation roadmap are documented in [SPECIFICATIONS.md](SPECIFICATIONS.md).
 
+The canonical Helm package and lifecycle procedures are documented in
+[docs/installation.md](docs/installation.md); chart defaults and the values
+contract are in [charts/kubeseer/README.md](charts/kubeseer/README.md).
+
 ## Walden and AI agent experimentation
 
 Kubeseer is also an experimental project for exploring spec-driven software delivery with [Walden](https://github.com/andrearaponi/walden) and AI coding agents.
@@ -40,4 +44,7 @@ AI agents may help analyse the problem, propose specifications, design the archi
 
 ## Project status
 
-Kubeseer is currently in the specification and early experimentation phase. Its APIs and architecture may change while the Walden workflow and the operator design are refined.
+The packaging-and-installation specification is implemented through the
+canonical Helm chart, explicit CRD upgrade gate, dual certificate modes, and
+separate confirmed purge path. The remaining product roadmap continues to be
+tracked in the Walden specifications.

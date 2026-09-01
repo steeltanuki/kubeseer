@@ -1,0 +1,37 @@
+{{- range $index, $rule := .Values.rbac.observed.namespaced }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ printf "%s-observed-%d" (include "kubeseer.fullname" $) $index | trunc 63 | trimSuffix "-" }}
+  namespace: {{ $rule.namespace }}
+  labels:
+    {{- include "kubeseer.labels" $ | nindent 4 }}
+  annotations:
+    {{- include "kubeseer.ownershipAnnotations" $ | nindent 4 }}
+rules:
+  - apiGroups:
+      {{- toYaml $rule.apiGroups | nindent 6 }}
+    resources:
+      {{- toYaml $rule.resources | nindent 6 }}
+    verbs:
+      {{- toYaml $rule.verbs | nindent 6 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ printf "%s-observed-%d" (include "kubeseer.fullname" $) $index | trunc 63 | trimSuffix "-" }}
+  namespace: {{ $rule.namespace }}
+  labels:
+    {{- include "kubeseer.labels" $ | nindent 4 }}
+  annotations:
+    {{- include "kubeseer.ownershipAnnotations" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ printf "%s-observed-%d" (include "kubeseer.fullname" $) $index | trunc 63 | trimSuffix "-" }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kubeseer.serviceAccountName" $ }}
+    namespace: {{ include "kubeseer.namespace" $ }}
+{{- end }}

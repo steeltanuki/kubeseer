@@ -1,0 +1,132 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: kubeseeraccesspolicies.kubeseer.io
+spec:
+  group: kubeseer.io
+  names:
+    kind: KubeseerAccessPolicy
+    listKind: KubeseerAccessPolicyList
+    plural: kubeseeraccesspolicies
+    singular: kubeseeraccesspolicy
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: KubeseerAccessPolicy is the administrator-owned installation
+          observation ceiling.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: KubeseerAccessPolicySpec defines the maximum observation
+              scope available to Kubeseer.
+            properties:
+              allowClusterScoped:
+                default: false
+                type: boolean
+              namespaces:
+                description: NamespacePolicy defines the namespace boundary of an
+                  installation policy.
+                properties:
+                  exclude:
+                    items:
+                      maxLength: 63
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    maxItems: 256
+                    type: array
+                    x-kubernetes-list-type: set
+                  include:
+                    items:
+                      maxLength: 63
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    maxItems: 256
+                    type: array
+                    x-kubernetes-list-type: set
+                  mode:
+                    description: NamespaceMode controls how a policy selects namespaces.
+                    enum:
+                    - Explicit
+                    - All
+                    - AllNonSystem
+                    type: string
+                  systemNamespaces:
+                    default:
+                    - kube-system
+                    - kube-public
+                    - kube-node-lease
+                    description: |-
+                      This field intentionally omits omitempty: nil and an explicit empty list
+                      have different defaulting semantics for system namespace classification.
+                    items:
+                      maxLength: 63
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    maxItems: 256
+                    type: array
+                    x-kubernetes-list-type: set
+                required:
+                - mode
+                type: object
+              resources:
+                items:
+                  description: ResourceRule allows exact Kubernetes API group and
+                    Kind combinations.
+                  properties:
+                    apiGroups:
+                      items:
+                        maxLength: 253
+                        pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                        type: string
+                      maxItems: 64
+                      minItems: 1
+                      type: array
+                      x-kubernetes-list-type: set
+                    kinds:
+                      items:
+                        maxLength: 63
+                        pattern: ^[A-Z][A-Za-z0-9]*$
+                        type: string
+                      maxItems: 64
+                      minItems: 1
+                      type: array
+                      x-kubernetes-list-type: set
+                  required:
+                  - apiGroups
+                  - kinds
+                  type: object
+                maxItems: 128
+                type: array
+                x-kubernetes-list-type: atomic
+            required:
+            - namespaces
+            type: object
+        required:
+        - spec
+        type: object
+        x-kubernetes-validations:
+        - message: metadata.name must be installation-access-ceiling
+          rule: self.metadata.name == 'installation-access-ceiling'
+    served: true
+    storage: true

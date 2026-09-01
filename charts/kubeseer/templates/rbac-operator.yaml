@@ -1,0 +1,47 @@
+{{- if and (gt (len .Values.rbac.observed.clusterScoped) 0) (not .Values.accessPolicy.allowClusterScoped) }}
+{{- fail "rbac.observed.clusterScoped requires accessPolicy.allowClusterScoped=true" }}
+{{- end }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kubeseer.fullname" . }}-operator
+  labels:
+    {{- include "kubeseer.labels" . | nindent 4 }}
+  annotations:
+    {{- include "kubeseer.ownershipAnnotations" . | nindent 4 }}
+rules:
+  - apiGroups: ["kubeseer.io"]
+    resources: ["kubeseers"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["kubeseer.io"]
+    resources: ["kubeseers/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["kubeseer.io"]
+    resources: ["kubeseeraccesspolicies"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch", "update"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kubeseer.fullname" . }}-operator
+  labels:
+    {{- include "kubeseer.labels" . | nindent 4 }}
+  annotations:
+    {{- include "kubeseer.ownershipAnnotations" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kubeseer.fullname" . }}-operator
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kubeseer.serviceAccountName" . }}
+    namespace: {{ include "kubeseer.namespace" . }}

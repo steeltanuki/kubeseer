@@ -1,0 +1,235 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["image", "replicaCount", "resources", "manager", "metrics", "tracing", "certificate", "accessPolicy", "rbac", "limits"],
+  "properties": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "tag", "pullPolicy"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1, "maxLength": 253},
+        "tag": {"type": "string", "maxLength": 128, "not": {"enum": ["latest", "LATEST"]}},
+        "pullPolicy": {"type": "string", "enum": ["Always", "IfNotPresent", "Never"]}
+      }
+    },
+    "replicaCount": {"type": "integer", "minimum": 1, "maximum": 10},
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requests", "limits"],
+      "properties": {
+        "requests": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cpu", "memory"],
+          "properties": {"cpu": {"type": "string", "minLength": 1}, "memory": {"type": "string", "minLength": 1}}
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cpu", "memory"],
+          "properties": {"cpu": {"type": "string", "minLength": 1}, "memory": {"type": "string", "minLength": 1}}
+        }
+      }
+    },
+    "manager": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["leaderElection", "terminationGracePeriodSeconds", "metricsBindAddress", "healthProbeBindAddress", "webhookPort", "webhookCertDir", "webhookCertName", "webhookKeyName", "webhookCAFile", "safetyInterval", "gracefulShutdownTimeout"],
+      "properties": {
+        "leaderElection": {"type": "boolean"},
+        "terminationGracePeriodSeconds": {"type": "integer", "minimum": 1, "maximum": 3600},
+        "metricsBindAddress": {"type": "string", "minLength": 1},
+        "healthProbeBindAddress": {"type": "string", "minLength": 1},
+        "webhookPort": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "webhookCertDir": {"type": "string", "minLength": 1, "pattern": "^/[^\u0000]*$"},
+        "webhookCertName": {"type": "string", "minLength": 1, "pattern": "^[^/\\\\.][^/\\\\]*$"},
+        "webhookKeyName": {"type": "string", "minLength": 1, "pattern": "^[^/\\\\.][^/\\\\]*$"},
+        "webhookCAFile": {"type": "string", "minLength": 1, "pattern": "^/[^\u0000]*$"},
+        "safetyInterval": {"type": "string", "pattern": "^[1-9][0-9]*(ns|us|µs|ms|s|m|h)$"},
+        "gracefulShutdownTimeout": {"type": "string", "pattern": "^[1-9][0-9]*(ns|us|µs|ms|s|m|h)$"}
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["service"],
+      "properties": {
+        "service": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "port"],
+          "properties": {"enabled": {"type": "boolean"}, "port": {"type": "integer", "minimum": 1, "maximum": 65535}}
+        }
+      }
+    },
+    "tracing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "endpoint"],
+      "oneOf": [
+        {"properties": {"enabled": {"enum": [false]}}},
+        {"properties": {"enabled": {"enum": [true]}, "endpoint": {"minLength": 1}}, "required": ["endpoint"]}
+      ],
+      "properties": {"enabled": {"type": "boolean"}, "endpoint": {"type": "string", "maxLength": 2048}}
+    },
+    "certificate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "certManager", "externalSecret"],
+      "oneOf": [
+        {"properties": {"mode": {"enum": ["certManager"]}}},
+        {"properties": {"mode": {"enum": ["externalSecret"]}, "externalSecret": {"type": "object", "required": ["secretName", "caBundle"], "properties": {"secretName": {"type": "string", "minLength": 1}, "caBundle": {"type": "string", "minLength": 1}}}}}
+      ],
+      "properties": {
+        "mode": {"type": "string", "enum": ["certManager", "externalSecret"]},
+        "certManager": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["issuer", "certificate"],
+          "properties": {
+            "issuer": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["group", "kind", "name"],
+              "properties": {"group": {"type": "string", "minLength": 1}, "kind": {"type": "string", "enum": ["Issuer", "ClusterIssuer"]}, "name": {"type": "string", "maxLength": 63}}
+            },
+            "certificate": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["duration", "renewBefore"],
+              "properties": {"duration": {"type": "string", "minLength": 1}, "renewBefore": {"type": "string", "minLength": 1}}
+            }
+          }
+        },
+        "externalSecret": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["secretName", "caBundle"],
+          "properties": {"secretName": {"type": "string", "maxLength": 253}, "caBundle": {"type": "string", "maxLength": 65536}}
+        }
+      }
+    },
+    "accessPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "explicitNamespaces", "allowedResources", "allowClusterScoped"],
+      "properties": {
+        "mode": {"type": "string", "enum": ["managed", "external"]},
+        "explicitNamespaces": {"type": "array", "maxItems": 256, "items": {"type": "string", "minLength": 1, "maxLength": 63, "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"}},
+        "systemNamespaces": {"type": ["array", "null"], "maxItems": 256, "items": {"type": "string", "minLength": 1, "maxLength": 63, "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"}},
+        "allowedResources": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["apiGroups", "kinds"],
+            "properties": {
+              "apiGroups": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"type": "string", "maxLength": 253, "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"}},
+              "kinds": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"type": "string", "maxLength": 63, "pattern": "^[A-Z][A-Za-z0-9]*$"}}
+            }
+          }
+        },
+        "allowClusterScoped": {"type": "boolean"}
+      }
+    },
+    "rbac": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observed", "authors"],
+      "properties": {
+        "observed": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["namespaced", "clusterScoped"],
+          "properties": {
+            "namespaced": {
+              "type": "array",
+              "maxItems": 128,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["namespace", "apiGroups", "resources", "verbs"],
+                "properties": {
+                  "namespace": {"type": "string", "minLength": 1, "maxLength": 63, "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"},
+                  "apiGroups": {"type": "array", "minItems": 1, "items": {"type": "string", "not": {"enum": ["*"]}}},
+                  "resources": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1, "not": {"enum": ["*", "secrets", "secret"]}}},
+                  "verbs": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["get", "list", "watch"]}}
+                }
+              }
+            },
+            "clusterScoped": {
+              "type": "array",
+              "maxItems": 128,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["apiGroups", "resources", "verbs"],
+                "properties": {
+                  "apiGroups": {"type": "array", "minItems": 1, "items": {"type": "string", "not": {"enum": ["*"]}}},
+                  "resources": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1, "not": {"enum": ["*", "secrets", "secret"]}}},
+                  "verbs": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["get", "list", "watch"]}}
+                }
+              }
+            }
+          }
+        },
+        "authors": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["namespaces", "subjects"],
+          "properties": {
+            "namespaces": {"type": "array", "maxItems": 256, "items": {"type": "string", "minLength": 1, "maxLength": 63, "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"}},
+            "subjects": {
+              "type": "array",
+              "maxItems": 256,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "name"],
+                "properties": {"kind": {"type": "string", "enum": ["User", "Group", "ServiceAccount"]}, "name": {"type": "string", "minLength": 1, "maxLength": 253}, "namespace": {"type": "string", "maxLength": 63}}
+              }
+            }
+          }
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pageSize", "maxMatchedResources", "maxSelectedInputBytes", "maxProducedValueBytes", "maxStatusBytes", "evaluationTimeout", "maxConcurrentReconciles", "discoveryCacheEntries", "discoveryCacheTTL", "maxActiveWatches", "maxPendingTriggers", "admission", "aggregation"],
+      "properties": {
+        "pageSize": {"type": "integer", "minimum": 1},
+        "maxMatchedResources": {"type": "integer", "minimum": 1},
+        "maxSelectedInputBytes": {"type": "integer", "minimum": 1},
+        "maxProducedValueBytes": {"type": "integer", "minimum": 1},
+        "maxStatusBytes": {"type": "integer", "minimum": 1},
+        "evaluationTimeout": {"type": "string", "pattern": "^[1-9][0-9]*(ns|us|µs|ms|s|m|h)$"},
+        "maxConcurrentReconciles": {"type": "integer", "minimum": 1},
+        "discoveryCacheEntries": {"type": "integer", "minimum": 1},
+        "discoveryCacheTTL": {"type": "string", "pattern": "^[1-9][0-9]*(ns|us|µs|ms|s|m|h)$"},
+        "maxActiveWatches": {"type": "integer", "minimum": 1},
+        "maxPendingTriggers": {"type": "integer", "minimum": 1},
+        "admission": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maxKubeseerSources", "maxSourceNamespaces", "maxSourceFields", "maxFieldOperators", "maxOperatorValues", "maxSourceAggregations", "maxAggregationGroupBy", "maxSelectorMatchExpressions", "maxSelectorExpressionValues", "maxSelectorMatchLabels", "maxPolicyNamespaceNames", "maxPolicyResourceRules", "maxPolicyAPIGroups", "maxPolicyKinds", "maxKubeseerSpecBytes", "maxAccessPolicySpecBytes"],
+          "properties": {
+            "maxKubeseerSources": {"type": "integer", "minimum": 1}, "maxSourceNamespaces": {"type": "integer", "minimum": 1}, "maxSourceFields": {"type": "integer", "minimum": 1}, "maxFieldOperators": {"type": "integer", "minimum": 1}, "maxOperatorValues": {"type": "integer", "minimum": 1}, "maxSourceAggregations": {"type": "integer", "minimum": 1}, "maxAggregationGroupBy": {"type": "integer", "minimum": 1}, "maxSelectorMatchExpressions": {"type": "integer", "minimum": 1}, "maxSelectorExpressionValues": {"type": "integer", "minimum": 1}, "maxSelectorMatchLabels": {"type": "integer", "minimum": 1}, "maxPolicyNamespaceNames": {"type": "integer", "minimum": 1}, "maxPolicyResourceRules": {"type": "integer", "minimum": 1}, "maxPolicyAPIGroups": {"type": "integer", "minimum": 1}, "maxPolicyKinds": {"type": "integer", "minimum": 1}, "maxKubeseerSpecBytes": {"type": "integer", "minimum": 1}, "maxAccessPolicySpecBytes": {"type": "integer", "minimum": 1}
+          }
+        },
+        "aggregation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maxGroups", "maxContributions", "maxCollectedValues", "maxDistinctValues", "maxProvenanceEntries"],
+          "properties": {
+            "maxGroups": {"type": "integer", "minimum": 1}, "maxContributions": {"type": "integer", "minimum": 1}, "maxCollectedValues": {"type": "integer", "minimum": 1}, "maxDistinctValues": {"type": "integer", "minimum": 1}, "maxProvenanceEntries": {"type": "integer", "minimum": 1}
+          }
+        }
+      }
+    }
+  }
+}

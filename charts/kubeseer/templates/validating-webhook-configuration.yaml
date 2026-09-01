@@ -1,0 +1,50 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: kubeseer-validating-webhook
+  labels:
+    {{- include "kubeseer.labels" . | nindent 4 }}
+  annotations:
+    {{- include "kubeseer.ownershipAnnotations" . | nindent 4 }}
+    {{- if eq .Values.certificate.mode "certManager" }}
+    cert-manager.io/inject-ca-from: {{ printf "%s/%s" (include "kubeseer.namespace" .) (include "kubeseer.webhookCACertificateName" .) | quote }}
+    {{- end }}
+webhooks:
+  - name: kubeseer.kubeseer.io
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    clientConfig:
+      service:
+        name: {{ include "kubeseer.webhookServiceName" . }}
+        namespace: {{ include "kubeseer.namespace" . }}
+        port: 443
+        path: /validate-kubeseer-io-v1alpha1-kubeseer
+      {{- if eq .Values.certificate.mode "externalSecret" }}
+      caBundle: {{ .Values.certificate.externalSecret.caBundle | b64enc | quote }}
+      {{- end }}
+    rules:
+      - operations: ["CREATE", "UPDATE"]
+        apiGroups: ["kubeseer.io"]
+        apiVersions: ["v1alpha1"]
+        resources: ["kubeseers"]
+  - name: kubeseeraccesspolicy.kubeseer.io
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    clientConfig:
+      service:
+        name: {{ include "kubeseer.webhookServiceName" . }}
+        namespace: {{ include "kubeseer.namespace" . }}
+        port: 443
+        path: /validate-kubeseer-io-v1alpha1-kubeseeraccesspolicy
+      {{- if eq .Values.certificate.mode "externalSecret" }}
+      caBundle: {{ .Values.certificate.externalSecret.caBundle | b64enc | quote }}
+      {{- end }}
+    rules:
+      - operations: ["CREATE", "UPDATE"]
+        apiGroups: ["kubeseer.io"]
+        apiVersions: ["v1alpha1"]
+        resources: ["kubeseeraccesspolicies"]

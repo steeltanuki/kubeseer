@@ -1,0 +1,14 @@
+{{- if eq .Values.certificate.mode "externalSecret" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubeseer.fullname" . }}-webhook-ca
+  namespace: {{ include "kubeseer.namespace" . }}
+  labels:
+    {{- include "kubeseer.labels" . | nindent 4 }}
+  annotations:
+    {{- include "kubeseer.ownershipAnnotations" . | nindent 4 }}
+data:
+  ca.crt: |-
+    {{ .Values.certificate.externalSecret.caBundle | nindent 4 }}
+{{- end }}

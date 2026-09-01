@@ -1,0 +1,1002 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: kubeseers.kubeseer.io
+spec:
+  group: kubeseer.io
+  names:
+    kind: Kubeseer
+    listKind: KubeseerList
+    plural: kubeseers
+    singular: kubeseer
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Kubeseer is the root custom resource for declarative Kubernetes
+          observation.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: KubeseerSpec contains the stable foundation envelope for
+              future sources.
+            properties:
+              sources:
+                items:
+                  description: |-
+                    KubeseerSource identifies one Kubernetes resource selection without granting
+                    permissions or embedding installation-policy configuration.
+                  properties:
+                    aggregations:
+                      items:
+                        description: |-
+                          KubeseerAggregation declares one typed reduction over the containing
+                          source's extracted field outcomes. Average options are resolved at runtime
+                          so omission remains distinguishable from invalid options on other functions.
+                        properties:
+                          field:
+                            maxLength: 63
+                            pattern: ^[a-z][A-Za-z0-9]*(?:-[a-z0-9]+)*$
+                            type: string
+                          function:
+                            description: KubeseerAggregationFunction identifies one
+                              supported source-wide reducer.
+                            enum:
+                            - collect
+                            - count
+                            - sum
+                            - min
+                            - max
+                            - average
+                            - first
+                            - last
+                            - distinct
+                            type: string
+                          groupBy:
+                            items:
+                              type: string
+                            maxItems: 16
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          includeProvenance:
+                            type: boolean
+                          name:
+                            maxLength: 63
+                            pattern: ^[a-z][A-Za-z0-9]*(?:-[a-z0-9]+)*$
+                            type: string
+                          precision:
+                            format: int32
+                            maximum: 18
+                            minimum: 0
+                            type: integer
+                          roundingMode:
+                            description: KubeseerRoundingMode identifies the closed
+                              set of average rounding rules.
+                            enum:
+                            - halfEven
+                            - halfAwayFromZero
+                            - towardZero
+                            - awayFromZero
+                            type: string
+                        required:
+                        - field
+                        - function
+                        - name
+                        type: object
+                      maxItems: 32
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - name
+                      x-kubernetes-list-type: map
+                    fields:
+                      items:
+                        description: |-
+                          KubeseerField declares one named native-value extraction from a selected
+                          resource.
+                        properties:
+                          name:
+                            maxLength: 63
+                            pattern: ^[a-z][A-Za-z0-9]*(?:-[a-z0-9]+)*$
+                            type: string
+                          operators:
+                            items:
+                              description: KubeseerOperator declares one ordered operation
+                                over a typed field.
+                              properties:
+                                operator:
+                                  description: KubeseerOperatorName identifies one
+                                    supported field operator.
+                                  enum:
+                                  - eq
+                                  - ne
+                                  - gt
+                                  - gte
+                                  - lt
+                                  - lte
+                                  - contains
+                                  - startsWith
+                                  - endsWith
+                                  - matches
+                                  - exists
+                                  - notExists
+                                  - in
+                                  - notIn
+                                  - default
+                                  - coalesce
+                                  type: string
+                                value:
+                                  description: |-
+                                    KubeseerOperatorOperand is a structural typed operand. Exactly one payload
+                                    branch is valid when State is MatchStateValue; MatchStateNull is rejected by
+                                    runtime operator planning and exists to keep an explicit null distinct from
+                                    an omitted operand.
+                                  properties:
+                                    booleanValue:
+                                      type: boolean
+                                    durationValue:
+                                      type: string
+                                    integerValue:
+                                      format: int64
+                                      type: integer
+                                    listValue:
+                                      type: string
+                                    numberValue:
+                                      type: string
+                                    objectValue:
+                                      type: string
+                                    quantityValue:
+                                      type: string
+                                    state:
+                                      description: KubeseerMatchState distinguishes
+                                        a non-null value from an explicit null.
+                                      enum:
+                                      - value
+                                      - "null"
+                                      type: string
+                                    stringValue:
+                                      type: string
+                                    timestampValue:
+                                      type: string
+                                  required:
+                                  - state
+                                  type: object
+                                values:
+                                  items:
+                                    description: |-
+                                      KubeseerOperatorOperand is a structural typed operand. Exactly one payload
+                                      branch is valid when State is MatchStateValue; MatchStateNull is rejected by
+                                      runtime operator planning and exists to keep an explicit null distinct from
+                                      an omitted operand.
+                                    properties:
+                                      booleanValue:
+                                        type: boolean
+                                      durationValue:
+                                        type: string
+                                      integerValue:
+                                        format: int64
+                                        type: integer
+                                      listValue:
+                                        type: string
+                                      numberValue:
+                                        type: string
+                                      objectValue:
+                                        type: string
+                                      quantityValue:
+                                        type: string
+                                      state:
+                                        description: KubeseerMatchState distinguishes
+                                          a non-null value from an explicit null.
+                                        enum:
+                                        - value
+                                        - "null"
+                                        type: string
+                                      stringValue:
+                                        type: string
+                                      timestampValue:
+                                        type: string
+                                    required:
+                                    - state
+                                    type: object
+                                  maxItems: 128
+                                  type: array
+                                  x-kubernetes-list-type: atomic
+                              required:
+                              - operator
+                              type: object
+                            maxItems: 16
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          path:
+                            maxLength: 1024
+                            minLength: 1
+                            type: string
+                          type:
+                            description: |-
+                              Type is optional for API compatibility with untyped field declarations.
+                              Typed conversion reports a field-scoped missing-type failure when it is
+                              omitted.
+                            enum:
+                            - string
+                            - integer
+                            - number
+                            - boolean
+                            - timestamp
+                            - duration
+                            - quantity
+                            - object
+                            - list
+                            type: string
+                        required:
+                        - name
+                        - path
+                        type: object
+                      maxItems: 64
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - name
+                      x-kubernetes-list-type: map
+                    id:
+                      maxLength: 63
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    namespaces:
+                      description: |-
+                        A nil pointer means the containing Kubeseer namespace for namespaced
+                        resources; a non-nil empty Names list intentionally selects no namespace.
+                      properties:
+                        names:
+                          items:
+                            maxLength: 63
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                            type: string
+                          maxItems: 64
+                          type: array
+                          x-kubernetes-list-type: set
+                      required:
+                      - names
+                      type: object
+                    resource:
+                      description: |-
+                        ResourceReference identifies the API version and Kind resolved through
+                        Kubernetes discovery.
+                      properties:
+                        apiVersion:
+                          minLength: 1
+                          type: string
+                        kind:
+                          minLength: 1
+                          type: string
+                      required:
+                      - apiVersion
+                      - kind
+                      type: object
+                    selector:
+                      description: |-
+                        ResourceSelector expresses Kubernetes-native name, label, and field
+                        selection constraints. All populated mechanisms are combined by the
+                        selection planner.
+                      properties:
+                        fieldSelector:
+                          type: string
+                        matchExpressions:
+                          items:
+                            description: |-
+                              A label selector requirement is a selector that contains values, a key, and an operator that
+                              relates the key and values.
+                            properties:
+                              key:
+                                description: key is the label key that the selector
+                                  applies to.
+                                type: string
+                              operator:
+                                description: |-
+                                  operator represents a key's relationship to a set of values.
+                                  Valid operators are In, NotIn, Exists and DoesNotExist.
+                                type: string
+                              values:
+                                description: |-
+                                  values is an array of string values. If the operator is In or NotIn,
+                                  the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                  the values array must be empty. This array is replaced during a strategic
+                                  merge patch.
+                                items:
+                                  type: string
+                                type: array
+                                x-kubernetes-list-type: atomic
+                            required:
+                            - key
+                            - operator
+                            type: object
+                          maxItems: 64
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        matchLabels:
+                          additionalProperties:
+                            type: string
+                          maxProperties: 64
+                          type: object
+                        name:
+                          type: string
+                      type: object
+                  required:
+                  - id
+                  - resource
+                  type: object
+                maxItems: 32
+                type: array
+                x-kubernetes-list-map-keys:
+                - id
+                x-kubernetes-list-type: map
+            type: object
+          status:
+            description: KubeseerStatus contains controller-observed state for a Kubeseer
+              resource.
+            properties:
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              observedGeneration:
+                format: int64
+                minimum: 0
+                type: integer
+              result:
+                description: |-
+                  KubeseerResult is the structural, ordered typed-output snapshot published
+                  in status.
+                properties:
+                  sources:
+                    items:
+                      description: KubeseerSourceResult is one source-scoped typed-output
+                        result.
+                      properties:
+                        aggregates:
+                          items:
+                            description: KubeseerAggregateResult is one source-scoped
+                              aggregate outcome.
+                            properties:
+                              error:
+                                description: KubeseerResultError is a sanitized runtime
+                                  or source-level failure.
+                                properties:
+                                  message:
+                                    type: string
+                                  reason:
+                                    type: string
+                                required:
+                                - reason
+                                type: object
+                              failures:
+                                items:
+                                  description: |-
+                                    KubeseerAggregateResourceFailure associates a sanitized failure with the
+                                    resource whose contribution could not be evaluated.
+                                  properties:
+                                    error:
+                                      description: KubeseerResultError is a sanitized
+                                        runtime or source-level failure.
+                                      properties:
+                                        message:
+                                          type: string
+                                        reason:
+                                          type: string
+                                      required:
+                                      - reason
+                                      type: object
+                                    provenance:
+                                      description: KubeseerResourceProvenance identifies
+                                        one contributing Kubernetes resource.
+                                      properties:
+                                        apiVersion:
+                                          type: string
+                                        kind:
+                                          type: string
+                                        name:
+                                          type: string
+                                        namespace:
+                                          type: string
+                                        uid:
+                                          description: |-
+                                            UID is a type that holds unique ID values, including UUIDs.  Because we
+                                            don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                                            intent and helps make sure that UIDs and names do not get conflated.
+                                          type: string
+                                      required:
+                                      - apiVersion
+                                      - kind
+                                      - name
+                                      - uid
+                                      type: object
+                                  required:
+                                  - error
+                                  - provenance
+                                  type: object
+                                type: array
+                                x-kubernetes-list-type: atomic
+                              field:
+                                type: string
+                              function:
+                                description: KubeseerAggregationFunction identifies
+                                  one supported source-wide reducer.
+                                enum:
+                                - collect
+                                - count
+                                - sum
+                                - min
+                                - max
+                                - average
+                                - first
+                                - last
+                                - distinct
+                                type: string
+                              groups:
+                                items:
+                                  description: KubeseerAggregateGroup is one ordered
+                                    key and reduced value.
+                                  properties:
+                                    contributors:
+                                      items:
+                                        description: KubeseerResourceProvenance identifies
+                                          one contributing Kubernetes resource.
+                                        properties:
+                                          apiVersion:
+                                            type: string
+                                          kind:
+                                            type: string
+                                          name:
+                                            type: string
+                                          namespace:
+                                            type: string
+                                          uid:
+                                            description: |-
+                                              UID is a type that holds unique ID values, including UUIDs.  Because we
+                                              don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                                              intent and helps make sure that UIDs and names do not get conflated.
+                                            type: string
+                                        required:
+                                        - apiVersion
+                                        - kind
+                                        - name
+                                        - uid
+                                        type: object
+                                      type: array
+                                      x-kubernetes-list-type: atomic
+                                    keys:
+                                      items:
+                                        description: KubeseerAggregateKey is one ordered
+                                          typed group-key component.
+                                        properties:
+                                          field:
+                                            type: string
+                                          type:
+                                            description: |-
+                                              KubeseerValueType identifies the explicit logical type requested for one
+                                              extracted field.
+                                            enum:
+                                            - string
+                                            - integer
+                                            - number
+                                            - boolean
+                                            - timestamp
+                                            - duration
+                                            - quantity
+                                            - object
+                                            - list
+                                            type: string
+                                          value:
+                                            description: |-
+                                              KubeseerTypedMatch is one ordered typed match. Exactly one typed payload is
+                                              populated when State is value; all payloads are omitted for null.
+                                            properties:
+                                              booleanValue:
+                                                type: boolean
+                                              durationValue:
+                                                description: |-
+                                                  KubeseerDurationValue is the canonical duration text and exact nanosecond
+                                                  magnitude.
+                                                properties:
+                                                  canonical:
+                                                    type: string
+                                                  nanoseconds:
+                                                    format: int64
+                                                    type: integer
+                                                required:
+                                                - canonical
+                                                - nanoseconds
+                                                type: object
+                                              integerValue:
+                                                format: int64
+                                                type: integer
+                                              listValue:
+                                                type: string
+                                              numberValue:
+                                                type: string
+                                              objectValue:
+                                                type: string
+                                              quantityValue:
+                                                description: |-
+                                                  KubeseerQuantityValue is the canonical Kubernetes quantity text and exact
+                                                  normalized base-unit decimal magnitude.
+                                                properties:
+                                                  baseUnits:
+                                                    type: string
+                                                  canonical:
+                                                    type: string
+                                                required:
+                                                - baseUnits
+                                                - canonical
+                                                type: object
+                                              state:
+                                                description: KubeseerMatchState distinguishes
+                                                  a non-null value from an explicit
+                                                  null.
+                                                enum:
+                                                - value
+                                                - "null"
+                                                type: string
+                                              stringValue:
+                                                type: string
+                                              timestampValue:
+                                                format: date-time
+                                                type: string
+                                            required:
+                                            - state
+                                            type: object
+                                        required:
+                                        - field
+                                        - type
+                                        - value
+                                        type: object
+                                      type: array
+                                      x-kubernetes-list-type: atomic
+                                    value:
+                                      description: KubeseerAggregateValue is a typed
+                                        scalar or collection result.
+                                      properties:
+                                        matches:
+                                          items:
+                                            description: |-
+                                              KubeseerAggregateMatch is one typed aggregate value and optional
+                                              value-specific provenance.
+                                            properties:
+                                              contributors:
+                                                items:
+                                                  description: KubeseerResourceProvenance
+                                                    identifies one contributing Kubernetes
+                                                    resource.
+                                                  properties:
+                                                    apiVersion:
+                                                      type: string
+                                                    kind:
+                                                      type: string
+                                                    name:
+                                                      type: string
+                                                    namespace:
+                                                      type: string
+                                                    uid:
+                                                      description: |-
+                                                        UID is a type that holds unique ID values, including UUIDs.  Because we
+                                                        don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                                                        intent and helps make sure that UIDs and names do not get conflated.
+                                                      type: string
+                                                  required:
+                                                  - apiVersion
+                                                  - kind
+                                                  - name
+                                                  - uid
+                                                  type: object
+                                                type: array
+                                                x-kubernetes-list-type: atomic
+                                              value:
+                                                description: |-
+                                                  KubeseerTypedMatch is one ordered typed match. Exactly one typed payload is
+                                                  populated when State is value; all payloads are omitted for null.
+                                                properties:
+                                                  booleanValue:
+                                                    type: boolean
+                                                  durationValue:
+                                                    description: |-
+                                                      KubeseerDurationValue is the canonical duration text and exact nanosecond
+                                                      magnitude.
+                                                    properties:
+                                                      canonical:
+                                                        type: string
+                                                      nanoseconds:
+                                                        format: int64
+                                                        type: integer
+                                                    required:
+                                                    - canonical
+                                                    - nanoseconds
+                                                    type: object
+                                                  integerValue:
+                                                    format: int64
+                                                    type: integer
+                                                  listValue:
+                                                    type: string
+                                                  numberValue:
+                                                    type: string
+                                                  objectValue:
+                                                    type: string
+                                                  quantityValue:
+                                                    description: |-
+                                                      KubeseerQuantityValue is the canonical Kubernetes quantity text and exact
+                                                      normalized base-unit decimal magnitude.
+                                                    properties:
+                                                      baseUnits:
+                                                        type: string
+                                                      canonical:
+                                                        type: string
+                                                    required:
+                                                    - baseUnits
+                                                    - canonical
+                                                    type: object
+                                                  state:
+                                                    description: KubeseerMatchState
+                                                      distinguishes a non-null value
+                                                      from an explicit null.
+                                                    enum:
+                                                    - value
+                                                    - "null"
+                                                    type: string
+                                                  stringValue:
+                                                    type: string
+                                                  timestampValue:
+                                                    format: date-time
+                                                    type: string
+                                                required:
+                                                - state
+                                                type: object
+                                            required:
+                                            - value
+                                            type: object
+                                          type: array
+                                          x-kubernetes-list-type: atomic
+                                        state:
+                                          description: |-
+                                            KubeseerAggregateValueState distinguishes an absent scalar from a value
+                                            collection, including an intentionally empty collection.
+                                          enum:
+                                          - absent
+                                          - values
+                                          type: string
+                                        type:
+                                          description: |-
+                                            KubeseerValueType identifies the explicit logical type requested for one
+                                            extracted field.
+                                          enum:
+                                          - string
+                                          - integer
+                                          - number
+                                          - boolean
+                                          - timestamp
+                                          - duration
+                                          - quantity
+                                          - object
+                                          - list
+                                          type: string
+                                      required:
+                                      - state
+                                      - type
+                                      type: object
+                                  required:
+                                  - value
+                                  type: object
+                                type: array
+                                x-kubernetes-list-type: atomic
+                              name:
+                                type: string
+                              state:
+                                description: KubeseerAggregateState identifies the
+                                  terminal state of one aggregate.
+                                enum:
+                                - values
+                                - degraded
+                                - error
+                                type: string
+                            required:
+                            - field
+                            - function
+                            - name
+                            - state
+                            type: object
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        error:
+                          description: KubeseerResultError is a sanitized runtime
+                            or source-level failure.
+                          properties:
+                            message:
+                              type: string
+                            reason:
+                              type: string
+                          required:
+                          - reason
+                          type: object
+                        fieldErrors:
+                          items:
+                            description: KubeseerFieldError is a sanitized field planning
+                              failure.
+                            properties:
+                              message:
+                                type: string
+                              name:
+                                type: string
+                              reason:
+                                type: string
+                            required:
+                            - name
+                            - reason
+                            type: object
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        id:
+                          type: string
+                        resources:
+                          items:
+                            description: |-
+                              KubeseerResourceResult identifies one contributing selected resource and
+                              its ordered typed fields.
+                            properties:
+                              apiVersion:
+                                type: string
+                              error:
+                                description: KubeseerResultError is a sanitized runtime
+                                  or source-level failure.
+                                properties:
+                                  message:
+                                    type: string
+                                  reason:
+                                    type: string
+                                required:
+                                - reason
+                                type: object
+                              fields:
+                                items:
+                                  description: KubeseerFieldResult is one field-scoped
+                                    typed outcome.
+                                  properties:
+                                    error:
+                                      description: KubeseerResultError is a sanitized
+                                        runtime or source-level failure.
+                                      properties:
+                                        message:
+                                          type: string
+                                        reason:
+                                          type: string
+                                      required:
+                                      - reason
+                                      type: object
+                                    matches:
+                                      items:
+                                        description: |-
+                                          KubeseerTypedMatch is one ordered typed match. Exactly one typed payload is
+                                          populated when State is value; all payloads are omitted for null.
+                                        properties:
+                                          booleanValue:
+                                            type: boolean
+                                          durationValue:
+                                            description: |-
+                                              KubeseerDurationValue is the canonical duration text and exact nanosecond
+                                              magnitude.
+                                            properties:
+                                              canonical:
+                                                type: string
+                                              nanoseconds:
+                                                format: int64
+                                                type: integer
+                                            required:
+                                            - canonical
+                                            - nanoseconds
+                                            type: object
+                                          integerValue:
+                                            format: int64
+                                            type: integer
+                                          listValue:
+                                            type: string
+                                          numberValue:
+                                            type: string
+                                          objectValue:
+                                            type: string
+                                          quantityValue:
+                                            description: |-
+                                              KubeseerQuantityValue is the canonical Kubernetes quantity text and exact
+                                              normalized base-unit decimal magnitude.
+                                            properties:
+                                              baseUnits:
+                                                type: string
+                                              canonical:
+                                                type: string
+                                            required:
+                                            - baseUnits
+                                            - canonical
+                                            type: object
+                                          state:
+                                            description: KubeseerMatchState distinguishes
+                                              a non-null value from an explicit null.
+                                            enum:
+                                            - value
+                                            - "null"
+                                            type: string
+                                          stringValue:
+                                            type: string
+                                          timestampValue:
+                                            format: date-time
+                                            type: string
+                                        required:
+                                        - state
+                                        type: object
+                                      type: array
+                                      x-kubernetes-list-type: atomic
+                                    name:
+                                      type: string
+                                    state:
+                                      description: KubeseerFieldState identifies absence,
+                                        values, or a field-scoped failure.
+                                      enum:
+                                      - absent
+                                      - values
+                                      - error
+                                      type: string
+                                    type:
+                                      description: |-
+                                        KubeseerValueType identifies the explicit logical type requested for one
+                                        extracted field.
+                                      enum:
+                                      - string
+                                      - integer
+                                      - number
+                                      - boolean
+                                      - timestamp
+                                      - duration
+                                      - quantity
+                                      - object
+                                      - list
+                                      type: string
+                                  required:
+                                  - name
+                                  - state
+                                  type: object
+                                type: array
+                                x-kubernetes-list-type: atomic
+                              kind:
+                                type: string
+                              name:
+                                type: string
+                              namespace:
+                                type: string
+                              uid:
+                                description: |-
+                                  UID is a type that holds unique ID values, including UUIDs.  Because we
+                                  don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                                  intent and helps make sure that UIDs and names do not get conflated.
+                                type: string
+                            required:
+                            - apiVersion
+                            - kind
+                            - name
+                            - uid
+                            type: object
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        state:
+                          description: KubeseerSourceState identifies whether a source
+                            produced values or failed.
+                          enum:
+                          - values
+                          - error
+                          type: string
+                      required:
+                      - id
+                      - state
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                type: object
+              resultHash:
+                maxLength: 71
+                pattern: ^sha256:[0-9a-f]{64}$
+                type: string
+              summary:
+                description: KubeseerSummary contains compact counts derived from
+                  the structural result.
+                properties:
+                  failedSources:
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  matchedResources:
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  successfulSources:
+                    format: int64
+                    minimum: 0
+                    type: integer
+                required:
+                - failedSources
+                - matchedResources
+                - successfulSources
+                type: object
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

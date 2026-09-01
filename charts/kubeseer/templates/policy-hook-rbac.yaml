@@ -1,0 +1,50 @@
+{{- if eq .Values.accessPolicy.mode "managed" }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "kubeseer.fullname" . }}-policy-hook
+  namespace: {{ include "kubeseer.namespace" . }}
+  labels:
+    {{- include "kubeseer.labels" . | nindent 4 }}
+  annotations:
+    {{- include "kubeseer.ownershipAnnotations" . | nindent 4 }}
+    helm.sh/hook: pre-install,pre-upgrade,pre-rollback
+    helm.sh/hook-weight: "-30"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kubeseer.fullname" . }}-policy-hook
+  labels:
+    {{- include "kubeseer.labels" . | nindent 4 }}
+  annotations:
+    {{- include "kubeseer.ownershipAnnotations" . | nindent 4 }}
+    helm.sh/hook: pre-install,pre-upgrade,pre-rollback
+    helm.sh/hook-weight: "-30"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: ["kubeseer.io"]
+    resources: ["kubeseeraccesspolicies"]
+    verbs: ["get", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kubeseer.fullname" . }}-policy-hook
+  labels:
+    {{- include "kubeseer.labels" . | nindent 4 }}
+  annotations:
+    {{- include "kubeseer.ownershipAnnotations" . | nindent 4 }}
+    helm.sh/hook: pre-install,pre-upgrade,pre-rollback
+    helm.sh/hook-weight: "-30"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kubeseer.fullname" . }}-policy-hook
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kubeseer.fullname" . }}-policy-hook
+    namespace: {{ include "kubeseer.namespace" . }}
+{{- end }}

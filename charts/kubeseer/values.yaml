@@ -1,0 +1,117 @@
+# Kubeseer chart values. The chart is intentionally finite: unknown keys are
+# rejected by values.schema.json before Helm renders any Kubernetes object.
+
+# Manager image repository and immutable version tag. An empty tag uses
+# Chart.appVersion; the mutable latest tag is never accepted.
+image:
+  repository: ghcr.io/steeltanuki/kubeseer
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Number of manager Pods. Leader election remains enabled when this is greater
+# than one.
+replicaCount: 1
+
+# Non-zero finite defaults keep the manager bounded in a fresh installation.
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+manager:
+  leaderElection: true
+  terminationGracePeriodSeconds: 30
+  metricsBindAddress: ":8080"
+  healthProbeBindAddress: ":8081"
+  webhookPort: 9443
+  webhookCertDir: /var/run/secrets/kubeseer/webhook
+  webhookCertName: tls.crt
+  webhookKeyName: tls.key
+  webhookCAFile: /var/run/secrets/kubeseer/ca/ca.crt
+  safetyInterval: 5m
+  gracefulShutdownTimeout: 30s
+
+metrics:
+  service:
+    enabled: true
+    port: 8080
+
+tracing:
+  enabled: false
+  endpoint: ""
+
+# certManager is the default. externalSecret is the explicit administrator
+# supplied fallback and accepts only a Secret name plus public CA bundle.
+certificate:
+  mode: certManager
+  certManager:
+    issuer:
+      group: cert-manager.io
+      kind: Issuer
+      name: ""
+    certificate:
+      duration: 2160h
+      renewBefore: 360h
+  externalSecret:
+    secretName: ""
+    caBundle: ""
+
+# managed renders the canonical deny-all bootstrap policy until these values
+# are explicitly changed. A missing systemNamespaces value remains distinct
+# from an explicit empty list for the policy compiler.
+accessPolicy:
+  mode: managed
+  explicitNamespaces: []
+  allowedResources: []
+  allowClusterScoped: false
+
+# Runtime authorization and Kubernetes RBAC remain separate inputs. Defaults
+# grant no observed-resource or Secret access.
+rbac:
+  observed:
+    namespaced: []
+    clusterScoped: []
+  authors:
+    namespaces: []
+    subjects: []
+
+# Optional manager-wide performance overrides. Omitted fields use the approved
+# internal defaults; all supplied values must be positive.
+limits:
+  pageSize: 500
+  maxMatchedResources: 1000
+  maxSelectedInputBytes: 8388608
+  maxProducedValueBytes: 8388608
+  maxStatusBytes: 524288
+  evaluationTimeout: 30s
+  maxConcurrentReconciles: 4
+  discoveryCacheEntries: 1024
+  discoveryCacheTTL: 5m
+  maxActiveWatches: 1024
+  maxPendingTriggers: 4096
+  admission:
+    maxKubeseerSources: 32
+    maxSourceNamespaces: 64
+    maxSourceFields: 64
+    maxFieldOperators: 16
+    maxOperatorValues: 128
+    maxSourceAggregations: 32
+    maxAggregationGroupBy: 16
+    maxSelectorMatchExpressions: 64
+    maxSelectorExpressionValues: 64
+    maxSelectorMatchLabels: 64
+    maxPolicyNamespaceNames: 256
+    maxPolicyResourceRules: 128
+    maxPolicyAPIGroups: 64
+    maxPolicyKinds: 64
+    maxKubeseerSpecBytes: 262144
+    maxAccessPolicySpecBytes: 262144
+  aggregation:
+    maxGroups: 1000
+    maxContributions: 10000
+    maxCollectedValues: 10000
+    maxDistinctValues: 10000
+    maxProvenanceEntries: 10000

@@ -24,10 +24,11 @@ CRD_OUTPUT := config/crd/bases
 DEEP_COPY_HEADER := hack/boilerplate.go.txt
 KUBERNETES_VERSION ?= 1.35.6
 KUBERNETES_COMPATIBILITY_VERSIONS := 1.35.6 1.36.2
+CERT_MANAGER_VERSION ?= v1.18.2
 GO_TEST_FLAGS ?=
 KUBEBUILDER_ASSETS ?=
 
-.PHONY: generate manifests verify test test-integration test-api test-compatibility e2e
+.PHONY: generate manifests package-sync-crds package-crd-check package-apply-crds build build-purge verify verify-package test test-integration test-api test-compatibility test-package-compatibility e2e
 
 generate:
 	$(CONTROLLER_GEN) object:headerFile=$(DEEP_COPY_HEADER) paths=$(API_PACKAGE)
@@ -41,6 +42,30 @@ verify:
 	./hack/verify-admission-boundaries.sh
 	./hack/verify-observability-boundaries.sh
 	./hack/verify-performance-and-limits-boundaries.sh
+	./hack/verify-package.sh
+
+verify-package:
+	./hack/verify-package.sh
+
+test-package-compatibility:
+	./hack/test-package-compatibility.sh
+
+package-sync-crds:
+	./hack/package-sync-crds.sh
+
+package-crd-check:
+	./hack/check-crd-compatibility.sh --kubeconfig "$(KUBECONFIG)" --context "$(KUBE_CONTEXT)"
+
+package-apply-crds:
+	./hack/apply-compatible-crds.sh --kubeconfig "$(KUBECONFIG)" --context "$(KUBE_CONTEXT)"
+
+build:
+	mkdir -p bin
+	CGO_ENABLED=0 GOOS=$(or $(GOOS),linux) GOARCH=$(or $(GOARCH),amd64) go build -trimpath -ldflags="-s -w -X main.buildVersion=$(or $(VERSION),unknown) -X main.buildCommit=$(or $(COMMIT),unknown) -X main.buildDate=$(or $(BUILD_DATE),unknown)" -o bin/kubeseer ./cmd/kubeseer
+
+build-purge:
+	mkdir -p bin
+	CGO_ENABLED=0 GOOS=$(or $(GOOS),linux) GOARCH=$(or $(GOARCH),amd64) go build -trimpath -ldflags="-s -w -X main.buildVersion=$(or $(VERSION),unknown) -X main.buildCommit=$(or $(COMMIT),unknown) -X main.buildDate=$(or $(BUILD_DATE),unknown)" -o bin/kubeseer-purge ./cmd/kubeseer-purge
 
 test:
 	@set -eu; \

@@ -169,3 +169,28 @@ Review this file before non-trivial work when the current request matches past m
 - Lesson: Any Walden transition that clears frontmatter values can leave whitespace-only YAML fields
 - Guardrail: After every Walden state transition that rewrites frontmatter, run git diff --check and normalize empty fields before handoff
 
+### 2026-09-01T05:40:47Z | packaging-and-installation | requirements
+- Trigger: User rejected the inferred Kustomize package and selected a Helm chart
+- Lesson: The installation package format is a bifurcation-significant operator UX decision and cannot be inferred solely from an existing generated-manifest directory
+- Guardrail: Before drafting packaging requirements, surface Helm versus Kustomize as an explicit decision checkpoint unless the user or an approved upstream contract has already selected the format
+
+### 2026-09-01T05:54:06Z | packaging-and-installation | design
+- Trigger: Post-approval feature validation immediately evaluated the untouched design scaffold and reported missing requirement coverage
+- Lesson: After Requirements approval, walden validate advances to Design and an expected empty scaffold failure must not be misreported as a Requirements regression
+- Guardrail: Validate Requirements before approval; after approval use walden status to confirm the gate and defer full validation until design.md has been authored
+
+### 2026-09-01T05:59:49Z | packaging-and-installation | requirements
+- Trigger: User confirmed cert-manager as the default but required a fallback when cert-manager cannot be installed
+- Lesson: Selecting a preferred certificate provider does not resolve installation portability when some clusters prohibit that dependency; fallback ownership and rotation semantics are a separate bifurcation-significant requirement
+- Guardrail: When a packaging design selects an external certificate controller, explicitly decide whether unsupported clusters fail installation or use a documented fallback before approving the certificate lifecycle contract
+
+### 2026-09-01T06:07:47Z | packaging-and-installation | requirements
+- Trigger: User requested an explicit CRD purge path although the draft only promised a generic command or manifest path
+- Lesson: A destructive lifecycle contract is still ambiguous when it does not name a dedicated versioned entrypoint and explicit cluster-target confirmation
+- Guardrail: For destructive packaging operations, require a separate executable entrypoint, explicit kubeconfig and context, typed confirmation, ordered deletion, and a final retained-or-deleted resource report
+
+### 2026-09-01T06:35:27Z | packaging-and-installation | design
+- Trigger: Initial phase inspection re-ran validation against the known incomplete Design scaffold
+- Lesson: A fresh approved Requirements gate plus a draft placeholder Design predicts a coverage failure and should be inspected without invoking full feature validation
+- Guardrail: When status identifies Design as current and the document is still a placeholder, inspect and author it first; run walden validate only after the required Design sections exist
+

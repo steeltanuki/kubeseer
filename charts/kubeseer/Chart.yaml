@@ -1,0 +1,16 @@
+apiVersion: v2
+name: kubeseer
+description: Kubeseer Kubernetes observation controller
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.35.0-0 <1.37.0-0"
+home: https://github.com/steeltanuki/kubeseer
+sources:
+  - https://github.com/steeltanuki/kubeseer
+maintainers:
+  - name: Kubeseer Maintainers
+    url: https://github.com/steeltanuki/kubeseer
+annotations:
+  kubeseer.io/generated-crd-kubeseer-sha256: 3dbb16a77c2bdda305a327d3fdf4e453c79f805585c4f64b085c286e337c3596
+  kubeseer.io/generated-crd-access-policy-sha256: f6cfd3b79a95393d122361df9a9efef26883d295b7bca38d111fecb08e3cb464

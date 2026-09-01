@@ -1,0 +1,41 @@
+{{- range $namespace := .Values.rbac.authors.namespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kubeseer.fullname" $ }}-author
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "kubeseer.labels" $ | nindent 4 }}
+  annotations:
+    {{- include "kubeseer.ownershipAnnotations" $ | nindent 4 }}
+rules:
+  - apiGroups: ["kubeseer.io"]
+    resources: ["kubeseers"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["kubeseer.io"]
+    resources: ["kubeseers/status"]
+    verbs: ["get", "update", "patch"]
+{{- range $subject := $.Values.rbac.authors.subjects }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ printf "%s-author-%s" (include "kubeseer.fullname" $) ($subject.name | lower | replace "_" "-" | trunc 20 | trimSuffix "-") | trunc 63 | trimSuffix "-" }}
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "kubeseer.labels" $ | nindent 4 }}
+  annotations:
+    {{- include "kubeseer.ownershipAnnotations" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kubeseer.fullname" $ }}-author
+subjects:
+  - kind: {{ $subject.kind }}
+    name: {{ $subject.name }}
+    {{- if and (eq $subject.kind "ServiceAccount") $subject.namespace }}
+    namespace: {{ $subject.namespace }}
+    {{- end }}
+{{- end }}
+{{- end }}

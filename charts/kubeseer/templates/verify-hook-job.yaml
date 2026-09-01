@@ -1,0 +1,87 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "kubeseer.fullname" . }}-verify
+  namespace: {{ include "kubeseer.namespace" . }}
+  labels:
+    {{- include "kubeseer.labels" . | nindent 4 }}
+  annotations:
+    {{- include "kubeseer.ownershipAnnotations" . | nindent 4 }}
+    helm.sh/hook: post-install,post-upgrade,post-rollback
+    helm.sh/hook-weight: "10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        {{- include "kubeseer.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "kubeseer.fullname" . }}-verify-hook
+      automountServiceAccountToken: true
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: verify
+          image: {{ include "kubeseer.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/kubeseer"]
+          args:
+            - package
+            - verify
+            - --release-name={{ .Release.Name }}
+            - --release-namespace={{ .Release.Namespace }}
+            - --deployment-name={{ include "kubeseer.fullname" . }}
+            - --webhook-service={{ include "kubeseer.webhookServiceName" . }}
+            - --certificate-mode={{ .Values.certificate.mode }}
+            - --expected-version={{ .Chart.AppVersion }}
+            - --expected-image={{ include "kubeseer.image" . }}
+            - --expected-kubeseer-crd-storage-version=v1
+            - --expected-access-policy-crd-storage-version=v1
+            - --webhook-port={{ .Values.manager.webhookPort }}
+            - --webhook-cert-path={{ printf "%s/%s" .Values.manager.webhookCertDir .Values.manager.webhookCertName }}
+            - --webhook-key-path={{ printf "%s/%s" .Values.manager.webhookCertDir .Values.manager.webhookKeyName }}
+            - --webhook-ca-path={{ .Values.manager.webhookCAFile }}
+            - --webhook-dns-names={{ include "kubeseer.webhookDNSNames" . }}
+            - --timeout=180s
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: webhook-tls
+              mountPath: {{ .Values.manager.webhookCertDir }}
+              readOnly: true
+            - name: webhook-ca
+              mountPath: {{ dir .Values.manager.webhookCAFile }}
+              readOnly: true
+      volumes:
+        - name: webhook-tls
+          secret:
+            secretName: {{ include "kubeseer.webhookSecretName" . | quote }}
+            optional: false
+        - name: webhook-ca
+          {{- if eq .Values.certificate.mode "externalSecret" }}
+          configMap:
+            name: {{ include "kubeseer.fullname" . }}-webhook-ca
+            items:
+              - key: ca.crt
+                path: ca.crt
+          {{- else }}
+          secret:
+            secretName: {{ include "kubeseer.webhookSecretName" . | quote }}
+            items:
+              - key: ca.crt
+                path: ca.crt
+          {{- end }}

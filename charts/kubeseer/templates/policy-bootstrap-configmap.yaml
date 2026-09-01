@@ -1,0 +1,24 @@
+{{- if eq .Values.accessPolicy.mode "managed" }}
+{{- $namespacePolicy := dict "mode" "Explicit" "include" .Values.accessPolicy.explicitNamespaces }}
+{{- if hasKey .Values.accessPolicy "systemNamespaces" }}
+{{- $_ := set $namespacePolicy "systemNamespaces" .Values.accessPolicy.systemNamespaces }}
+{{- end }}
+{{- $policySpec := dict "namespaces" $namespacePolicy "resources" .Values.accessPolicy.allowedResources "allowClusterScoped" .Values.accessPolicy.allowClusterScoped }}
+{{- $policyMetadata := dict "name" "installation-access-ceiling" "annotations" (dict "meta.helm.sh/release-name" .Release.Name "meta.helm.sh/release-namespace" .Release.Namespace) }}
+{{- $policy := dict "apiVersion" "kubeseer.io/v1alpha1" "kind" "KubeseerAccessPolicy" "metadata" $policyMetadata "spec" $policySpec }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubeseer.fullname" . }}-policy-bootstrap
+  namespace: {{ include "kubeseer.namespace" . }}
+  labels:
+    {{- include "kubeseer.labels" . | nindent 4 }}
+  annotations:
+    {{- include "kubeseer.ownershipAnnotations" . | nindent 4 }}
+    helm.sh/hook: pre-install,pre-upgrade,pre-rollback
+    helm.sh/hook-weight: "-20"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+data:
+  policy.json: |-
+    {{ $policy | toJson | nindent 4 }}
+{{- end }}
