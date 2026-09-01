@@ -39,8 +39,8 @@ func assertPackagingUpgradeRollbackScenarios(t *testing.T) {
 		"helm.sh/hook-weight: \"10\"",
 		"--expected-version=0.1.0",
 		"--expected-image=ghcr.io/steeltanuki/kubeseer:0.1.0",
-		"--expected-kubeseer-crd-storage-version=v1",
-		"--expected-access-policy-crd-storage-version=v1",
+		"--expected-kubeseer-crd-storage-version=v1alpha1",
+		"--expected-access-policy-crd-storage-version=v1alpha1",
 		"--timeout=180s",
 	} {
 		if !strings.Contains(defaultRender, fragment) {

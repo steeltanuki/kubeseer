@@ -57,6 +57,8 @@ spec:
             - --leader-election-resource-lock=leases
             - --safety-interval={{ .Values.manager.safetyInterval }}
             - --graceful-shutdown-timeout={{ .Values.manager.gracefulShutdownTimeout }}
+            - --max-matched-resources={{ .Values.limits.maxMatchedResources }}
+            - --max-status-bytes={{ .Values.limits.maxStatusBytes }}
           ports:
             - name: webhook
               containerPort: {{ .Values.manager.webhookPort }}

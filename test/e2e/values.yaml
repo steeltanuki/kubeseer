@@ -1,0 +1,73 @@
+# Copyright 2026 Alessandro Rontani
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+
+# Committed, schema-valid limits used by the release E2E harness. The values
+# leave enough room for ordinary certification fixtures while keeping the
+# resource and status ceilings small enough for the negative scenarios.
+limits:
+  pageSize: 100
+  maxMatchedResources: 256
+  maxSelectedInputBytes: 1048576
+  maxProducedValueBytes: 1048576
+  maxStatusBytes: 65536
+  evaluationTimeout: 30s
+  maxConcurrentReconciles: 2
+  discoveryCacheEntries: 256
+  discoveryCacheTTL: 5m
+  maxActiveWatches: 256
+  maxPendingTriggers: 512
+  admission:
+    maxKubeseerSources: 16
+    maxSourceNamespaces: 16
+    maxSourceFields: 16
+    maxFieldOperators: 8
+    maxOperatorValues: 32
+    maxSourceAggregations: 16
+    maxAggregationGroupBy: 8
+    maxSelectorMatchExpressions: 16
+    maxSelectorExpressionValues: 32
+    maxSelectorMatchLabels: 16
+    maxPolicyNamespaceNames: 64
+    maxPolicyResourceRules: 32
+    maxPolicyAPIGroups: 16
+    maxPolicyKinds: 16
+    maxKubeseerSpecBytes: 131072
+    maxAccessPolicySpecBytes: 131072
+  aggregation:
+    maxGroups: 256
+    maxContributions: 2048
+    maxCollectedValues: 2048
+    maxDistinctValues: 2048
+    maxProvenanceEntries: 2048
+accessPolicy:
+  mode: managed
+  explicitNamespaces: []
+  allowedResources:
+    - apiGroups: ["", "apps", "fixtures.kubeseer.io"]
+      kinds: ["Pod", "Deployment", "Widget"]
+  # The ClusterRole below grants the manager namespaced reads across the
+  # run-created fixture namespaces. Logical access remains constrained by the
+  # policy's explicit namespace/resource rules, which scenarios mutate before
+  # each fixture write.
+  allowClusterScoped: true
+rbac:
+  observed:
+    namespaced: []
+    clusterScoped:
+      - apiGroups: [""]
+        resources: ["pods"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["apps"]
+        resources: ["deployments"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["fixtures.kubeseer.io"]
+        resources: ["widgets"]
+        verbs: ["get", "list", "watch"]
+  authors:
+    namespaces: []
+    subjects: []

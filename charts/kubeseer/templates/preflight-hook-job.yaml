@@ -41,8 +41,8 @@ spec:
             - --webhook-service={{ include "kubeseer.webhookServiceName" . }}
             - --certificate-mode={{ .Values.certificate.mode }}
             - --expected-version={{ .Chart.AppVersion }}
-            - --expected-kubeseer-crd-storage-version=v1
-            - --expected-access-policy-crd-storage-version=v1
+            - --expected-kubeseer-crd-storage-version=v1alpha1
+            - --expected-access-policy-crd-storage-version=v1alpha1
             - --webhook-port={{ .Values.manager.webhookPort }}
             - --timeout=90s
           resources:

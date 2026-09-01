@@ -1,0 +1,7 @@
+# Copyright 2026 Alessandro Rontani
+#
+# Values in this file are never selected by a Kubeseer. The diagnostic
+# collector scans for them to prove protected fixture data cannot leak.
+e2e-secret-sentinel
+e2e-extracted-value-sentinel
+e2e-ambient-token-sentinel

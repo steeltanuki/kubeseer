@@ -42,8 +42,8 @@ spec:
             - --certificate-mode={{ .Values.certificate.mode }}
             - --expected-version={{ .Chart.AppVersion }}
             - --expected-image={{ include "kubeseer.image" . }}
-            - --expected-kubeseer-crd-storage-version=v1
-            - --expected-access-policy-crd-storage-version=v1
+            - --expected-kubeseer-crd-storage-version=v1alpha1
+            - --expected-access-policy-crd-storage-version=v1alpha1
             - --webhook-port={{ .Values.manager.webhookPort }}
             - --webhook-cert-path={{ printf "%s/%s" .Values.manager.webhookCertDir .Values.manager.webhookCertName }}
             - --webhook-key-path={{ printf "%s/%s" .Values.manager.webhookCertDir .Values.manager.webhookKeyName }}

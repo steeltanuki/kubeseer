@@ -24,6 +24,11 @@ CRD_OUTPUT := config/crd/bases
 DEEP_COPY_HEADER := hack/boilerplate.go.txt
 KUBERNETES_VERSION ?= 1.35.6
 KUBERNETES_COMPATIBILITY_VERSIONS := 1.35.6 1.36.2
+# kind publishes a stable image for the latest available patch in each
+# supported minor line; keep the API-compatibility version above independent
+# from the image tag so the mapping remains explicit and reproducible.
+KIND_NODE_IMAGE_1_35_6 ?= kindest/node:v1.35.5
+KIND_NODE_IMAGE_1_36_2 ?= kindest/node:v1.36.1
 CERT_MANAGER_VERSION ?= v1.18.2
 GO_TEST_FLAGS ?=
 KUBEBUILDER_ASSETS ?=
@@ -42,6 +47,7 @@ verify:
 	./hack/verify-admission-boundaries.sh
 	./hack/verify-observability-boundaries.sh
 	./hack/verify-performance-and-limits-boundaries.sh
+	GOCACHE=$${GOCACHE:-/tmp/kubeseer-e2e-go-build} GOMODCACHE=$${GOMODCACHE:-/tmp/kubeseer-e2e-go-mod} ./hack/verify-e2e-boundaries.sh complete
 	./hack/verify-package.sh
 
 verify-package:
@@ -103,4 +109,8 @@ test-compatibility:
 	printf '%s\n' 'API compatibility matrix passed'
 
 e2e:
+	KUBERNETES_VERSION="$(KUBERNETES_VERSION)" \
+	CERT_MANAGER_VERSION="$(CERT_MANAGER_VERSION)" \
+	KIND_NODE_IMAGE_1_35_6="$(KIND_NODE_IMAGE_1_35_6)" \
+	KIND_NODE_IMAGE_1_36_2="$(KIND_NODE_IMAGE_1_36_2)" \
 	./hack/e2e-harness.sh ./test/e2e/... '^TestEndToEnd$$'

@@ -92,10 +92,10 @@ func (o LifecycleOptions) validate(requireReadiness bool) error {
 	if o.Timeout <= 0 {
 		return errors.New("lifecycle timeout must be positive")
 	}
-	if o.ExpectedKubeseerCRDStorageVersion != "" && o.ExpectedKubeseerCRDStorageVersion != "v1" {
+	if o.ExpectedKubeseerCRDStorageVersion != "" && o.ExpectedKubeseerCRDStorageVersion != v1alpha1.GroupVersion.Version {
 		return fmt.Errorf("unsupported Kubeseer CRD storage version %q", o.ExpectedKubeseerCRDStorageVersion)
 	}
-	if o.ExpectedAccessPolicyCRDStorageVersion != "" && o.ExpectedAccessPolicyCRDStorageVersion != "v1" {
+	if o.ExpectedAccessPolicyCRDStorageVersion != "" && o.ExpectedAccessPolicyCRDStorageVersion != v1alpha1.GroupVersion.Version {
 		return fmt.Errorf("unsupported access-policy CRD storage version %q", o.ExpectedAccessPolicyCRDStorageVersion)
 	}
 	if requireReadiness {

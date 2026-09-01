@@ -25,8 +25,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/steeltanuki/kubeseer/api/v1alpha1"
+	"github.com/steeltanuki/kubeseer/internal/limits"
 	"github.com/steeltanuki/kubeseer/internal/managerapp"
+	"k8s.io/klog/v2/klogr"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
+	ctrlruntimeLog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 )
 
@@ -70,6 +74,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 func runManager(args []string, stdout, stderr io.Writer) error {
 	config := managerapp.DefaultConfig()
 	webhookDNSNames := strings.Join(config.WebhookDNSNames, ",")
+	maxMatchedResources := limits.DefaultMaxMatchedResources
+	maxStatusBytes := limits.DefaultMaxStatusBytes
 	flags := flag.NewFlagSet("manager", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&config.MetricsBindAddress, "metrics-bind-address", config.MetricsBindAddress, "address for the Prometheus metrics endpoint")
@@ -86,6 +92,8 @@ func runManager(args []string, stdout, stderr io.Writer) error {
 	flags.StringVar(&config.LeaderElectionResourceLock, "leader-election-resource-lock", config.LeaderElectionResourceLock, "leader election resource lock")
 	flags.DurationVar(&config.SafetyInterval, "safety-interval", config.SafetyInterval, "reconciliation safety interval")
 	flags.DurationVar(&config.GracefulShutdownTimeout, "graceful-shutdown-timeout", config.GracefulShutdownTimeout, "manager graceful shutdown timeout")
+	flags.IntVar(&maxMatchedResources, "max-matched-resources", maxMatchedResources, "maximum matched resources retained per source")
+	flags.Int64Var(&maxStatusBytes, "max-status-bytes", maxStatusBytes, "maximum published status size in bytes")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -93,6 +101,10 @@ func runManager(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("manager does not accept positional arguments: %v", flags.Args())
 	}
 	config.WebhookDNSNames = splitDNSNames(webhookDNSNames)
+	config.LimitOverrides.MaxMatchedResources = &maxMatchedResources
+	config.LimitOverrides.MaxStatusBytes = &maxStatusBytes
+	config.Logger = klogr.New()
+	ctrlruntimeLog.SetLogger(config.Logger)
 	if err := config.Validate(); err != nil {
 		return fmt.Errorf("invalid manager configuration: %w", err)
 	}
@@ -202,8 +214,8 @@ func runLifecycle(action managerapp.PackageAction, args []string, stdout, stderr
 		DeploymentName:                        managerapp.DefaultDeploymentName,
 		WebhookServiceName:                    managerapp.DefaultWebhookServiceName,
 		CertificateMode:                       managerapp.CertificateModeCertManager,
-		ExpectedKubeseerCRDStorageVersion:     "v1",
-		ExpectedAccessPolicyCRDStorageVersion: "v1",
+		ExpectedKubeseerCRDStorageVersion:     v1alpha1.GroupVersion.Version,
+		ExpectedAccessPolicyCRDStorageVersion: v1alpha1.GroupVersion.Version,
 		WebhookPort:                           int32(managerConfig.WebhookPort),
 		WebhookCertPath:                       filepath.Join(managerConfig.WebhookCertDir, managerConfig.WebhookCertName),
 		WebhookKeyPath:                        filepath.Join(managerConfig.WebhookCertDir, managerConfig.WebhookKeyName),
