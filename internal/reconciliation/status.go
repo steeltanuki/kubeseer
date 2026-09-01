@@ -20,6 +20,7 @@ import (
 	"reflect"
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
+	"github.com/steeltanuki/kubeseer/internal/limits"
 	"github.com/steeltanuki/kubeseer/internal/observability"
 	statuscontract "github.com/steeltanuki/kubeseer/internal/status"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -72,10 +73,11 @@ func statusProjectionEqual(left, right StatusProjection) bool {
 
 // StatusPublisher performs one guarded status-subresource update at most.
 type StatusPublisher struct {
-	reader   KubeseerReader
-	writer   StatusWriter
-	tracker  *FreshnessTracker
-	observer *observability.Observer
+	reader         KubeseerReader
+	writer         StatusWriter
+	tracker        *FreshnessTracker
+	observer       *observability.Observer
+	maxStatusBytes int64
 }
 
 var _ StatusPublisherPort = (*StatusPublisher)(nil)
@@ -92,9 +94,18 @@ func WithStatusObserver(observer *observability.Observer) StatusPublisherOption 
 	}
 }
 
+// WithMaxStatusBytes applies the manager-wide canonical status ceiling. A
+// non-positive value is retained so direct callers receive the same defensive
+// StatusLimitInvalid result as any other invalid publisher configuration.
+func WithMaxStatusBytes(maxBytes int64) StatusPublisherOption {
+	return func(publisher *StatusPublisher) {
+		publisher.maxStatusBytes = maxBytes
+	}
+}
+
 // NewStatusPublisher constructs a direct-read, status-only publisher.
 func NewStatusPublisher(reader KubeseerReader, writer StatusWriter, tracker *FreshnessTracker, options ...StatusPublisherOption) *StatusPublisher {
-	publisher := &StatusPublisher{reader: reader, writer: writer, tracker: tracker}
+	publisher := &StatusPublisher{reader: reader, writer: writer, tracker: tracker, maxStatusBytes: limits.DefaultMaxStatusBytes}
 	for _, option := range options {
 		if option != nil {
 			option(publisher)
@@ -115,6 +126,9 @@ func (p *StatusPublisher) Publish(ctx context.Context, lease Lease, evaluation s
 		defer func() {
 			if err != nil {
 				publication, reason = classifyStatusPublication(err)
+				if observation, ok := statusLimitObservation(err, p.maxStatusBytes); ok {
+					p.observer.ObserveLimit(ctx, observation)
+				}
 			}
 			p.observer.ObserveStatus(ctx, publication, reason)
 		}()
@@ -151,9 +165,17 @@ func (p *StatusPublisher) Publish(ctx context.Context, lease Lease, evaluation s
 		return staleRuntimeError("status-publish")
 	}
 
-	composed, err := statuscontract.Compose(lease.Generation, current.Status.Conditions, evaluation)
+	composed, err := p.composeBoundedStatus(lease.Generation, current.Status.Conditions, evaluation)
 	if err != nil {
-		return &RuntimeError{Stage: "status-compose", Reason: ReasonBuildFailure, Message: "status composition failed", Cause: err}
+		return err
+	}
+	if p.observer != nil && statusContainsReason(composed.Conditions, statuscontract.ReasonResultLimitExceeded) {
+		p.observer.ObserveLimit(ctx, observability.LimitObservation{
+			Stage:     observability.StageCompose,
+			Reason:    observability.ReasonResultLimitExceeded,
+			Dimension: observability.LimitDimensionStatusBytes,
+			Ceiling:   normalizedStatusCeiling(p.maxStatusBytes),
+		})
 	}
 	candidate := current.DeepCopy()
 	candidate.Status = composed
@@ -177,6 +199,68 @@ func (p *StatusPublisher) Publish(ctx context.Context, lease Lease, evaluation s
 		p.observer.RecordStatusEvent(ctx, candidate, candidate.Status.Conditions)
 	}
 	return nil
+}
+
+func statusLimitObservation(err error, ceiling int64) (observability.LimitObservation, bool) {
+	var runtimeErr *RuntimeError
+	if !errors.As(err, &runtimeErr) {
+		return observability.LimitObservation{}, false
+	}
+	var reason observability.Reason
+	switch runtimeErr.Reason {
+	case ReasonStatusLimitInvalid:
+		reason = observability.ReasonStatusLimitInvalid
+	default:
+		return observability.LimitObservation{}, false
+	}
+	return observability.LimitObservation{
+		Stage:     observability.StageCompose,
+		Reason:    reason,
+		Dimension: observability.LimitDimensionStatusBytes,
+		Ceiling:   normalizedStatusCeiling(ceiling),
+	}, true
+}
+
+func normalizedStatusCeiling(ceiling int64) int64 {
+	if ceiling < 0 {
+		return 0
+	}
+	return ceiling
+}
+
+func statusContainsReason(conditions []metav1.Condition, reason string) bool {
+	for _, condition := range conditions {
+		if condition.Reason == reason {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *StatusPublisher) composeBoundedStatus(generation int64, persisted []metav1.Condition, evaluation statuscontract.Evaluation) (v1alpha1.KubeseerStatus, error) {
+	if p == nil || p.maxStatusBytes <= 0 {
+		return v1alpha1.KubeseerStatus{}, &RuntimeError{Stage: "status-compose", Reason: ReasonStatusLimitInvalid, Message: "configured status limit is invalid"}
+	}
+	composed, err := statuscontract.Compose(generation, persisted, evaluation)
+	if err != nil {
+		return v1alpha1.KubeseerStatus{}, &RuntimeError{Stage: "status-compose", Reason: ReasonBuildFailure, Message: "status composition failed", Cause: err}
+	}
+	size, err := limits.CanonicalSize(composed)
+	if err != nil {
+		return v1alpha1.KubeseerStatus{}, &RuntimeError{Stage: "status-compose", Reason: ReasonStatusLimitInvalid, Message: "status candidate could not be measured", Cause: err}
+	}
+	if int64(size) <= p.maxStatusBytes {
+		return composed, nil
+	}
+	compact, err := statuscontract.ComposeResultLimitExceeded(generation, persisted, evaluation)
+	if err != nil {
+		return v1alpha1.KubeseerStatus{}, &RuntimeError{Stage: "status-compose", Reason: ReasonBuildFailure, Message: "compact status composition failed", Cause: err}
+	}
+	compactSize, err := limits.CanonicalSize(compact)
+	if err != nil || int64(compactSize) > p.maxStatusBytes {
+		return v1alpha1.KubeseerStatus{}, &RuntimeError{Stage: "status-compose", Reason: ReasonStatusLimitInvalid, Message: "configured status limit cannot contain compact status", Cause: err}
+	}
+	return compact, nil
 }
 
 func classifyStatusPublication(err error) (observability.StatusOutcome, observability.Reason) {

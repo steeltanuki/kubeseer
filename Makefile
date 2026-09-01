@@ -40,6 +40,7 @@ verify:
 	./hack/verify-test-layer-policy.sh
 	./hack/verify-admission-boundaries.sh
 	./hack/verify-observability-boundaries.sh
+	./hack/verify-performance-and-limits-boundaries.sh
 
 test:
 	@set -eu; \

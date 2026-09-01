@@ -33,6 +33,12 @@ type SourceInput struct {
 // Completed source outcomes remain available when cancellation interrupts a
 // later source.
 func ConvertBatch(ctx context.Context, inputs []SourceInput) []SourceOutcome {
+	return ConvertBatchWithLimit(ctx, inputs, 0)
+}
+
+// ConvertBatchWithLimit is ConvertBatch with a source-local canonical output
+// ceiling. A zero ceiling preserves the historical direct-call behavior.
+func ConvertBatchWithLimit(ctx context.Context, inputs []SourceInput, maxBytes int64) []SourceOutcome {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -62,7 +68,7 @@ func ConvertBatch(ctx context.Context, inputs []SourceInput) []SourceOutcome {
 			}
 			continue
 		}
-		converted := convertSourceContext(ctx, plans[index], input.Extraction)
+		converted := convertSourceContextWithLimit(ctx, plans[index], input.Extraction, maxBytes)
 		outcomes[index] = converted
 		if HasReason(converted.err, ReasonConversionInterrupted) {
 			interrupted = true

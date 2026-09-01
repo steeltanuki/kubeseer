@@ -18,6 +18,7 @@ import (
 	"context"
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
+	"github.com/steeltanuki/kubeseer/internal/limits"
 	"github.com/steeltanuki/kubeseer/internal/selection"
 )
 
@@ -42,6 +43,13 @@ type SourceOutcome struct {
 // discards its temporary results while completed sibling outcomes remain
 // available.
 func ExtractBatch(ctx context.Context, inputs []SourceInput) []SourceOutcome {
+	return ExtractBatchWithLimit(ctx, inputs, 0)
+}
+
+// ExtractBatchWithLimit is ExtractBatch with a source-local canonical output
+// ceiling. A zero ceiling preserves the historical unbounded direct-call
+// behavior; the manager always supplies the resolved positive ceiling.
+func ExtractBatchWithLimit(ctx context.Context, inputs []SourceInput, maxBytes int64) []SourceOutcome {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -77,6 +85,15 @@ func ExtractBatch(ctx context.Context, inputs []SourceInput) []SourceOutcome {
 			outcomes[index] = SourceOutcome{SourceID: sourceID}
 			continue
 		}
+		var accountant *limits.Accountant
+		if maxBytes > 0 {
+			var err error
+			accountant, err = limits.NewAccountant(maxBytes, "produced-values")
+			if err != nil {
+				outcomes[index] = SourceOutcome{SourceID: sourceID, Err: valueLimitError(sourceID)}
+				continue
+			}
+		}
 
 		temporary := make([]ResourceOutcome, 0, len(input.Selection.Resources))
 		failed := false
@@ -92,6 +109,13 @@ func ExtractBatch(ctx context.Context, inputs []SourceInput) []SourceOutcome {
 				failed = true
 				break
 			}
+			if accountant != nil {
+				if err := accountant.Add(canonicalResource(resourceOutcome)); err != nil {
+					outcomes[index] = SourceOutcome{SourceID: sourceID, Err: valueLimitError(sourceID)}
+					failed = true
+					break
+				}
+			}
 			temporary = append(temporary, resourceOutcome)
 		}
 		if !failed {
@@ -99,6 +123,28 @@ func ExtractBatch(ctx context.Context, inputs []SourceInput) []SourceOutcome {
 		}
 	}
 	return outcomes
+}
+
+type canonicalExtractionResource struct {
+	Provenance selection.Provenance       `json:"provenance"`
+	Fields     []canonicalExtractionField `json:"fields"`
+}
+
+type canonicalExtractionField struct {
+	Name   string `json:"name"`
+	Values []any  `json:"values"`
+}
+
+func canonicalResource(resource ResourceOutcome) canonicalExtractionResource {
+	canonical := canonicalExtractionResource{Provenance: resource.Provenance, Fields: make([]canonicalExtractionField, len(resource.Fields))}
+	for index, field := range resource.Fields {
+		canonical.Fields[index] = canonicalExtractionField{Name: field.FieldName, Values: field.Matches.Values()}
+	}
+	return canonical
+}
+
+func valueLimitError(sourceID string) *ExtractionError {
+	return sourceError(sourceID, ReasonValueLimitExceeded, "produced value ceiling exceeded", nil)
 }
 
 func sourceError(sourceID string, reason ExtractionErrorReason, message string, cause error) *ExtractionError {

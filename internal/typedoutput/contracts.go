@@ -35,6 +35,7 @@ const (
 	ReasonForbiddenConversion    ConversionErrorReason = "ForbiddenConversion"
 	ReasonInvalidInput           ConversionErrorReason = "InvalidInput"
 	ReasonConversionInterrupted  ConversionErrorReason = "ConversionInterrupted"
+	ReasonValueLimitExceeded     ConversionErrorReason = "ValueLimitExceeded"
 )
 
 // ConversionError is a sanitized typed-output failure. Its private cause is

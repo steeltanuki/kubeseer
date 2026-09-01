@@ -33,6 +33,7 @@ const (
 	ReasonInvalidResource        ExtractionErrorReason = "InvalidResource"
 	ReasonInvalidInput           ExtractionErrorReason = "InvalidInput"
 	ReasonExtractionInterrupted  ExtractionErrorReason = "ExtractionInterrupted"
+	ReasonValueLimitExceeded     ExtractionErrorReason = "ValueLimitExceeded"
 )
 
 // ExtractionError is a sanitized source- or resource-scoped extraction

@@ -39,6 +39,7 @@ const (
 	ReasonInvalidPattern       Reason = "invalid-pattern"
 	ReasonInvalidInput         Reason = "invalid-input"
 	ReasonOperatorInterrupted  Reason = "operator-interrupted"
+	ReasonValueLimitExceeded   Reason = "ValueLimitExceeded"
 )
 
 // OperatorError contains only stable declaration identity, optional resource
@@ -331,6 +332,13 @@ type SourceOutcome struct {
 	resources   []ResourceOutcome
 	fieldErrors []*OperatorError
 	err         error
+}
+
+// NewSourceError creates a source-scoped operator outcome without retaining
+// any resource or value payload. It is used by downstream atomic stages when
+// a source must be discarded after a bounded-output failure.
+func NewSourceError(sourceID string, reason Reason, message string) SourceOutcome {
+	return SourceOutcome{sourceID: sourceID, err: NewOperatorError(sourceID, "", -1, "", nil, reason, message)}
 }
 
 // SourceID returns the source identity.

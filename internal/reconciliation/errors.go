@@ -17,6 +17,8 @@ package reconciliation
 import (
 	"errors"
 	"fmt"
+
+	"github.com/steeltanuki/kubeseer/internal/admission"
 )
 
 // FailureReason identifies a sanitized runtime failure without exposing
@@ -24,13 +26,16 @@ import (
 type FailureReason string
 
 const (
-	ReasonReadUnavailable   FailureReason = "ReadUnavailable"
-	ReasonPolicyUnavailable FailureReason = "PolicyUnavailable"
-	ReasonStatusConflict    FailureReason = "StatusConflict"
-	ReasonStatusUnavailable FailureReason = "StatusUnavailable"
-	ReasonStaleLease        FailureReason = "StaleLease"
-	ReasonInvalidSetup      FailureReason = "InvalidSetup"
-	ReasonBuildFailure      FailureReason = "BuildFailure"
+	ReasonReadUnavailable             FailureReason = "ReadUnavailable"
+	ReasonPolicyUnavailable           FailureReason = "PolicyUnavailable"
+	ReasonStatusConflict              FailureReason = "StatusConflict"
+	ReasonStatusUnavailable           FailureReason = "StatusUnavailable"
+	ReasonStaleLease                  FailureReason = "StaleLease"
+	ReasonInvalidSetup                FailureReason = "InvalidSetup"
+	ReasonBuildFailure                FailureReason = "BuildFailure"
+	ReasonConfigurationBudgetExceeded FailureReason = "ConfigurationBudgetExceeded"
+	ReasonEvaluationTimedOut          FailureReason = "EvaluationTimedOut"
+	ReasonStatusLimitInvalid          FailureReason = "StatusLimitInvalid"
 )
 
 // RuntimeError carries a stage, stable reason, and retry classification. The
@@ -67,6 +72,18 @@ func (e *RuntimeError) Unwrap() error {
 		return nil
 	}
 	return e.Cause
+}
+
+func configurationBudgetRuntimeError(issues []admission.BudgetIssue) *RuntimeError {
+	message := "current Kubeseer exceeds the configured admission budget"
+	if len(issues) > 0 {
+		message = issues[0].Path + ": " + issues[0].Message
+	}
+	return &RuntimeError{
+		Stage:   "configuration-budget",
+		Reason:  ReasonConfigurationBudgetExceeded,
+		Message: message,
+	}
 }
 
 // IsRetryable reports whether an error should be returned to the

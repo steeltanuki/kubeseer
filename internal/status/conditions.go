@@ -15,6 +15,7 @@
 package status
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -45,6 +46,7 @@ const (
 	ReasonEvaluationSucceeded       = "EvaluationSucceeded"
 	ReasonEvaluationDegraded        = "EvaluationDegraded"
 	ReasonEvaluationUnavailable     = "EvaluationUnavailable"
+	ReasonResultLimitExceeded       = "ResultLimitExceeded"
 )
 
 // ConfigurationOutcome is the internal configuration assessment for one
@@ -98,6 +100,7 @@ type Evaluation struct {
 	Sources             []SourceAssessment
 	GlobalAuthorization *AuthorizationOutcome
 	ResultUnavailable   bool
+	ResultLimitExceeded bool
 }
 
 // Compose builds a complete status candidate for one generation. Persisted
@@ -109,6 +112,12 @@ func Compose(generation int64, persisted []metav1.Condition, evaluation Evaluati
 	}
 	if err := validateEvaluation(evaluation); err != nil {
 		return v1alpha1.KubeseerStatus{}, err
+	}
+
+	if evaluation.ResultLimitExceeded {
+		candidate := v1alpha1.KubeseerStatus{ObservedGeneration: generation}
+		candidate.Conditions = mergeConditions(persisted, compactLimitConditions(generation, evaluation))
+		return candidate, nil
 	}
 
 	derived, err := DeriveResult(evaluation.Result)
@@ -127,11 +136,17 @@ func Compose(generation int64, persisted []metav1.Condition, evaluation Evaluati
 }
 
 func validateEvaluation(evaluation Evaluation) error {
-	if evaluation.Result != nil && evaluation.ResultUnavailable {
-		return errors.New("status evaluation cannot contain both a result and unavailable state")
-	}
-	if evaluation.Result == nil && !evaluation.ResultUnavailable {
-		return errors.New("status evaluation without a result must be unavailable")
+	if evaluation.ResultLimitExceeded {
+		if evaluation.Result != nil || evaluation.ResultUnavailable {
+			return errors.New("status limit evaluation cannot contain a result or unavailable state")
+		}
+	} else {
+		if evaluation.Result != nil && evaluation.ResultUnavailable {
+			return errors.New("status evaluation cannot contain both a result and unavailable state")
+		}
+		if evaluation.Result == nil && !evaluation.ResultUnavailable {
+			return errors.New("status evaluation without a result must be unavailable")
+		}
 	}
 	for index, assessment := range evaluation.Sources {
 		if assessment.Index != index {
@@ -187,6 +202,116 @@ func desiredConditions(generation int64, evaluation Evaluation, derived DerivedR
 		evaluationCondition(generation, evaluation, derived),
 		degradedCondition(generation, evaluation, derived),
 	}
+}
+
+func compactLimitConditions(generation int64, evaluation Evaluation) []metav1.Condition {
+	return []metav1.Condition{
+		compactAcceptedCondition(generation, evaluation.Sources),
+		compactAuthorizationCondition(generation, evaluation),
+		compactResolutionCondition(generation, evaluation.Sources),
+		condition(ConditionReady, metav1.ConditionFalse, ReasonResultLimitExceeded,
+			fmt.Sprintf("generation %d result exceeds the configured status limit", generation), generation),
+		condition(ConditionDegraded, metav1.ConditionTrue, ReasonResultLimitExceeded,
+			fmt.Sprintf("generation %d result exceeds the configured status limit", generation), generation),
+	}
+}
+
+func compactAcceptedCondition(generation int64, sources []SourceAssessment) metav1.Condition {
+	for _, source := range sources {
+		if source.Configuration == ConfigurationInvalidOutcome {
+			return condition(ConditionAccepted, metav1.ConditionFalse, ReasonInvalidConfiguration,
+				fmt.Sprintf("generation %d configuration is invalid", generation), generation)
+		}
+	}
+	return condition(ConditionAccepted, metav1.ConditionTrue, ReasonConfigurationAccepted,
+		fmt.Sprintf("generation %d configuration accepted", generation), generation)
+}
+
+func compactAuthorizationCondition(generation int64, evaluation Evaluation) metav1.Condition {
+	if evaluation.GlobalAuthorization != nil {
+		return authorizationConditionForOutcome(generation, *evaluation.GlobalAuthorization, 0, false)
+	}
+	for _, source := range evaluation.Sources {
+		if source.Authorization != AuthorizationAllowedOutcome {
+			return authorizationConditionForOutcome(generation, source.Authorization, 0, false)
+		}
+	}
+	return authorizationConditionForOutcome(generation, AuthorizationAllowedOutcome, 0, false)
+}
+
+func compactResolutionCondition(generation int64, sources []SourceAssessment) metav1.Condition {
+	for _, source := range sources {
+		if source.Resolution == ResolutionResolvedOutcome {
+			continue
+		}
+		status := metav1.ConditionUnknown
+		reason := ReasonResolutionNotEvaluated
+		message := "resolution was not evaluated"
+		switch source.Resolution {
+		case ResolutionFailedOutcome:
+			status = metav1.ConditionFalse
+			reason = ReasonResolutionFailed
+			message = "resolution failed"
+		case ResolutionUnavailableOutcome:
+			status = metav1.ConditionUnknown
+			reason = ReasonResolutionUnavailable
+			message = "resolution is unavailable"
+		}
+		return condition(ConditionSourcesResolved, status, reason,
+			fmt.Sprintf("generation %d %s", generation, message), generation)
+	}
+	return condition(ConditionSourcesResolved, metav1.ConditionTrue, ReasonResolutionSucceeded,
+		fmt.Sprintf("generation %d source resolution succeeded", generation), generation)
+}
+
+// ComposeResultLimitExceeded creates the compact terminal status used when a
+// complete result cannot fit the configured status ceiling. It never retains
+// the result or any derived summary/hash.
+func ComposeResultLimitExceeded(generation int64, persisted []metav1.Condition, evaluation Evaluation) (v1alpha1.KubeseerStatus, error) {
+	evaluation.Result = nil
+	evaluation.ResultUnavailable = false
+	evaluation.ResultLimitExceeded = true
+	return Compose(generation, persisted, evaluation)
+}
+
+// CompactStatusSize returns the canonical JSON size of the largest fixed-shape
+// compact status contract. It intentionally contains no source identity or
+// observed payload and is suitable for manager setup validation.
+func CompactStatusSize() (int, error) {
+	global := AuthorizationPolicyInvalidOutcome
+	status, err := ComposeResultLimitExceeded(9223372036854775807, nil, Evaluation{
+		Sources: []SourceAssessment{{
+			Index:         0,
+			Configuration: ConfigurationInvalidOutcome,
+			Authorization: AuthorizationPolicyInvalidOutcome,
+			Resolution:    ResolutionFailedOutcome,
+		}},
+		GlobalAuthorization: &global,
+	})
+	if err != nil {
+		return 0, err
+	}
+	encoded, err := json.Marshal(status)
+	if err != nil {
+		return 0, fmt.Errorf("marshal compact status: %w", err)
+	}
+	return len(encoded), nil
+}
+
+// ValidateCompactStatusLimit reports whether a positive status ceiling can
+// contain the fixed compact status contract.
+func ValidateCompactStatusLimit(maxBytes int64) error {
+	if maxBytes <= 0 {
+		return errors.New("status limit must be positive")
+	}
+	size, err := CompactStatusSize()
+	if err != nil {
+		return err
+	}
+	if int64(size) > maxBytes {
+		return fmt.Errorf("compact status requires %d bytes", size)
+	}
+	return nil
 }
 
 func acceptedCondition(generation int64, sources []SourceAssessment) metav1.Condition {

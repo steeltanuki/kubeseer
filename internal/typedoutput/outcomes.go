@@ -21,6 +21,7 @@ import (
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
 	"github.com/steeltanuki/kubeseer/internal/extraction"
+	"github.com/steeltanuki/kubeseer/internal/limits"
 	"github.com/steeltanuki/kubeseer/internal/selection"
 )
 
@@ -253,7 +254,17 @@ func ConvertSource(plan PlanOutcome, input extraction.SourceOutcome) SourceOutco
 	return convertSourceContext(context.Background(), plan, input)
 }
 
+// ConvertSourceWithLimit converts one source with a source-local canonical
+// output ceiling. The partial typed result is discarded on overflow.
+func ConvertSourceWithLimit(ctx context.Context, plan PlanOutcome, input extraction.SourceOutcome, maxBytes int64) SourceOutcome {
+	return convertSourceContextWithLimit(ctx, plan, input, maxBytes)
+}
+
 func convertSourceContext(ctx context.Context, plan PlanOutcome, input extraction.SourceOutcome) SourceOutcome {
+	return convertSourceContextWithLimit(ctx, plan, input, 0)
+}
+
+func convertSourceContextWithLimit(ctx context.Context, plan PlanOutcome, input extraction.SourceOutcome, maxBytes int64) SourceOutcome {
 	sourceID := plan.sourceID
 	if input.SourceID != sourceID {
 		return SourceOutcome{
@@ -266,6 +277,14 @@ func convertSourceContext(ctx context.Context, plan PlanOutcome, input extractio
 	}
 
 	resources := make([]ResourceOutcome, 0, len(input.Resources))
+	var accountant *limits.Accountant
+	if maxBytes > 0 {
+		var err error
+		accountant, err = limits.NewAccountant(maxBytes, "produced-values")
+		if err != nil {
+			return SourceOutcome{sourceID: sourceID, err: valueLimitConversionError(sourceID)}
+		}
+	}
 	for _, resource := range input.Resources {
 		if cause := ctx.Err(); cause != nil {
 			return SourceOutcome{sourceID: sourceID, err: interruptedConversionError(sourceID, "", nil, cause)}
@@ -274,6 +293,15 @@ func convertSourceContext(ctx context.Context, plan PlanOutcome, input extractio
 		if interrupted != nil {
 			return SourceOutcome{sourceID: sourceID, err: interrupted}
 		}
+		if accountant != nil {
+			projected, err := ProjectResourceResult(converted.provenance, converted.fields)
+			if err != nil {
+				return SourceOutcome{sourceID: sourceID, err: valueLimitConversionError(sourceID)}
+			}
+			if err := accountant.Add(projected); err != nil {
+				return SourceOutcome{sourceID: sourceID, err: valueLimitConversionError(sourceID)}
+			}
+		}
 		resources = append(resources, converted)
 	}
 	return SourceOutcome{
@@ -281,6 +309,10 @@ func convertSourceContext(ctx context.Context, plan PlanOutcome, input extractio
 		resources:   resources,
 		fieldErrors: cloneErrors(plan.failures),
 	}
+}
+
+func valueLimitConversionError(sourceID string) *ConversionError {
+	return NewConversionError(sourceID, "", nil, ReasonValueLimitExceeded, "produced value ceiling exceeded")
 }
 
 func interruptedConversionError(sourceID, fieldName string, provenance *selection.Provenance, cause error) *ConversionError {

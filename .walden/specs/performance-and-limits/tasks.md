@@ -1,17 +1,17 @@
 ---
 walden_schema_version: v1alpha1
-status: in-review
-approved_at:
-last_modified: 2026-08-31T21:08:55Z
-approved_fingerprint:
-source_design_approved_at:
-source_design_fingerprint:
+status: approved
+approved_at: 2026-08-31T21:19:18Z
+last_modified: 2026-08-31T22:57:52Z
+approved_fingerprint: sha256:49efff72a2bd1165eebffe28a4e83d4477a0a9bc7427fc768d973605b6e0e11f
+source_design_approved_at: 2026-08-31T20:42:19Z
+source_design_fingerprint: sha256:a08101017d657dde24b1eaab8cab28fd09fc10c9e6ead2f4934ab5bc8e344e90
 ---
 
 # Implementation Plan
 
-- [ ] 1. Establish the immutable manager-wide limit profile
-  - [ ] 1.1 Add defaults, pointer overrides, validation, adapters, and canonical accounting
+- [x] 1. Establish the immutable manager-wide limit profile
+  - [x] 1.1 Add defaults, pointer overrides, validation, adapters, and canonical accounting
     - Create `internal/limits` with pointer-based overrides, private immutable
       effective profile values, every approved positive default, overflow-safe
       deterministic canonical JSON sizing, and reusable stage accountants.
@@ -35,8 +35,8 @@ source_design_fingerprint:
         timeout: 40m
         covers: ["R1.AC1", "R1.AC2", "R1.AC3", "R1.AC4", "R1.AC5", "R1.AC6", "R1.AC7", "R1.AC8", "R1.AC9", "R1.AC10", "R1.AC11", "R1.AC12", "R1.AC13", "R1.AC14", "R1.AC15", "R1.AC16", "R1.AC17", "R1.AC18", "R1.AC19", "R1.AC20", "NFR1", "NFR2", "NFR6", "C2", "C3", "C5", "C11"]
 
-- [ ] 2. Centralize admission and runtime configuration budgets
-  - [ ] 2.1 Reuse one budget validator at webhook and fail-closed runtime boundaries
+- [x] 2. Centralize admission and runtime configuration budgets
+  - [x] 2.1 Reuse one budget validator at webhook and fail-closed runtime boundaries
     - Extract the existing pure Kubeseer and KubeseerAccessPolicy budget checks
       into a reusable validator driven by the effective profile. Apply it before
       semantic/discovery/policy work in both admission paths while retaining
@@ -58,8 +58,8 @@ source_design_fingerprint:
         timeout: 40m
         covers: ["R2.AC1", "R2.AC2", "R2.AC3", "R2.AC4", "R2.AC5", "R2.AC6", "R2.AC7", "R2.AC8", "R2.AC9", "R2.AC10", "R2.AC11", "NFR2", "NFR3", "NFR4", "NFR6", "C1", "C3", "C4", "C9", "C10", "C11"]
 
-- [ ] 3. Bound paginated resource selection
-  - [ ] 3.1 Enforce unique-resource and canonical-input ceilings before retention
+- [x] 3. Bound paginated resource selection
+  - [x] 3.1 Enforce unique-resource and canonical-input ceilings before retention
     - Extend the selection executor options with effective page, unique resource,
       and canonical selected-input ceilings. During successful pagination,
       validate identity, coalesce duplicate UIDs, canonical-size each first
@@ -82,8 +82,8 @@ source_design_fingerprint:
         timeout: 45m
         covers: ["R3.AC1", "R3.AC2", "R3.AC3", "R3.AC4", "R3.AC5", "R3.AC6", "R3.AC7", "R3.AC8", "R3.AC15", "R3.AC16", "R3.AC17", "NFR1", "NFR2", "NFR3", "C4", "C5", "C6", "C9", "C10", "C11"]
 
-- [ ] 4. Bound source-local value processing
-  - [ ] 4.1 Refactor to source-at-a-time evaluation with atomic stage accountants
+- [x] 4. Bound source-local value processing
+  - [x] 4.1 Refactor to source-at-a-time evaluation with atomic stage accountants
     - Preserve shared policy, authorization, planning, and route preflight, then
       evaluate each approved source through selection, extraction, conversion,
       operators, aggregation, and terminal result assembly before starting the
@@ -108,8 +108,8 @@ source_design_fingerprint:
         timeout: 50m
         covers: ["R3.AC9", "R3.AC10", "R3.AC11", "R3.AC12", "R3.AC13", "R3.AC14", "R3.AC15", "R3.AC16", "R3.AC17", "NFR1", "NFR2", "NFR3", "NFR4", "C1", "C4", "C5", "C9", "C10", "C11"]
 
-- [ ] 5. Enforce evaluation deadlines and bounded status publication
-  - [ ] 5.1 Compose timeout outcomes and compact oversized status under freshness leases
+- [x] 5. Enforce evaluation deadlines and bounded status publication
+  - [x] 5.1 Compose timeout outcomes and compact oversized status under freshness leases
     - Derive one evaluation timeout context immediately after the freshness lease
       and propagate it through runtime configuration checks, policy, discovery,
       authorization, planning, selection, extraction, conversion, operators,
@@ -142,8 +142,8 @@ source_design_fingerprint:
         timeout: 55m
         covers: ["R4.AC3", "R4.AC4", "R4.AC5", "R4.AC6", "R4.AC7", "R4.AC8", "R4.AC9", "R5.AC1", "R5.AC2", "R5.AC3", "R5.AC4", "R5.AC5", "R5.AC6", "R5.AC7", "R5.AC8", "R5.AC9", "R5.AC10", "R5.AC11", "R5.AC12", "NFR1", "NFR2", "NFR3", "C1", "C9", "C10"]
 
-- [ ] 6. Bound and share discovery metadata
-  - [ ] 6.1 Add capacity-aware deterministic LRU behavior to the manager resolver
+- [x] 6. Bound and share discovery metadata
+  - [x] 6.1 Add capacity-aware deterministic LRU behavior to the manager resolver
     - Extend the manager-owned resolver with effective capacity and TTL options,
       mutex-protected access sequencing, canonical-key LRU tie-breaking, and
       eviction of only non-refreshing entries. Preserve collapsed concurrent
@@ -165,8 +165,8 @@ source_design_fingerprint:
         timeout: 45m
         covers: ["R7.AC1", "R7.AC2", "R7.AC3", "R7.AC4", "R7.AC5", "R7.AC9", "R7.AC10", "R7.AC11", "R7.AC12", "R7.AC13", "NFR1", "NFR2", "NFR4", "NFR5", "C1", "C4", "C8", "C9", "C10", "C11"]
 
-- [ ] 7. Bound controller workers, trigger ingress, and shared watches
-  - [ ] 7.1 Wire concurrency and deterministic non-blocking overload fallback
+- [x] 7. Bound controller workers, trigger ingress, and shared watches
+  - [x] 7.1 Wire concurrency and deterministic non-blocking overload fallback
     - Pass the effective worker limit to
       `controller.Options.MaxConcurrentReconciles` while retaining
       controller-runtime queue, retry, and shutdown ownership.
@@ -198,8 +198,8 @@ source_design_fingerprint:
         timeout: 60m
         covers: ["R6.AC1", "R6.AC2", "R6.AC7", "R6.AC9", "R6.AC10", "R7.AC6", "R7.AC7", "R7.AC8", "R7.AC9", "R7.AC11", "R7.AC12", "NFR1", "NFR3", "NFR4", "NFR5", "C1", "C7", "C8", "C9", "C10"]
 
-- [ ] 8. Integrate sanitized limit diagnostics and production-boundary proofs
-  - [ ] 8.1 Wire stable reasons, passive observations, complete integration, and envtest contracts
+- [x] 8. Integrate sanitized limit diagnostics and production-boundary proofs
+  - [x] 8.1 Wire stable reasons, passive observations, complete integration, and envtest contracts
     - Extend approved status, selection, reconciliation, and observability
       vocabularies with only the authoritative limit reasons. Emit exactly one
       source- or reconciliation-scoped observation per exceeded runtime ceiling
@@ -231,8 +231,8 @@ source_design_fingerprint:
         timeout: 65m
         covers: ["R8.AC5", "R8.AC8", "R8.AC10", "NFR1", "NFR2", "NFR3", "NFR4", "NFR5", "NFR6", "NFR7", "C1", "C3", "C4", "C7", "C8", "C9", "C10"]
 
-- [ ] 9. Complete repository-wide boundary and race verification
-  - [ ] 9.1 Verify generated/API stability, race safety, compatibility, build, and module tidiness
+- [x] 9. Complete repository-wide boundary and race verification
+  - [x] 9.1 Verify generated/API stability, race safety, compatibility, build, and module tidiness
     - Register performance-and-limits integration/envtest helpers in the
       existing test-layer policy and add a static boundary verifier. Reject
       public limit fields, raised structural ceilings, package-local test

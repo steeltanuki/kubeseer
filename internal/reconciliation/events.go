@@ -72,13 +72,26 @@ func kubeseerLifecycleChanged(oldObject, newObject *v1alpha1.Kubeseer) bool {
 type LifecycleHandler struct {
 	tracker *FreshnessTracker
 	routes  RouteManager
+	trigger *TriggerSource
 }
 
 var _ handler.TypedEventHandler[*v1alpha1.Kubeseer, reconcile.Request] = (*LifecycleHandler)(nil)
 
 // NewLifecycleHandler creates the owned-resource event handler.
-func NewLifecycleHandler(tracker *FreshnessTracker, routes RouteManager) *LifecycleHandler {
-	return &LifecycleHandler{tracker: tracker, routes: routes}
+func NewLifecycleHandler(tracker *FreshnessTracker, routes RouteManager, trigger ...*TriggerSource) *LifecycleHandler {
+	var ingress *TriggerSource
+	if len(trigger) != 0 {
+		ingress = trigger[0]
+	}
+	return &LifecycleHandler{tracker: tracker, routes: routes, trigger: ingress}
+}
+
+func (h *LifecycleHandler) enqueue(key types.NamespacedName, queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if h != nil && h.trigger != nil {
+		h.trigger.Enqueue(key)
+		return
+	}
+	enqueueObject(queue, key.Namespace, key.Name)
 }
 
 func (h *LifecycleHandler) Create(_ context.Context, e event.TypedCreateEvent[*v1alpha1.Kubeseer], queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -91,7 +104,7 @@ func (h *LifecycleHandler) Create(_ context.Context, e event.TypedCreateEvent[*v
 	if e.Object.DeletionTimestamp != nil && h.routes != nil {
 		h.routes.RemoveOwner(types.NamespacedName{Namespace: e.Object.Namespace, Name: e.Object.Name})
 	}
-	enqueueObject(queue, e.Object.Namespace, e.Object.Name)
+	h.enqueue(types.NamespacedName{Namespace: e.Object.Namespace, Name: e.Object.Name}, queue)
 }
 
 func (h *LifecycleHandler) Update(_ context.Context, e event.TypedUpdateEvent[*v1alpha1.Kubeseer], queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -105,7 +118,7 @@ func (h *LifecycleHandler) Update(_ context.Context, e event.TypedUpdateEvent[*v
 	if h.routes != nil && (e.ObjectNew.DeletionTimestamp != nil || (e.ObjectOld != nil && e.ObjectOld.UID != e.ObjectNew.UID)) {
 		h.routes.RemoveOwner(key)
 	}
-	enqueueObject(queue, e.ObjectNew.Namespace, e.ObjectNew.Name)
+	h.enqueue(key, queue)
 }
 
 func (h *LifecycleHandler) Delete(_ context.Context, e event.TypedDeleteEvent[*v1alpha1.Kubeseer], queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -119,7 +132,7 @@ func (h *LifecycleHandler) Delete(_ context.Context, e event.TypedDeleteEvent[*v
 	if h.routes != nil {
 		h.routes.RemoveOwner(key)
 	}
-	enqueueObject(queue, key.Namespace, key.Name)
+	h.enqueue(key, queue)
 }
 
 func (h *LifecycleHandler) Generic(_ context.Context, e event.TypedGenericEvent[*v1alpha1.Kubeseer], queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -129,7 +142,7 @@ func (h *LifecycleHandler) Generic(_ context.Context, e event.TypedGenericEvent[
 	if h.tracker != nil {
 		h.tracker.Observe(e.Object)
 	}
-	enqueueObject(queue, e.Object.Namespace, e.Object.Name)
+	h.enqueue(types.NamespacedName{Namespace: e.Object.Namespace, Name: e.Object.Name}, queue)
 }
 
 // PolicyPredicate selects only the administrative singleton and ignores

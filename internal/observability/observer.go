@@ -249,6 +249,51 @@ func (o *Observer) ObserveSourceFailure(ctx context.Context, failure SourceFailu
 	})
 }
 
+// ObserveLimit records one authoritative runtime ceiling failure. It shares
+// the existing bounded source-failure metric; dimension and ceiling remain
+// structured-only fields and cannot become metric labels.
+func (o *Observer) ObserveLimit(ctx context.Context, observation LimitObservation) {
+	if o == nil || o.disabled || !isLimitReason(observation.Reason) {
+		return
+	}
+	dimension := normalizeLimitDimension(observation.Dimension)
+	if dimension == "" {
+		return
+	}
+	stage := normalizeStage(observation.Stage)
+	if stage == "" {
+		stage = StageCompose
+	}
+	retry := normalizeRetry(observation.Retry)
+	reason := normalizeReason(observation.Reason)
+	ceiling := observation.Ceiling
+	if ceiling < 0 {
+		ceiling = 0
+	}
+	event := EventSourceFailed
+	if observation.SourceID == "" {
+		event = EventReconciliationFailed
+	}
+	o.metrics.observeSourceFailure(stage, reason)
+	o.emit(ctx, LogRecord{
+		Event:     event,
+		Outcome:   OutcomeFailed,
+		Reason:    reason,
+		Severity:  severityFor(retry, OutcomeFailed),
+		Retry:     retry,
+		SourceID:  observation.SourceID,
+		Stage:     stage,
+		Dimension: dimension,
+		Ceiling:   ceiling,
+	})
+	if span := trace.SpanFromContext(ctx); span.IsRecording() {
+		span.SetAttributes(
+			attribute.String("kubeseer.limit.dimension", string(dimension)),
+			attribute.Int64("kubeseer.limit.ceiling", ceiling),
+		)
+	}
+}
+
 // ObserveJSONPathFailure records one retained JSONPath failure without
 // accepting the path, value, or raw error.
 func (o *Observer) ObserveJSONPathFailure(ctx context.Context, reason Reason) {
@@ -575,6 +620,10 @@ func (o *Observer) emit(ctx context.Context, record LogRecord) {
 	if record.Duration < 0 {
 		record.Duration = 0
 	}
+	record.Dimension = normalizeLimitDimension(record.Dimension)
+	if record.Ceiling < 0 {
+		record.Ceiling = 0
+	}
 	if spanContext := trace.SpanContextFromContext(ctx); spanContext.IsValid() {
 		record.TraceID = spanContext.TraceID().String()
 		record.SpanID = spanContext.SpanID().String()
@@ -599,6 +648,9 @@ func (o *Observer) emit(ctx context.Context, record LogRecord) {
 	}
 	if record.Stage != "" {
 		values = append(values, "stage", string(record.Stage))
+	}
+	if record.Dimension != "" {
+		values = append(values, "dimension", string(record.Dimension), "ceiling", record.Ceiling)
 	}
 	if record.TraceID != "" {
 		values = append(values, "trace_id", record.TraceID, "span_id", record.SpanID)

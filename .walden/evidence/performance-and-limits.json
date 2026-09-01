@@ -1,0 +1,337 @@
+{
+  "schema_version": "v1alpha1",
+  "feature": "performance-and-limits",
+  "tasks": {
+    "1.1": {
+      "task_fingerprint": "sha256:983195c6c0ee49fad9a8ebe93c9d62db25f11a74efb629fbd873742e3b37dfb5",
+      "requirements_fingerprint": "sha256:77f51845b1483c3f370320f4ac0f982d8bb21c187c4dc28869970adf6fef1bc7",
+      "design_fingerprint": "sha256:a08101017d657dde24b1eaab8cab28fd09fc10c9e6ead2f4934ab5bc8e344e90",
+      "tasks_fingerprint": "sha256:49efff72a2bd1165eebffe28a4e83d4477a0a9bc7427fc768d973605b6e0e11f",
+      "code_identity": "sha256:0b7df6cc0d01afe5696098a6ba56d7aaa66470b4d2adc07f24079e763afe9686",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "probe failed: exit 1",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-performance-limits-go-build GOMODCACHE=/tmp/kubeseer-performance-limits-go-mod make test-integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:85f69aeaa43a4876cdd841af49bca4bf485b3c246c852928fbad5f8e9e8cc80b"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-31T21:31:37Z"
+    },
+    "2.1": {
+      "task_fingerprint": "sha256:5a98cb64b0796e1ebc2d14992b55e8a4b5a92a3fde15cd61e82b08bcb788fd99",
+      "requirements_fingerprint": "sha256:77f51845b1483c3f370320f4ac0f982d8bb21c187c4dc28869970adf6fef1bc7",
+      "design_fingerprint": "sha256:a08101017d657dde24b1eaab8cab28fd09fc10c9e6ead2f4934ab5bc8e344e90",
+      "tasks_fingerprint": "sha256:49efff72a2bd1165eebffe28a4e83d4477a0a9bc7427fc768d973605b6e0e11f",
+      "code_identity": "sha256:bd1e8eaf8f3eec0177773c4b66226f961362ad2fa8687739ed61b4cce7dd73a0",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-performance-limits-go-build GOMODCACHE=/tmp/kubeseer-performance-limits-go-mod make test-integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:11e6a4c5a197fa201a1d5b8dba474a4264b91bbd41287f08a7d1113cc9ccfc24"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-31T21:39:19Z"
+    },
+    "3.1": {
+      "task_fingerprint": "sha256:586f92c50fd5c7563913c50674121cacbf261857fc23d4cb1810939c19965e70",
+      "requirements_fingerprint": "sha256:77f51845b1483c3f370320f4ac0f982d8bb21c187c4dc28869970adf6fef1bc7",
+      "design_fingerprint": "sha256:a08101017d657dde24b1eaab8cab28fd09fc10c9e6ead2f4934ab5bc8e344e90",
+      "tasks_fingerprint": "sha256:49efff72a2bd1165eebffe28a4e83d4477a0a9bc7427fc768d973605b6e0e11f",
+      "code_identity": "sha256:bd1e8eaf8f3eec0177773c4b66226f961362ad2fa8687739ed61b4cce7dd73a0",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-performance-limits-go-build GOMODCACHE=/tmp/kubeseer-performance-limits-go-mod make test-integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:7e16a83d1d0822035e7406262588a5e200c1c3978199efd196410d67843b87ce"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-31T21:39:43Z"
+    },
+    "4.1": {
+      "task_fingerprint": "sha256:13f23202f3d4a904acca21431eb227aca628b4a2bb93c9628789501029bc6d9b",
+      "requirements_fingerprint": "sha256:77f51845b1483c3f370320f4ac0f982d8bb21c187c4dc28869970adf6fef1bc7",
+      "design_fingerprint": "sha256:a08101017d657dde24b1eaab8cab28fd09fc10c9e6ead2f4934ab5bc8e344e90",
+      "tasks_fingerprint": "sha256:49efff72a2bd1165eebffe28a4e83d4477a0a9bc7427fc768d973605b6e0e11f",
+      "code_identity": "sha256:33e77eb8799c0d6e32ce5b335fd426ff1405011d1a71b78e5b7f49da02b7b333",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-performance-limits-go-build GOMODCACHE=/tmp/kubeseer-performance-limits-go-mod make test-integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:e022aefcee9a632850382aa3527a967e5cd874452674c6292c5416951ee91a22"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-31T21:48:55Z"
+    },
+    "5.1": {
+      "task_fingerprint": "sha256:12f370d18a14c2bd0c4d43a88636ff2b4d1749270cf5e20f3e4ad8bf7cd07e2d",
+      "requirements_fingerprint": "sha256:77f51845b1483c3f370320f4ac0f982d8bb21c187c4dc28869970adf6fef1bc7",
+      "design_fingerprint": "sha256:a08101017d657dde24b1eaab8cab28fd09fc10c9e6ead2f4934ab5bc8e344e90",
+      "tasks_fingerprint": "sha256:49efff72a2bd1165eebffe28a4e83d4477a0a9bc7427fc768d973605b6e0e11f",
+      "code_identity": "sha256:875268257bbff993e22756f7d929054d8ff5c0a0c9c9bdd7219e54e11570fe09",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-performance-limits-go-build GOMODCACHE=/tmp/kubeseer-performance-limits-go-mod make test-integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:e1ae4297933f1ab921b11af3630d76198c0953d2107d3928ff0ba7a5137121be"
+        },
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-performance-limits-go-build GOMODCACHE=/tmp/kubeseer-performance-limits-go-mod make test-api"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:68a55441472ecba42ba8eebcbe16b8a39910abd5001fd6794a69141020607b4f"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-31T22:05:18Z"
+    },
+    "6.1": {
+      "task_fingerprint": "sha256:59b941313f8760f734cb68ecd68340fd6496c2240e12d12c47b42db57bc89aff",
+      "requirements_fingerprint": "sha256:77f51845b1483c3f370320f4ac0f982d8bb21c187c4dc28869970adf6fef1bc7",
+      "design_fingerprint": "sha256:a08101017d657dde24b1eaab8cab28fd09fc10c9e6ead2f4934ab5bc8e344e90",
+      "tasks_fingerprint": "sha256:49efff72a2bd1165eebffe28a4e83d4477a0a9bc7427fc768d973605b6e0e11f",
+      "code_identity": "sha256:ac21beda75886b1fd1458e3f51bd45f460a5272a12fe40c0a18d2306a5f4cc41",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "probe failed: exit 1",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-performance-limits-go-build GOMODCACHE=/tmp/kubeseer-performance-limits-go-mod make test-integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:1f013ebbb9664fb389c9685568d07aeefebe0f976ac2d30e406b7ec49f6b9735"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-31T22:14:19Z"
+    },
+    "7.1": {
+      "task_fingerprint": "sha256:0539ec82a2c2553cd88d049ca80f265240c58423b383d46b28f2a1ebdd7fd06a",
+      "requirements_fingerprint": "sha256:77f51845b1483c3f370320f4ac0f982d8bb21c187c4dc28869970adf6fef1bc7",
+      "design_fingerprint": "sha256:a08101017d657dde24b1eaab8cab28fd09fc10c9e6ead2f4934ab5bc8e344e90",
+      "tasks_fingerprint": "sha256:49efff72a2bd1165eebffe28a4e83d4477a0a9bc7427fc768d973605b6e0e11f",
+      "code_identity": "sha256:b698e19efb1bb9e418ea15179f48dcc24379c298885102846038fc9460999590",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "probe failed: exit 1",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-performance-limits-go-build GOMODCACHE=/tmp/kubeseer-performance-limits-go-mod make test-integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:b5b372a88e346a42adf6da75416062e11d8fd923228df876ea1904001c003023"
+        },
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-performance-limits-go-build GOMODCACHE=/tmp/kubeseer-performance-limits-go-mod make test-api"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:c26045a99b76768fa81981679df6dab999b2d8bde69102e5b5686b5e5e75e4ae"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-31T22:26:02Z"
+    },
+    "8.1": {
+      "task_fingerprint": "sha256:d9bb73a1bb3fddd37deb9e1b71b572e8cf71ff58b360f357dac9b1656c5406e2",
+      "requirements_fingerprint": "sha256:77f51845b1483c3f370320f4ac0f982d8bb21c187c4dc28869970adf6fef1bc7",
+      "design_fingerprint": "sha256:a08101017d657dde24b1eaab8cab28fd09fc10c9e6ead2f4934ab5bc8e344e90",
+      "tasks_fingerprint": "sha256:49efff72a2bd1165eebffe28a4e83d4477a0a9bc7427fc768d973605b6e0e11f",
+      "code_identity": "sha256:d7c786fc0a4b28fc506d2272e0d6092f64046ac735e898796cf08f42c12d56f1",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "probe failed: exit 1",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-performance-limits-go-build GOMODCACHE=/tmp/kubeseer-performance-limits-go-mod make test-integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:a46466161c151e1c423e98e94b588ead207799c86470880919aa8d8b1ddb54c1"
+        },
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-performance-limits-go-build GOMODCACHE=/tmp/kubeseer-performance-limits-go-mod make test-api"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:dfc8a01dd614199fe3c144f3bf6cfedd83253ef32edde50ff0b07ca6eb2522cf"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-31T22:46:41Z"
+    },
+    "9.1": {
+      "task_fingerprint": "sha256:16659af5b9cfeb1ef2b89f462517f49c1383c45960a0002dd52ce7cdb6fc800e",
+      "requirements_fingerprint": "sha256:77f51845b1483c3f370320f4ac0f982d8bb21c187c4dc28869970adf6fef1bc7",
+      "design_fingerprint": "sha256:a08101017d657dde24b1eaab8cab28fd09fc10c9e6ead2f4934ab5bc8e344e90",
+      "tasks_fingerprint": "sha256:49efff72a2bd1165eebffe28a4e83d4477a0a9bc7427fc768d973605b6e0e11f",
+      "code_identity": "sha256:9cbe2de231845f77401035b082d4d829246fe910cbd202be170935c319f5f641",
+      "profile": {
+        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.10.1"
+      },
+      "steps": [
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-performance-limits-go-build GOMODCACHE=/tmp/kubeseer-performance-limits-go-mod make verify"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:60033f5e07dc1374663a99f3021dd45fbd99acf9bf0fb7171f8b8cdf8f8609fa"
+        },
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-performance-limits-go-build GOMODCACHE=/tmp/kubeseer-performance-limits-go-mod make test-integration GO_TEST_FLAGS=-race"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:6008c7b31b5a0bae6f6811362d7edfef4011c29d6c055c742e1968099941e69b"
+        },
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-performance-limits-go-build GOMODCACHE=/tmp/kubeseer-performance-limits-go-mod make test-compatibility"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:43e15ccaba0212c8fe342e5ebea2012e3e0db9224031bea814aa31a2e94bf982"
+        },
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-performance-limits-go-build GOMODCACHE=/tmp/kubeseer-performance-limits-go-mod go build ./..."
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "command": [
+            "sh",
+            "-c",
+            "GOCACHE=/tmp/kubeseer-performance-limits-go-build GOMODCACHE=/tmp/kubeseer-performance-limits-go-mod go mod tidy -diff"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-08-31T22:57:52Z"
+    }
+  }
+}

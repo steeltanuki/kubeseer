@@ -30,19 +30,20 @@ import (
 type SelectionErrorReason string
 
 const (
-	ReasonInvalidSource         SelectionErrorReason = "InvalidSource"
-	ReasonInvalidNamespaceScope SelectionErrorReason = "InvalidNamespaceScope"
-	ReasonInvalidSelector       SelectionErrorReason = "InvalidSelector"
-	ReasonAuthorizationMissing  SelectionErrorReason = "AuthorizationMissing"
-	ReasonAuthorizationDenied   SelectionErrorReason = "AuthorizationDenied"
-	ReasonAuthorizationMismatch SelectionErrorReason = "AuthorizationMismatch"
-	ReasonAuthorizationStale    SelectionErrorReason = "AuthorizationStale"
-	ReasonReadForbidden         SelectionErrorReason = "ReadForbidden"
-	ReasonUnsupportedSelector   SelectionErrorReason = "UnsupportedSelector"
-	ReasonReadInterrupted       SelectionErrorReason = "ReadInterrupted"
-	ReasonReadUnavailable       SelectionErrorReason = "ReadUnavailable"
-	ReasonListExpired           SelectionErrorReason = "ListExpired"
-	ReasonInvalidObject         SelectionErrorReason = "InvalidObject"
+	ReasonInvalidSource          SelectionErrorReason = "InvalidSource"
+	ReasonInvalidNamespaceScope  SelectionErrorReason = "InvalidNamespaceScope"
+	ReasonInvalidSelector        SelectionErrorReason = "InvalidSelector"
+	ReasonAuthorizationMissing   SelectionErrorReason = "AuthorizationMissing"
+	ReasonAuthorizationDenied    SelectionErrorReason = "AuthorizationDenied"
+	ReasonAuthorizationMismatch  SelectionErrorReason = "AuthorizationMismatch"
+	ReasonAuthorizationStale     SelectionErrorReason = "AuthorizationStale"
+	ReasonReadForbidden          SelectionErrorReason = "ReadForbidden"
+	ReasonUnsupportedSelector    SelectionErrorReason = "UnsupportedSelector"
+	ReasonReadInterrupted        SelectionErrorReason = "ReadInterrupted"
+	ReasonReadUnavailable        SelectionErrorReason = "ReadUnavailable"
+	ReasonListExpired            SelectionErrorReason = "ListExpired"
+	ReasonInvalidObject          SelectionErrorReason = "InvalidObject"
+	ReasonSelectionLimitExceeded SelectionErrorReason = "SelectionLimitExceeded"
 )
 
 // SelectionError is safe to expose to status-producing callers. Cause is

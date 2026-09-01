@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
 	"github.com/steeltanuki/kubeseer/internal/accesspolicy"
@@ -25,6 +26,7 @@ import (
 	"github.com/steeltanuki/kubeseer/internal/authorization"
 	"github.com/steeltanuki/kubeseer/internal/discovery"
 	"github.com/steeltanuki/kubeseer/internal/extraction"
+	"github.com/steeltanuki/kubeseer/internal/limits"
 	"github.com/steeltanuki/kubeseer/internal/observability"
 	"github.com/steeltanuki/kubeseer/internal/operators"
 	"github.com/steeltanuki/kubeseer/internal/selection"
@@ -94,7 +96,7 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName, at
 		return reconcile.Result{}, nil, observability.Terminal{Outcome: observability.OutcomeSkipped, Reason: observability.ReasonObjectDeleting}
 	}
 
-	lease, child, releaseLease, err := r.deps.Tracker.Acquire(ctx, key, object.UID, object.Generation)
+	lease, leaseCtx, releaseLease, err := r.deps.Tracker.Acquire(ctx, key, object.UID, object.Generation)
 	if err != nil {
 		if errors.Is(err, ErrStaleLease) || ctx.Err() != nil {
 			return reconcile.Result{}, nil, skippedTerminal(ctx)
@@ -102,23 +104,57 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName, at
 		return reconcile.Result{}, err, terminalForError(err)
 	}
 	defer releaseLease()
+	evaluationCtx, cancelEvaluation := context.WithTimeout(leaseCtx, r.profile.EvaluationTimeout())
+	defer cancelEvaluation()
 
-	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
-		return reconcile.Result{}, nil, skippedTerminal(child)
+	if _, interrupted := evaluationState(evaluationCtx, leaseCtx, r.deps.Tracker, lease); interrupted {
+		return reconcile.Result{}, nil, skippedTerminal(leaseCtx)
 	}
-	completeObservedStage(attempt, child, observability.StageValidate)
+	completeObservedStage(attempt, evaluationCtx, observability.StageValidate)
 	sources := object.Spec.Sources
+	if budgetIssues := r.deps.BudgetValidator.ValidateKubeseer(object); len(budgetIssues) != 0 {
+		runtimeErr := configurationBudgetRuntimeError(budgetIssues)
+		return reconcile.Result{}, runtimeErr, terminalForError(runtimeErr)
+	}
+	aggregationLimits := aggregation.LimitsFromProfile(r.profile)
+	planned := make([]plannedSource, len(sources))
+	result := v1alpha1.KubeseerResult{Sources: make([]v1alpha1.KubeseerSourceResult, len(sources))}
+	completed := make([]bool, len(sources))
+	var snapshot accesspolicy.Snapshot
+	for index, source := range sources {
+		planned[index] = plannedSource{
+			source:          source,
+			operatorPlan:    operators.CompileSource(source),
+			aggregationPlan: aggregation.PlanSource(source, aggregationLimits),
+			assessment: statuscontract.SourceAssessment{
+				Index:         index,
+				Configuration: configurationOutcome(source, aggregationLimits),
+				Authorization: statuscontract.AuthorizationNotEvaluatedOutcome,
+				Resolution:    statuscontract.ResolutionNotEvaluatedOutcome,
+			},
+		}
+	}
+	if timedOut, interrupted := evaluationState(evaluationCtx, leaseCtx, r.deps.Tracker, lease); timedOut {
+		return r.finishTimedOutEvaluation(lease, leaseCtx, attempt, result, completed, planned, snapshot, sources)
+	} else if interrupted {
+		return reconcile.Result{}, nil, skippedTerminal(leaseCtx)
+	}
 	// A source-free object has no observation target. It receives the present
 	// empty result without loading or evaluating the policy, but still follows
 	// the same route replacement and publication guards.
-	var snapshot accesspolicy.Snapshot
 	if len(sources) > 0 {
-		snapshot = accesspolicy.Load(child, r.deps.PolicySource)
-		if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
-			return reconcile.Result{}, nil, skippedTerminal(child)
+		snapshot = accesspolicy.LoadWithValidation(evaluationCtx, r.deps.PolicySource, func(policy *v1alpha1.KubeseerAccessPolicy) error {
+			if issues := r.deps.BudgetValidator.ValidateAccessPolicy(policy); len(issues) != 0 {
+				return errors.New(issues[0].Path)
+			}
+			return nil
+		})
+		if timedOut, interrupted := evaluationState(evaluationCtx, leaseCtx, r.deps.Tracker, lease); timedOut {
+			return r.finishTimedOutEvaluation(lease, leaseCtx, attempt, result, completed, planned, snapshot, sources)
+		} else if interrupted {
+			return reconcile.Result{}, nil, skippedTerminal(leaseCtx)
 		}
 	}
-	planned := make([]plannedSource, len(sources))
 	var retryable []error
 	if len(sources) > 0 && snapshot.TerminalReason() == accesspolicy.ReasonPolicyUnavailable {
 		retryable = append(retryable, transientRuntimeError("policy-load", "", ReasonPolicyUnavailable, "installation policy is unavailable", nil))
@@ -133,26 +169,18 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName, at
 	}
 
 	for index, source := range sources {
-		if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
-			return reconcile.Result{}, nil, skippedTerminal(child)
+		if timedOut, interrupted := evaluationState(evaluationCtx, leaseCtx, r.deps.Tracker, lease); timedOut {
+			return r.finishTimedOutEvaluation(lease, leaseCtx, attempt, result, completed, planned, snapshot, sources)
+		} else if interrupted {
+			return reconcile.Result{}, nil, skippedTerminal(leaseCtx)
 		}
-		entry := plannedSource{
-			source:          source,
-			operatorPlan:    operators.CompileSource(source),
-			aggregationPlan: aggregation.PlanSource(source, aggregation.DefaultLimits()),
-			assessment: statuscontract.SourceAssessment{
-				Index:         index,
-				Configuration: configurationOutcome(source),
-				Authorization: statuscontract.AuthorizationNotEvaluatedOutcome,
-				Resolution:    statuscontract.ResolutionNotEvaluatedOutcome,
-			},
-		}
+		entry := planned[index]
 		if !entry.operatorPlan.Valid() {
 			entry.assessment.Configuration = statuscontract.ConfigurationInvalidOutcome
 			planned[index] = entry
 			continue
 		}
-		plan, planErr := r.deps.Planner.Plan(child, object.Namespace, source)
+		plan, planErr := r.deps.Planner.Plan(evaluationCtx, object.Namespace, source)
 		if planErr != nil {
 			entry.originalPlanErr = planErr
 			entry.selectionErr = mapPlanningError(source.ID, planErr)
@@ -170,10 +198,12 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName, at
 		for _, target := range plan.Targets() {
 			requests = append(requests, selection.RequestForTarget(target))
 		}
-		batch, evaluateErr := r.deps.Enforcer.EvaluateBatch(child, subject, snapshot, requests)
+		batch, evaluateErr := r.deps.Enforcer.EvaluateBatch(evaluationCtx, subject, snapshot, requests)
 		if evaluateErr != nil {
-			if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
-				return reconcile.Result{}, nil, skippedTerminal(child)
+			if timedOut, interrupted := evaluationState(evaluationCtx, leaseCtx, r.deps.Tracker, lease); timedOut {
+				return r.finishTimedOutEvaluation(lease, leaseCtx, attempt, result, completed, planned, snapshot, sources)
+			} else if interrupted {
+				return reconcile.Result{}, nil, skippedTerminal(leaseCtx)
 			}
 			entry.selectionErr = selection.NewSelectionError(source.ID, selection.ReasonAuthorizationMismatch, "source authorization could not be evaluated")
 			planned[index] = entry
@@ -223,11 +253,13 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName, at
 		}
 		planned[index] = entry
 	}
-	completeObservedStage(attempt, child, observability.StagePlan)
-	completeObservedStage(attempt, child, observability.StageAuthorize)
+	completeObservedStage(attempt, evaluationCtx, observability.StagePlan)
+	completeObservedStage(attempt, evaluationCtx, observability.StageAuthorize)
 
-	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
-		return reconcile.Result{}, nil, skippedTerminal(child)
+	if timedOut, interrupted := evaluationState(evaluationCtx, leaseCtx, r.deps.Tracker, lease); timedOut {
+		return r.finishTimedOutEvaluation(lease, leaseCtx, attempt, result, completed, planned, snapshot, sources)
+	} else if interrupted {
+		return reconcile.Result{}, nil, skippedTerminal(leaseCtx)
 	}
 	routes := make([]AuthorizedRoute, 0)
 	for _, entry := range planned {
@@ -237,108 +269,133 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName, at
 	}
 	if err := r.deps.Routes.Replace(lease, routes); err != nil {
 		if errors.Is(err, ErrStaleLease) || IsRetryable(err) == false && !r.deps.Tracker.IsLeaseCurrent(lease) {
-			return reconcile.Result{}, nil, skippedTerminal(child)
+			return reconcile.Result{}, nil, skippedTerminal(leaseCtx)
 		}
 		return reconcile.Result{}, err, terminalForError(err)
 	}
-	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
-		return reconcile.Result{}, nil, skippedTerminal(child)
+	if timedOut, interrupted := evaluationState(evaluationCtx, leaseCtx, r.deps.Tracker, lease); timedOut {
+		return r.finishTimedOutEvaluation(lease, leaseCtx, attempt, result, completed, planned, snapshot, sources)
+	} else if interrupted {
+		return reconcile.Result{}, nil, skippedTerminal(leaseCtx)
 	}
-	completeObservedStage(attempt, child, observability.StageRead)
+	completeObservedStage(attempt, evaluationCtx, observability.StageRead)
 
-	selectionOutcomes := make([]selection.SelectionOutcome, len(planned))
+	var buildErr error
 	for index, entry := range planned {
-		selectionOutcomes[index].SourceID = entry.source.ID
-		if entry.selectionErr != nil || !entry.canExecute {
-			selectionOutcomes[index].Err = entry.selectionErr
-			continue
+		if timedOut, interrupted := evaluationState(evaluationCtx, leaseCtx, r.deps.Tracker, lease); timedOut {
+			return r.finishTimedOutEvaluation(lease, leaseCtx, attempt, result, completed, planned, snapshot, sources)
+		} else if interrupted {
+			return reconcile.Result{}, nil, skippedTerminal(leaseCtx)
 		}
-		if child.Err() != nil {
-			return reconcile.Result{}, nil, skippedTerminal(child)
-		}
-		selectionOutcomes[index] = r.deps.Executor.Execute(child, entry.authorized)
-		if selectionOutcomes[index].Err != nil {
-			if selection.HasReason(selectionOutcomes[index].Err, selection.ReasonReadForbidden) {
-				entry.assessment.Authorization = statuscontract.AuthorizationReadForbiddenOutcome
-				planned[index] = entry
+		selectionOutcome := selection.SelectionOutcome{SourceID: entry.source.ID, Err: entry.selectionErr}
+		if entry.canExecute && entry.selectionErr == nil {
+			selectionOutcome = r.deps.Executor.Execute(evaluationCtx, entry.authorized)
+			if selectionOutcome.Err != nil {
+				if selection.HasReason(selectionOutcome.Err, selection.ReasonReadForbidden) {
+					entry.assessment.Authorization = statuscontract.AuthorizationReadForbiddenOutcome
+					planned[index] = entry
+				}
+				if retryableSelectionError(selectionOutcome.Err) {
+					retryable = append(retryable, transientRuntimeError("selection", entry.source.ID, ReasonReadUnavailable, "source selection is temporarily unavailable", selectionOutcome.Err))
+				}
 			}
-			if retryableSelectionError(selectionOutcomes[index].Err) {
-				retryable = append(retryable, transientRuntimeError("selection", entry.source.ID, ReasonReadUnavailable, "source selection is temporarily unavailable", selectionOutcomes[index].Err))
-			}
 		}
-	}
-	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
-		return reconcile.Result{}, nil, skippedTerminal(child)
-	}
 
-	extractionInputs := make([]extraction.SourceInput, len(sources))
-	for index, source := range sources {
-		extractionInputs[index] = extraction.SourceInput{Source: source, Selection: selectionOutcomes[index]}
-	}
-	extracted := extraction.ExtractBatch(child, extractionInputs)
-	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
-		return reconcile.Result{}, nil, skippedTerminal(child)
-	}
-	completeObservedStage(attempt, child, observability.StageExtract)
-	typedInputs := make([]typedoutput.SourceInput, len(sources))
-	for index, source := range sources {
-		typedInputs[index] = typedoutput.SourceInput{Source: source, Extraction: extracted[index]}
-	}
-	converted := typedoutput.ConvertBatch(child, typedInputs)
-	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
-		return reconcile.Result{}, nil, skippedTerminal(child)
-	}
-	operatorInputs := make([]operators.SourceInput, len(sources))
-	for index := range sources {
-		operatorInputs[index] = operators.SourceInput{Plan: planned[index].operatorPlan, Typed: converted[index]}
-	}
-	operatorOutcomes := operators.EvaluateBatch(child, operatorInputs)
-	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
-		return reconcile.Result{}, nil, skippedTerminal(child)
-	}
-	aggregationInputs := make([]aggregation.SourceInput, len(sources))
-	for index := range sources {
-		aggregationInputs[index] = aggregation.SourceInput{
-			Plan:      planned[index].aggregationPlan,
-			Operators: operatorOutcomes[index],
+		if timedOut, interrupted := evaluationState(evaluationCtx, leaseCtx, r.deps.Tracker, lease); timedOut {
+			return r.finishTimedOutEvaluation(lease, leaseCtx, attempt, result, completed, planned, snapshot, sources)
+		} else if interrupted {
+			return reconcile.Result{}, nil, skippedTerminal(leaseCtx)
+		}
+		extracted := extraction.ExtractBatchWithLimit(evaluationCtx, []extraction.SourceInput{{Source: entry.source, Selection: selectionOutcome}}, r.profile.MaxProducedValueBytes())[0]
+		if extracted.Err != nil {
+			observeExtractionError(evaluationCtx, r.deps.Observer, extracted.Err)
+		}
+		if timedOut, interrupted := evaluationState(evaluationCtx, leaseCtx, r.deps.Tracker, lease); timedOut {
+			return r.finishTimedOutEvaluation(lease, leaseCtx, attempt, result, completed, planned, snapshot, sources)
+		} else if interrupted {
+			return reconcile.Result{}, nil, skippedTerminal(leaseCtx)
+		}
+		converted := typedoutput.ConvertBatchWithLimit(evaluationCtx, []typedoutput.SourceInput{{Source: entry.source, Extraction: extracted}}, r.profile.MaxProducedValueBytes())[0]
+		if timedOut, interrupted := evaluationState(evaluationCtx, leaseCtx, r.deps.Tracker, lease); timedOut {
+			return r.finishTimedOutEvaluation(lease, leaseCtx, attempt, result, completed, planned, snapshot, sources)
+		} else if interrupted {
+			return reconcile.Result{}, nil, skippedTerminal(leaseCtx)
+		}
+		operatorOutcome := operators.EvaluateBatchWithLimit(evaluationCtx, []operators.SourceInput{{Plan: entry.operatorPlan, Typed: converted}}, r.profile.MaxProducedValueBytes())[0]
+		if timedOut, interrupted := evaluationState(evaluationCtx, leaseCtx, r.deps.Tracker, lease); timedOut {
+			return r.finishTimedOutEvaluation(lease, leaseCtx, attempt, result, completed, planned, snapshot, sources)
+		} else if interrupted {
+			return reconcile.Result{}, nil, skippedTerminal(leaseCtx)
+		}
+		aggregationOutcome := aggregation.EvaluateBatchWithLimit(evaluationCtx, []aggregation.SourceInput{{
+			Plan:      entry.aggregationPlan,
+			Operators: operatorOutcome,
+		}}, r.profile.MaxProducedValueBytes())[0]
+		if timedOut, interrupted := evaluationState(evaluationCtx, leaseCtx, r.deps.Tracker, lease); timedOut {
+			return r.finishTimedOutEvaluation(lease, leaseCtx, attempt, result, completed, planned, snapshot, sources)
+		} else if interrupted {
+			return reconcile.Result{}, nil, skippedTerminal(leaseCtx)
+		}
+		projected, projectionErr := aggregation.BuildResultChecked([]aggregation.SourceOutcome{aggregationOutcome})
+		if projectionErr != nil {
+			buildErr = projectionErr
+			break
+		}
+		if len(projected.Sources) != 1 {
+			buildErr = errors.New("source result projection returned an unexpected source count")
+			break
+		}
+		result.Sources[index] = projected.Sources[0]
+		completed[index] = true
+		if timedOut, interrupted := evaluationState(evaluationCtx, leaseCtx, r.deps.Tracker, lease); timedOut {
+			if !allSourcesCompleted(completed) {
+				return r.finishTimedOutEvaluation(lease, leaseCtx, attempt, result, completed, planned, snapshot, sources)
+			}
+		} else if interrupted {
+			return reconcile.Result{}, nil, skippedTerminal(leaseCtx)
 		}
 	}
-	aggregationOutcomes := aggregation.EvaluateBatch(child, aggregationInputs)
-	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
-		return reconcile.Result{}, nil, skippedTerminal(child)
-	}
-	completeObservedStage(attempt, child, observability.StageAggregate)
-	result, err := aggregation.BuildResultChecked(aggregationOutcomes)
+	completeObservedStage(attempt, evaluationCtx, observability.StageExtract)
+	completeObservedStage(attempt, evaluationCtx, observability.StageAggregate)
+	err = buildErr
 	if err != nil {
-		buildErr := transientRuntimeError("result-build", "", ReasonBuildFailure, "candidate result construction failed", err)
+		runtimeErr := transientRuntimeError("result-build", "", ReasonBuildFailure, "candidate result construction failed", err)
 		unavailable := statuscontract.Evaluation{
 			Sources:             assessmentsForPlanned(planned),
 			GlobalAuthorization: globalAuthorizationOutcome(snapshot, len(sources)),
 			ResultUnavailable:   true,
 		}
-		if publishErr := r.deps.Publisher.Publish(child, lease, unavailable); publishErr != nil {
+		if publishErr := r.deps.Publisher.Publish(evaluationCtx, lease, unavailable); publishErr != nil {
 			if errors.Is(publishErr, ErrStaleLease) || errors.Is(publishErr, context.Canceled) || errors.Is(publishErr, context.DeadlineExceeded) {
-				return reconcile.Result{}, buildErr, terminalForError(buildErr)
+				return reconcile.Result{}, runtimeErr, terminalForError(runtimeErr)
 			}
-			joined := errors.Join(buildErr, publishErr)
+			joined := errors.Join(runtimeErr, publishErr)
 			return reconcile.Result{}, joined, terminalForError(joined)
 		}
-		return reconcile.Result{}, buildErr, terminalForError(buildErr)
+		return reconcile.Result{}, runtimeErr, terminalForError(runtimeErr)
 	}
-	if child.Err() != nil || !r.deps.Tracker.IsLeaseCurrent(lease) {
-		return reconcile.Result{}, nil, skippedTerminal(child)
+	if timedOut, interrupted := evaluationState(evaluationCtx, leaseCtx, r.deps.Tracker, lease); timedOut {
+		if !allSourcesCompleted(completed) {
+			return r.finishTimedOutEvaluation(lease, leaseCtx, attempt, result, completed, planned, snapshot, sources)
+		}
+	} else if interrupted {
+		return reconcile.Result{}, nil, skippedTerminal(leaseCtx)
 	}
-	observeRuntimeResult(child, r.deps.Observer, result, extracted)
-	completeObservedStage(attempt, child, observability.StageCompose)
+	observeRuntimeResult(evaluationCtx, r.deps.Observer, r.profile, result, nil)
+	completeObservedStage(attempt, evaluationCtx, observability.StageCompose)
 
 	evaluation := statuscontract.Evaluation{
 		Result:              &result,
 		Sources:             assessmentsForPlanned(planned),
 		GlobalAuthorization: globalAuthorizationOutcome(snapshot, len(sources)),
 	}
-	if err := r.deps.Publisher.Publish(child, lease, evaluation); err != nil {
+	publicationCtx := evaluationCtx
+	if evaluationCtx.Err() != nil {
+		publicationCtx = leaseCtx
+	}
+	if err := r.deps.Publisher.Publish(publicationCtx, lease, evaluation); err != nil {
 		if errors.Is(err, ErrStaleLease) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return reconcile.Result{}, nil, skippedTerminal(child)
+			return reconcile.Result{}, nil, skippedTerminal(leaseCtx)
 		}
 		if IsRetryable(err) {
 			retryable = append(retryable, err)
@@ -346,12 +403,85 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName, at
 			return reconcile.Result{}, err, terminalForError(err)
 		}
 	}
-	completeObservedStage(attempt, child, observability.StagePublish)
+	completeObservedStage(attempt, publicationCtx, observability.StagePublish)
 	if len(retryable) != 0 {
 		joined := errors.Join(retryable...)
 		return reconcile.Result{}, joined, terminalForError(joined)
 	}
 	return reconcile.Result{}, nil, terminalForResult(result)
+}
+
+// evaluationState distinguishes the manager-owned evaluation deadline from
+// cancellation of the parent/lease context. A deadline can publish a
+// terminal result only while the lease itself remains current.
+func evaluationState(evaluationCtx, leaseCtx context.Context, tracker *FreshnessTracker, lease Lease) (timedOut, interrupted bool) {
+	if leaseCtx != nil && leaseCtx.Err() != nil {
+		return false, true
+	}
+	if tracker != nil && !tracker.IsLeaseCurrent(lease) {
+		return false, true
+	}
+	if evaluationCtx == nil {
+		return false, false
+	}
+	if errors.Is(evaluationCtx.Err(), context.DeadlineExceeded) {
+		return true, false
+	}
+	if evaluationCtx.Err() != nil {
+		return false, true
+	}
+	return false, false
+}
+
+func allSourcesCompleted(completed []bool) bool {
+	for _, done := range completed {
+		if !done {
+			return false
+		}
+	}
+	return true
+}
+
+// finishTimedOutEvaluation assembles only completed source results and gives
+// every active or unstarted source a deterministic timeout error. The
+// publication context is the lease context, never a detached context, so a
+// stale or externally cancelled attempt cannot write status.
+func (r *Runtime) finishTimedOutEvaluation(lease Lease, leaseCtx context.Context, attempt *observability.Attempt, result v1alpha1.KubeseerResult, completed []bool, planned []plannedSource, snapshot accesspolicy.Snapshot, sources []v1alpha1.KubeseerSource) (reconcile.Result, error, observability.Terminal) {
+	if leaseCtx != nil && leaseCtx.Err() != nil || r.deps.Tracker != nil && !r.deps.Tracker.IsLeaseCurrent(lease) {
+		return reconcile.Result{}, nil, skippedTerminal(leaseCtx)
+	}
+	for index, source := range sources {
+		if completed[index] {
+			continue
+		}
+		result.Sources[index] = evaluationTimedOutSourceResult(source.ID)
+	}
+
+	observeRuntimeResult(leaseCtx, r.deps.Observer, r.profile, result, nil)
+	completeObservedStage(attempt, leaseCtx, observability.StageCompose)
+	evaluation := statuscontract.Evaluation{
+		Result:              &result,
+		Sources:             assessmentsForPlanned(planned),
+		GlobalAuthorization: globalAuthorizationOutcome(snapshot, len(sources)),
+	}
+	if err := r.deps.Publisher.Publish(leaseCtx, lease, evaluation); err != nil {
+		if errors.Is(err, ErrStaleLease) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return reconcile.Result{}, nil, skippedTerminal(leaseCtx)
+		}
+		timeoutErr := transientRuntimeError("evaluation", "", ReasonEvaluationTimedOut, "evaluation deadline exceeded", nil)
+		return reconcile.Result{}, errors.Join(timeoutErr, err), terminalForError(errors.Join(timeoutErr, err))
+	}
+	completeObservedStage(attempt, leaseCtx, observability.StagePublish)
+	timeoutErr := transientRuntimeError("evaluation", "", ReasonEvaluationTimedOut, "evaluation deadline exceeded", nil)
+	return reconcile.Result{}, timeoutErr, terminalForError(timeoutErr)
+}
+
+func evaluationTimedOutSourceResult(sourceID string) v1alpha1.KubeseerSourceResult {
+	return v1alpha1.KubeseerSourceResult{
+		ID:    sourceID,
+		State: v1alpha1.SourceStateError,
+		Error: &v1alpha1.KubeseerResultError{Reason: string(ReasonEvaluationTimedOut), Message: "evaluation deadline exceeded"},
+	}
 }
 
 func completeObservedStage(attempt *observability.Attempt, ctx context.Context, stage observability.Stage) {
@@ -433,7 +563,7 @@ func reasonForRuntimeError(err error) observability.Reason {
 	return observability.ReasonInternalError
 }
 
-func observeRuntimeResult(ctx context.Context, observer *observability.Observer, result v1alpha1.KubeseerResult, extracted []extraction.SourceOutcome) {
+func observeRuntimeResult(ctx context.Context, observer *observability.Observer, profile limits.Profile, result v1alpha1.KubeseerResult, extracted []extraction.SourceOutcome) {
 	if observer == nil {
 		return
 	}
@@ -445,11 +575,23 @@ func observeRuntimeResult(ctx context.Context, observer *observability.Observer,
 		}
 		observer.ObserveResult(ctx, outcome)
 	}
+	timeoutObserved := false
 	for _, source := range result.Sources {
 		if !sourceHasResultFailure(source) {
 			continue
 		}
 		reason := sourceResultReason(source)
+		if observation, ok := limitObservationForSource(profile, source, reason); ok {
+			if observation.Reason == observability.ReasonEvaluationTimedOut {
+				if timeoutObserved {
+					continue
+				}
+				observation.SourceID = ""
+				timeoutObserved = true
+			}
+			observer.ObserveLimit(ctx, observation)
+			continue
+		}
 		observer.ObserveSourceFailure(ctx, observability.SourceFailure{
 			SourceID: source.ID,
 			Stage:    stageForResultReason(reason),
@@ -461,6 +603,115 @@ func observeRuntimeResult(ctx context.Context, observer *observability.Observer,
 		if errors.As(source.Err, &extractionErr) {
 			observer.ObserveJSONPathFailure(ctx, observability.Reason(extractionErr.Reason))
 		}
+	}
+}
+
+func limitObservationForSource(profile limits.Profile, source v1alpha1.KubeseerSourceResult, reason string) (observability.LimitObservation, bool) {
+	observation := observability.LimitObservation{
+		SourceID: source.ID,
+		Stage:    stageForResultReason(reason),
+		Reason:   observability.Reason(reason),
+		Retry:    observability.RetryNone,
+	}
+	switch reason {
+	case string(ReasonEvaluationTimedOut):
+		milliseconds := profile.EvaluationTimeout().Milliseconds()
+		if milliseconds <= 0 {
+			milliseconds = 1
+		}
+		observation.Stage = observability.StageCompose
+		observation.Reason = observability.ReasonEvaluationTimedOut
+		observation.Retry = observability.RetryScheduled
+		observation.Dimension = observability.LimitDimensionEvaluationTimeout
+		observation.Ceiling = milliseconds
+		return observation, true
+	case string(selection.ReasonSelectionLimitExceeded):
+		observation.Stage = observability.StageRead
+		if strings.Contains(strings.ToLower(sourceResultMessage(source)), "byte") {
+			observation.Dimension = observability.LimitDimensionSelectedInputBytes
+			observation.Ceiling = profile.MaxSelectedInputBytes()
+		} else {
+			observation.Dimension = observability.LimitDimensionMatchedResources
+			observation.Ceiling = int64(profile.MaxMatchedResources())
+		}
+		observation.Reason = observability.ReasonSelectionLimitExceeded
+		return observation, true
+	case string(observability.ReasonValueLimitExceeded):
+		observation.Stage = observability.StageExtract
+		observation.Reason = observability.ReasonValueLimitExceeded
+		observation.Dimension = observability.LimitDimensionProducedValueBytes
+		observation.Ceiling = profile.MaxProducedValueBytes()
+		return observation, true
+	case string(aggregation.ReasonCardinalityExceeded):
+		observation.Stage = observability.StageAggregate
+		observation.Reason = observability.ReasonCardinalityExceeded
+		message := strings.ToLower(sourceResultMessage(source))
+		aggregationLimits := profile.Aggregation()
+		switch {
+		case strings.Contains(message, "group"):
+			observation.Dimension = observability.LimitDimensionAggregationGroups
+			observation.Ceiling = int64(aggregationLimits.MaxGroups)
+		case strings.Contains(message, "collection"):
+			observation.Dimension = observability.LimitDimensionAggregationCollections
+			observation.Ceiling = int64(aggregationLimits.MaxCollectedValues)
+		case strings.Contains(message, "distinct"):
+			observation.Dimension = observability.LimitDimensionAggregationDistinct
+			observation.Ceiling = int64(aggregationLimits.MaxDistinctValues)
+		case strings.Contains(message, "provenance"):
+			observation.Dimension = observability.LimitDimensionAggregationProvenance
+			observation.Ceiling = int64(aggregationLimits.MaxProvenanceEntries)
+		default:
+			observation.Dimension = observability.LimitDimensionAggregationContributions
+			observation.Ceiling = int64(aggregationLimits.MaxContributions)
+		}
+		return observation, true
+	default:
+		return observability.LimitObservation{}, false
+	}
+}
+
+func sourceResultMessage(source v1alpha1.KubeseerSourceResult) string {
+	if source.Error != nil {
+		return source.Error.Message
+	}
+	for _, field := range source.FieldErrors {
+		if field.Message != "" {
+			return field.Message
+		}
+	}
+	for _, resource := range source.Resources {
+		if resource.Error != nil {
+			return resource.Error.Message
+		}
+		for _, field := range resource.Fields {
+			if field.Error != nil {
+				return field.Error.Message
+			}
+		}
+	}
+	for _, aggregate := range source.Aggregates {
+		if aggregate.Error != nil {
+			return aggregate.Error.Message
+		}
+		for _, failure := range aggregate.Failures {
+			if failure.Error.Message != "" {
+				return failure.Error.Message
+			}
+		}
+	}
+	return ""
+}
+
+func observeExtractionError(ctx context.Context, observer *observability.Observer, err error) {
+	if observer == nil || err == nil {
+		return
+	}
+	var extractionErr *extraction.ExtractionError
+	if errors.As(err, &extractionErr) {
+		if extractionErr.Reason == extraction.ReasonValueLimitExceeded {
+			return
+		}
+		observer.ObserveJSONPathFailure(ctx, observability.Reason(extractionErr.Reason))
 	}
 }
 
@@ -565,7 +816,7 @@ func retryableSelectionError(err error) bool {
 	}
 }
 
-func configurationOutcome(source v1alpha1.KubeseerSource) statuscontract.ConfigurationOutcome {
+func configurationOutcome(source v1alpha1.KubeseerSource, aggregationLimits aggregation.Limits) statuscontract.ConfigurationOutcome {
 	if _, err := extraction.CompileSource(source); err != nil {
 		return statuscontract.ConfigurationInvalidOutcome
 	}
@@ -575,7 +826,7 @@ func configurationOutcome(source v1alpha1.KubeseerSource) statuscontract.Configu
 	if !operators.CompileSource(source).Valid() {
 		return statuscontract.ConfigurationInvalidOutcome
 	}
-	if !aggregation.PlanSource(source, aggregation.DefaultLimits()).Valid() {
+	if !aggregation.PlanSource(source, aggregationLimits).Valid() {
 		return statuscontract.ConfigurationInvalidOutcome
 	}
 	return statuscontract.ConfigurationAcceptedOutcome

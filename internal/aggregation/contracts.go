@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
+	"github.com/steeltanuki/kubeseer/internal/limits"
 	"github.com/steeltanuki/kubeseer/internal/operators"
 	"github.com/steeltanuki/kubeseer/internal/selection"
 	"github.com/steeltanuki/kubeseer/internal/typedoutput"
@@ -39,12 +40,19 @@ type Limits struct {
 // DefaultLimits returns the positive implementation-owned ceilings used when
 // a caller does not inject a test or deployment-specific limit.
 func DefaultLimits() Limits {
+	return LimitsFromProfile(limits.DefaultProfile())
+}
+
+// LimitsFromProfile adapts the immutable manager profile to the existing
+// aggregation planning contract.
+func LimitsFromProfile(profile limits.Profile) Limits {
+	values := profile.Aggregation()
 	return Limits{
-		MaxGroups:            1000,
-		MaxContributions:     10000,
-		MaxCollectedValues:   10000,
-		MaxDistinctValues:    10000,
-		MaxProvenanceEntries: 10000,
+		MaxGroups:            values.MaxGroups,
+		MaxContributions:     values.MaxContributions,
+		MaxCollectedValues:   values.MaxCollectedValues,
+		MaxDistinctValues:    values.MaxDistinctValues,
+		MaxProvenanceEntries: values.MaxProvenanceEntries,
 	}
 }
 
@@ -100,6 +108,7 @@ const (
 	ReasonOverflow               Reason = "overflow"
 	ReasonCardinalityExceeded    Reason = "cardinality-exceeded"
 	ReasonAggregationInterrupted Reason = "aggregation-interrupted"
+	ReasonValueLimitExceeded     Reason = "ValueLimitExceeded"
 )
 
 // NewAggregateError creates a stable sanitized error and copies provenance.

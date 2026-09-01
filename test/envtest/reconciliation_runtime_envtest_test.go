@@ -31,6 +31,7 @@ import (
 	"github.com/steeltanuki/kubeseer/internal/admission"
 	"github.com/steeltanuki/kubeseer/internal/authorization"
 	discoveryruntime "github.com/steeltanuki/kubeseer/internal/discovery"
+	"github.com/steeltanuki/kubeseer/internal/limits"
 	"github.com/steeltanuki/kubeseer/internal/operators"
 	"github.com/steeltanuki/kubeseer/internal/reconciliation"
 	"github.com/steeltanuki/kubeseer/internal/selection"
@@ -126,12 +127,18 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create controller-runtime manager: %v", err)
 	}
+	managerWorkerLimit := 2
+	managerProfile, err := limits.Resolve(limits.Overrides{MaxConcurrentReconciles: &managerWorkerLimit})
+	if err != nil {
+		t.Fatalf("resolve manager performance profile: %v", err)
+	}
 	if err := reconciliation.SetupWithManager(managerInstance, reconciliation.Options{
 		SafetyInterval:     25 * time.Millisecond,
 		WatchBackoffBase:   5 * time.Millisecond,
 		WatchBackoffMax:    40 * time.Millisecond,
 		EnqueueBackoffBase: 5 * time.Millisecond,
 		EnqueueBackoffMax:  40 * time.Millisecond,
+		LimitProfile:       &managerProfile,
 	}); err != nil {
 		t.Fatalf("setup reconciliation runtime: %v", err)
 	}
@@ -810,6 +817,7 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	}
 
 	stopAndWaitManager()
+	runPerformanceLimitsEnvtestStatusScenario(t, ctx, apiClient, namespace, statusKey, requestRecorder)
 	runRuntimeEnvtestAdapterScenarios(t, ctx, apiClient, clients, namespace, adapterKey, busyKey, freeKey, deterministicKey, emptyKey)
 
 	t.Log("API_CONTRACT=authorization-enforcement STATUS=passed")
@@ -822,6 +830,110 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	t.Log("API_CONTRACT=cross-namespace-aggregation-pipeline STATUS=passed")
 	t.Log("API_CONTRACT=admission-validation-runtime STATUS=passed")
 	t.Log("API_CONTRACT=observability-events STATUS=passed")
+	t.Log("API_CONTRACT=performance-and-limits-manager STATUS=passed")
+	t.Log("API_CONTRACT=performance-and-limits STATUS=passed")
+}
+
+func runPerformanceLimitsEnvtestStatusScenario(t *testing.T, ctx context.Context, apiClient crclient.Client, namespace string, key types.NamespacedName, requestRecorder *runtimeObservedRequestRecorder) {
+	t.Helper()
+	current := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, key, current); err != nil {
+		t.Fatalf("read status-limit Kubeseer: %v", err)
+	}
+	value := strings.Repeat("status-limit-value-", 1024)
+	result := v1alpha1.KubeseerResult{Sources: []v1alpha1.KubeseerSourceResult{{ID: "status-limit-source", State: v1alpha1.SourceStateValues, Resources: []v1alpha1.KubeseerResourceResult{{APIVersion: "v1", Kind: "Pod", Namespace: namespace, Name: "status-limit-resource", UID: "status-limit-resource-uid", Fields: []v1alpha1.KubeseerFieldResult{{Name: "value", Type: v1alpha1.ValueTypeString, State: v1alpha1.FieldStateValues, Matches: []v1alpha1.KubeseerTypedMatch{{State: v1alpha1.MatchStateValue, StringValue: &value}}}}}}}}}
+	assessment := statuscontract.SourceAssessment{Index: 0, Configuration: statuscontract.ConfigurationAcceptedOutcome, Authorization: statuscontract.AuthorizationAllowedOutcome, Resolution: statuscontract.ResolutionResolvedOutcome}
+	evaluation := statuscontract.Evaluation{Result: &result, Sources: []statuscontract.SourceAssessment{assessment}}
+	compact, err := statuscontract.ComposeResultLimitExceeded(current.Generation, current.Status.Conditions, evaluation)
+	if err != nil {
+		t.Fatalf("compose envtest compact status: %v", err)
+	}
+	compactSize, err := limits.CanonicalSize(compact)
+	if err != nil {
+		t.Fatalf("measure envtest compact status: %v", err)
+	}
+	store := reconciliation.NewClientKubeseerStore(apiClient)
+	acquire := func(candidate *v1alpha1.Kubeseer, tracker *reconciliation.FreshnessTracker) (reconciliation.Lease, context.Context, func()) {
+		tracker.Observe(candidate)
+		lease, leaseCtx, release, acquireErr := tracker.Acquire(ctx, key, candidate.UID, candidate.Generation)
+		if acquireErr != nil {
+			t.Fatalf("acquire envtest status-limit lease: %v", acquireErr)
+		}
+		return lease, leaseCtx, release
+	}
+	tracker := reconciliation.NewFreshnessTracker()
+	lease, leaseCtx, release := acquire(current, tracker)
+	writer := reconciliation.NewClientStatusWriter(apiClient.Status())
+	publisher := reconciliation.NewStatusPublisher(store, writer, tracker, reconciliation.WithMaxStatusBytes(int64(compactSize)))
+	if err := publisher.Publish(leaseCtx, lease, evaluation); err != nil {
+		release()
+		t.Fatalf("publish envtest compact status: %v", err)
+	}
+	release()
+	persisted := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, key, persisted); err != nil {
+		t.Fatalf("read envtest compact status: %v", err)
+	}
+	if persisted.Status.Result != nil || persisted.Status.Summary != nil || persisted.Status.ResultHash != "" || persisted.Status.ObservedGeneration != persisted.Generation {
+		t.Fatalf("envtest compact status retained derived result fields: %#v", persisted.Status)
+	}
+	if ready := runtimeCondition(persisted.Status, statuscontract.ConditionReady); ready.Status != metav1.ConditionFalse || ready.Reason != statuscontract.ReasonResultLimitExceeded {
+		t.Fatalf("envtest compact Ready condition = %#v", ready)
+	}
+	if degraded := runtimeCondition(persisted.Status, statuscontract.ConditionDegraded); degraded.Status != metav1.ConditionTrue || degraded.Reason != statuscontract.ReasonResultLimitExceeded {
+		t.Fatalf("envtest compact Degraded condition = %#v", degraded)
+	}
+
+	statusWritesBeforeRepeat := requestRecorder.StatusWrites(key.Name)
+	repeatTracker := reconciliation.NewFreshnessTracker()
+	repeatLease, repeatCtx, repeatRelease := acquire(persisted, repeatTracker)
+	if err := reconciliation.NewStatusPublisher(store, writer, repeatTracker, reconciliation.WithMaxStatusBytes(int64(compactSize))).Publish(repeatCtx, repeatLease, evaluation); err != nil {
+		repeatRelease()
+		t.Fatalf("repeat envtest compact status: %v", err)
+	}
+	repeatRelease()
+	if requestRecorder.StatusWrites(key.Name) != statusWritesBeforeRepeat {
+		t.Fatalf("repeat envtest compact status issued a write: before=%d after=%d", statusWritesBeforeRepeat, requestRecorder.StatusWrites(key.Name))
+	}
+
+	statusWritesBeforeInvalid := requestRecorder.StatusWrites(key.Name)
+	invalidTracker := reconciliation.NewFreshnessTracker()
+	invalidLease, invalidCtx, invalidRelease := acquire(persisted, invalidTracker)
+	invalidErr := reconciliation.NewStatusPublisher(store, writer, invalidTracker, reconciliation.WithMaxStatusBytes(int64(compactSize-1))).Publish(invalidCtx, invalidLease, evaluation)
+	invalidRelease()
+	var runtimeErr *reconciliation.RuntimeError
+	if !errors.As(invalidErr, &runtimeErr) || runtimeErr.Reason != reconciliation.ReasonStatusLimitInvalid {
+		t.Fatalf("envtest invalid compact status error = %v", invalidErr)
+	}
+	if requestRecorder.StatusWrites(key.Name) != statusWritesBeforeInvalid {
+		t.Fatalf("invalid envtest compact status attempted a write")
+	}
+
+	small := statuscontract.Evaluation{Result: &v1alpha1.KubeseerResult{}, Sources: []statuscontract.SourceAssessment{assessment}}
+	smallStatus, err := statuscontract.Compose(persisted.Generation, persisted.Status.Conditions, small)
+	if err != nil {
+		t.Fatalf("compose envtest recovery status: %v", err)
+	}
+	smallSize, err := limits.CanonicalSize(smallStatus)
+	if err != nil {
+		t.Fatalf("measure envtest recovery status: %v", err)
+	}
+	recoveryTracker := reconciliation.NewFreshnessTracker()
+	recoveryLease, recoveryCtx, recoveryRelease := acquire(persisted, recoveryTracker)
+	if err := reconciliation.NewStatusPublisher(store, writer, recoveryTracker, reconciliation.WithMaxStatusBytes(int64(smallSize))).Publish(recoveryCtx, recoveryLease, small); err != nil {
+		recoveryRelease()
+		t.Fatalf("envtest compact status recovery: %v", err)
+	}
+	recoveryRelease()
+	recovered := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, key, recovered); err != nil {
+		t.Fatalf("read envtest recovered status: %v", err)
+	}
+	if recovered.Status.Result == nil || recovered.Status.Summary == nil || recovered.Status.ResultHash == "" {
+		t.Fatalf("envtest compact recovery omitted result-derived fields: %#v", recovered.Status)
+	}
+	t.Log("MODULE_INTEGRATION=performance-and-limits-deadline-status STATUS=passed")
+	t.Log("API_CONTRACT=performance-and-limits-status STATUS=passed")
 }
 
 func runtimeEnvtestKubeseer(key types.NamespacedName, source v1alpha1.KubeseerSource) *v1alpha1.Kubeseer {

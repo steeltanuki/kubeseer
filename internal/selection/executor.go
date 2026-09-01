@@ -21,6 +21,7 @@ import (
 
 	"github.com/steeltanuki/kubeseer/internal/authorization"
 	"github.com/steeltanuki/kubeseer/internal/discovery"
+	"github.com/steeltanuki/kubeseer/internal/limits"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -29,6 +30,11 @@ import (
 )
 
 const defaultPageLimit int64 = 500
+
+const (
+	defaultMaxMatchedResources   = 1000
+	defaultMaxSelectedInputBytes = 8 * 1024 * 1024
+)
 
 // ResourceLister is the only resource-instance I/O boundary used by the
 // executor. It exposes LIST and no operation that can mutate or watch objects.
@@ -113,10 +119,12 @@ func (l *DynamicResourceLister) List(ctx context.Context, read AuthorizedRead, o
 
 // Executor retrieves and normalizes all objects in an authorized plan.
 type Executor struct {
-	lister       ResourceLister
-	pageLimit    int64
-	verifier     authorization.Verifier
-	pageObserver PageObserver
+	lister        ResourceLister
+	pageLimit     int64
+	maxResources  int
+	maxInputBytes int64
+	verifier      authorization.Verifier
+	pageObserver  PageObserver
 }
 
 // ExecutorOption customizes executor behavior.
@@ -139,6 +147,40 @@ func WithPageLimit(limit int64) ExecutorOption {
 	}
 }
 
+// WithMaxMatchedResources sets the unique-resource ceiling for one source.
+func WithMaxMatchedResources(limit int) ExecutorOption {
+	return func(e *Executor) {
+		if limit > 0 {
+			e.maxResources = limit
+		}
+	}
+}
+
+// WithMaxSelectedInputBytes sets the canonical selected-input ceiling for one
+// source. The next first-seen object is checked before it is retained.
+func WithMaxSelectedInputBytes(limit int64) ExecutorOption {
+	return func(e *Executor) {
+		if limit > 0 {
+			e.maxInputBytes = limit
+		}
+	}
+}
+
+// WithLimits applies the selection-related views of a resolved profile.
+func WithLimits(profile limits.Profile) ExecutorOption {
+	return func(e *Executor) {
+		if profile.PageSize() > 0 {
+			e.pageLimit = profile.PageSize()
+		}
+		if profile.MaxMatchedResources() > 0 {
+			e.maxResources = profile.MaxMatchedResources()
+		}
+		if profile.MaxSelectedInputBytes() > 0 {
+			e.maxInputBytes = profile.MaxSelectedInputBytes()
+		}
+	}
+}
+
 // WithPageObserver reports successful LIST page counts to a passive observer.
 func WithPageObserver(observer PageObserver) ExecutorOption {
 	return func(e *Executor) {
@@ -149,7 +191,7 @@ func WithPageObserver(observer PageObserver) ExecutorOption {
 // NewExecutor creates a source selection executor with a bounded default page
 // size. It does not load policy or perform discovery.
 func NewExecutor(lister ResourceLister, options ...ExecutorOption) *Executor {
-	executor := &Executor{lister: lister, pageLimit: defaultPageLimit}
+	executor := &Executor{lister: lister, pageLimit: defaultPageLimit, maxResources: defaultMaxMatchedResources, maxInputBytes: defaultMaxSelectedInputBytes}
 	for _, option := range options {
 		if option != nil {
 			option(executor)
@@ -173,8 +215,14 @@ func (e *Executor) Execute(ctx context.Context, authorized AuthorizedPlan) Selec
 	}
 
 	collected := make([]SelectedResource, 0)
+	budget, err := newSelectionBudget(e.maxResources, e.maxInputBytes)
+	if err != nil {
+		outcome.Resources = nil
+		outcome.Err = NewSelectionError(plan.SourceID(), ReasonSelectionLimitExceeded, "selection limits are invalid")
+		return outcome
+	}
 	for _, read := range authorized.reads {
-		resources, err := e.listTarget(ctx, plan, read)
+		resources, err := e.listTarget(ctx, plan, read, budget)
 		if err != nil {
 			outcome.Resources = nil
 			outcome.Err = err
@@ -187,8 +235,25 @@ func (e *Executor) Execute(ctx context.Context, authorized AuthorizedPlan) Selec
 	return outcome
 }
 
-func (e *Executor) listTarget(ctx context.Context, plan SelectionPlan, read AuthorizedRead) ([]SelectedResource, *SelectionError) {
+type selectionBudget struct {
+	seen  map[types.UID]struct{}
+	bytes *limits.Accountant
+}
+
+func newSelectionBudget(maxResources int, maxInputBytes int64) (*selectionBudget, error) {
+	if maxResources <= 0 || maxInputBytes <= 0 {
+		return nil, errors.New("selection limits must be positive")
+	}
+	accountant, err := limits.NewAccountant(maxInputBytes, "selected-input-bytes")
+	if err != nil {
+		return nil, err
+	}
+	return &selectionBudget{seen: make(map[types.UID]struct{}, maxResources), bytes: accountant}, nil
+}
+
+func (e *Executor) listTarget(ctx context.Context, plan SelectionPlan, read AuthorizedRead, budget *selectionBudget) ([]SelectedResource, *SelectionError) {
 	items := make([]SelectedResource, 0)
+	targetAccepted := make([]selectedInput, 0)
 	continueToken := ""
 	restarted := false
 	for {
@@ -218,6 +283,11 @@ func (e *Executor) listTarget(ctx context.Context, plan SelectionPlan, read Auth
 				if restarted {
 					return nil, selectionErrorWithCause(plan.SourceID(), ReasonListExpired, "resource list continuation expired", err)
 				}
+				for _, accepted := range targetAccepted {
+					delete(budget.seen, accepted.uid)
+					_ = budget.bytes.ReleaseBytes(accepted.size)
+				}
+				targetAccepted = targetAccepted[:0]
 				items = items[:0]
 				continueToken = ""
 				restarted = true
@@ -239,7 +309,22 @@ func (e *Executor) listTarget(ctx context.Context, plan SelectionPlan, read Auth
 			if name == "" || uid == "" {
 				return nil, NewSelectionError(plan.SourceID(), ReasonInvalidObject, "selected object is missing required identity metadata")
 			}
+			if _, duplicate := budget.seen[uid]; duplicate {
+				continue
+			}
 			copy := item.DeepCopy()
+			if len(budget.seen) >= e.maxResources {
+				return nil, NewSelectionError(plan.SourceID(), ReasonSelectionLimitExceeded, "selected resource ceiling exceeded")
+			}
+			size, sizeErr := limits.CanonicalSize(copy.Object)
+			if sizeErr != nil {
+				return nil, NewSelectionError(plan.SourceID(), ReasonSelectionLimitExceeded, "selected input cannot be canonically sized")
+			}
+			if err := budget.bytes.AddBytes(int64(size)); err != nil {
+				return nil, NewSelectionError(plan.SourceID(), ReasonSelectionLimitExceeded, "selected input byte ceiling exceeded")
+			}
+			budget.seen[uid] = struct{}{}
+			targetAccepted = append(targetAccepted, selectedInput{uid: uid, size: int64(size)})
 			items = append(items, SelectedResource{
 				Object: copy,
 				Provenance: Provenance{
@@ -256,6 +341,11 @@ func (e *Executor) listTarget(ctx context.Context, plan SelectionPlan, read Auth
 			return items, nil
 		}
 	}
+}
+
+type selectedInput struct {
+	uid  types.UID
+	size int64
 }
 
 func notifyPageObserver(observer PageObserver, ctx context.Context, observation PageObservation) {

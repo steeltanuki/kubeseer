@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
+	"github.com/steeltanuki/kubeseer/internal/limits"
 )
 
 const (
@@ -65,23 +66,30 @@ type Limits struct {
 
 // DefaultLimits returns the approved positive admission budgets.
 func DefaultLimits() Limits {
+	return LimitsFromProfile(limits.DefaultProfile())
+}
+
+// LimitsFromProfile adapts the immutable manager profile to the existing
+// admission contract without exposing the profile's private state.
+func LimitsFromProfile(profile limits.Profile) Limits {
+	values := profile.Admission()
 	return Limits{
-		MaxKubeseerSources:          DefaultMaxKubeseerSources,
-		MaxSourceNamespaces:         DefaultMaxSourceNamespaces,
-		MaxSourceFields:             DefaultMaxSourceFields,
-		MaxFieldOperators:           DefaultMaxFieldOperators,
-		MaxOperatorValues:           DefaultMaxOperatorValues,
-		MaxSourceAggregations:       DefaultMaxSourceAggregations,
-		MaxAggregationGroupBy:       DefaultMaxAggregationGroupBy,
-		MaxSelectorMatchExpressions: DefaultMaxSelectorMatchExpressions,
-		MaxSelectorExpressionValues: DefaultMaxSelectorExpressionValues,
-		MaxSelectorMatchLabels:      DefaultMaxSelectorMatchLabels,
-		MaxPolicyNamespaceNames:     DefaultMaxPolicyNamespaceNames,
-		MaxPolicyResourceRules:      DefaultMaxPolicyResourceRules,
-		MaxPolicyAPIGroups:          DefaultMaxPolicyAPIGroups,
-		MaxPolicyKinds:              DefaultMaxPolicyKinds,
-		MaxKubeseerSpecBytes:        DefaultMaxCanonicalSpecBytes,
-		MaxAccessPolicySpecBytes:    DefaultMaxCanonicalSpecBytes,
+		MaxKubeseerSources:          values.MaxKubeseerSources,
+		MaxSourceNamespaces:         values.MaxSourceNamespaces,
+		MaxSourceFields:             values.MaxSourceFields,
+		MaxFieldOperators:           values.MaxFieldOperators,
+		MaxOperatorValues:           values.MaxOperatorValues,
+		MaxSourceAggregations:       values.MaxSourceAggregations,
+		MaxAggregationGroupBy:       values.MaxAggregationGroupBy,
+		MaxSelectorMatchExpressions: values.MaxSelectorMatchExpressions,
+		MaxSelectorExpressionValues: values.MaxSelectorExpressionValues,
+		MaxSelectorMatchLabels:      values.MaxSelectorMatchLabels,
+		MaxPolicyNamespaceNames:     values.MaxPolicyNamespaceNames,
+		MaxPolicyResourceRules:      values.MaxPolicyResourceRules,
+		MaxPolicyAPIGroups:          values.MaxPolicyAPIGroups,
+		MaxPolicyKinds:              values.MaxPolicyKinds,
+		MaxKubeseerSpecBytes:        values.MaxKubeseerSpecBytes,
+		MaxAccessPolicySpecBytes:    values.MaxAccessPolicySpecBytes,
 	}
 }
 
@@ -91,6 +99,51 @@ type BudgetIssue struct {
 	Path    string
 	Reason  string
 	Message string
+}
+
+// BudgetValidator is the reusable pure budget boundary shared by admission
+// and reconciliation. It owns a defensive value copy and never performs
+// discovery, policy, or resource I/O.
+type BudgetValidator struct {
+	limits Limits
+}
+
+// NewBudgetValidator constructs a reusable validator from one budget view.
+// Non-positive fields retain the historical direct-constructor defaults; the
+// manager composition root rejects such values before constructing it.
+func NewBudgetValidator(limits Limits) *BudgetValidator {
+	return &BudgetValidator{limits: normalizeLimits(limits)}
+}
+
+// NewBudgetValidatorFromProfile adapts a resolved manager profile to the
+// common admission/runtime budget boundary.
+func NewBudgetValidatorFromProfile(profile limits.Profile) *BudgetValidator {
+	return NewBudgetValidator(LimitsFromProfile(profile))
+}
+
+// Limits returns a defensive copy of the validator's budget view.
+func (v *BudgetValidator) Limits() Limits {
+	if v == nil {
+		return DefaultLimits()
+	}
+	return v.limits
+}
+
+// ValidateKubeseer applies the common Kubeseer budget boundary.
+func (v *BudgetValidator) ValidateKubeseer(object *v1alpha1.Kubeseer) []BudgetIssue {
+	if v == nil {
+		return ValidateKubeseerBudgets(object)
+	}
+	return ValidateKubeseerBudgetsWithLimits(object, v.limits)
+}
+
+// ValidateAccessPolicy applies the common installation-policy budget
+// boundary before policy compilation.
+func (v *BudgetValidator) ValidateAccessPolicy(object *v1alpha1.KubeseerAccessPolicy) []BudgetIssue {
+	if v == nil {
+		return ValidateAccessPolicyBudgets(object)
+	}
+	return ValidateAccessPolicyBudgetsWithLimits(object, v.limits)
 }
 
 // ValidateKubeseerBudgets applies every Kubeseer cardinality and serialized

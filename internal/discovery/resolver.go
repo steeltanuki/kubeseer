@@ -35,12 +35,16 @@ type DiscoveryClient interface {
 
 // Resolver maps source descriptors to Kubernetes resource identities.
 type Resolver struct {
-	client     DiscoveryClient
-	cacheTTL   time.Duration
-	clock      Clock
-	cacheMu    sync.RWMutex
-	cache      map[cacheKey]cacheEntry
-	refreshing map[cacheKey]*refreshState
+	client            DiscoveryClient
+	cacheTTL          time.Duration
+	cacheCapacity     int
+	clock             Clock
+	cacheMu           sync.RWMutex
+	cache             map[cacheKey]cacheEntry
+	refreshing        map[cacheKey]*refreshState
+	accessSequence    uint64
+	invalidationEpoch uint64
+	keyEpoch          map[cacheKey]uint64
 }
 
 type cacheKey struct {
@@ -49,9 +53,16 @@ type cacheKey struct {
 }
 
 type cacheEntry struct {
-	resource  schema.GroupVersionResource
-	scope     Scope
-	expiresAt time.Time
+	resource       schema.GroupVersionResource
+	scope          Scope
+	expiresAt      time.Time
+	accessSequence uint64
+	version        cacheVersion
+}
+
+type cacheVersion struct {
+	all uint64
+	key uint64
 }
 
 func (e cacheEntry) resolution(sourceID string) Resolution {
@@ -63,14 +74,19 @@ func (e cacheEntry) resolution(sourceID string) Resolution {
 }
 
 type refreshState struct {
-	done  chan struct{}
-	entry cacheEntry
-	err   error
+	done    chan struct{}
+	entry   cacheEntry
+	err     error
+	version cacheVersion
 }
 
 // DefaultCacheTTL is the freshness interval used by a resolver unless an
 // option supplies a different duration.
 const DefaultCacheTTL = 5 * time.Minute
+
+// DefaultCacheCapacity is the metadata-entry bound used by a resolver unless
+// the manager composition root supplies a different positive capacity.
+const DefaultCacheCapacity = 1024
 
 // Clock supplies the current time used for cache expiry decisions.
 type Clock func() time.Time
@@ -83,6 +99,17 @@ func WithCacheTTL(ttl time.Duration) ResolverOption {
 	return func(r *Resolver) {
 		if ttl > 0 {
 			r.cacheTTL = ttl
+		}
+	}
+}
+
+// WithCacheCapacity configures the maximum number of discovery metadata
+// entries retained by the resolver. Non-positive values leave the default in
+// place so an incomplete option cannot make the cache unbounded or unusable.
+func WithCacheCapacity(capacity int) ResolverOption {
+	return func(r *Resolver) {
+		if capacity > 0 {
+			r.cacheCapacity = capacity
 		}
 	}
 }
@@ -102,6 +129,9 @@ func (r *Resolver) ensureCache() {
 	if r.cacheTTL <= 0 {
 		r.cacheTTL = DefaultCacheTTL
 	}
+	if r.cacheCapacity <= 0 {
+		r.cacheCapacity = DefaultCacheCapacity
+	}
 	if r.clock == nil {
 		r.clock = Clock(time.Now)
 	}
@@ -111,26 +141,52 @@ func (r *Resolver) ensureCache() {
 	if r.refreshing == nil {
 		r.refreshing = make(map[cacheKey]*refreshState)
 	}
+	if r.keyEpoch == nil {
+		r.keyEpoch = make(map[cacheKey]uint64)
+	}
 }
 
 func (r *Resolver) freshCacheEntry(key cacheKey) (cacheEntry, bool) {
-	now := r.clock()
-	r.cacheMu.RLock()
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
 	entry, ok := r.cache[key]
-	r.cacheMu.RUnlock()
-	return entry, ok && now.Before(entry.expiresAt)
+	if !ok {
+		return cacheEntry{}, false
+	}
+	if entry.version != r.versionLocked(key) {
+		delete(r.cache, key)
+		return cacheEntry{}, false
+	}
+	if !r.clock().Before(entry.expiresAt) {
+		return cacheEntry{}, false
+	}
+	entry.accessSequence = r.nextAccessLocked()
+	r.cache[key] = entry
+	return entry, true
 }
 
 func (r *Resolver) beginRefresh(key cacheKey) (*refreshState, bool, cacheEntry, bool) {
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
-	if entry, ok := r.cache[key]; ok && r.clock().Before(entry.expiresAt) {
-		return nil, false, entry, true
+	version := r.versionLocked(key)
+	if entry, ok := r.cache[key]; ok {
+		if entry.version != version {
+			delete(r.cache, key)
+		} else if r.clock().Before(entry.expiresAt) {
+			entry.accessSequence = r.nextAccessLocked()
+			r.cache[key] = entry
+			return nil, false, entry, true
+		}
 	}
 	if state, ok := r.refreshing[key]; ok {
-		return state, false, cacheEntry{}, false
+		if state.version == version {
+			return state, false, cacheEntry{}, false
+		}
+		// An invalidation advances the version. The old request is allowed to
+		// finish, but a new caller must not wait for or reuse its result.
+		delete(r.refreshing, key)
 	}
-	state := &refreshState{done: make(chan struct{})}
+	state := &refreshState{done: make(chan struct{}), version: version}
 	r.refreshing[key] = state
 	return state, true, cacheEntry{}, false
 }
@@ -139,12 +195,87 @@ func (r *Resolver) finishRefresh(key cacheKey, state *refreshState, entry cacheE
 	r.cacheMu.Lock()
 	state.entry = entry
 	state.err = err
-	if err == nil {
-		r.cache[key] = entry
+	if current, ok := r.refreshing[key]; ok && current == state {
+		if err == nil && state.version == r.versionLocked(key) {
+			entry.version = state.version
+			r.retainEntryLocked(key, entry, state)
+		}
+		delete(r.refreshing, key)
 	}
-	delete(r.refreshing, key)
 	close(state.done)
 	r.cacheMu.Unlock()
+}
+
+func (r *Resolver) versionLocked(key cacheKey) cacheVersion {
+	return cacheVersion{all: r.invalidationEpoch, key: r.keyEpoch[key]}
+}
+
+func (r *Resolver) nextAccessLocked() uint64 {
+	r.accessSequence++
+	if r.accessSequence == 0 {
+		// Sequence overflow is practically unreachable, but renumbering keeps
+		// eviction deterministic even for a long-lived process.
+		var sequence uint64
+		for key, entry := range r.cache {
+			sequence++
+			entry.accessSequence = sequence
+			r.cache[key] = entry
+		}
+		r.accessSequence = sequence + 1
+	}
+	return r.accessSequence
+}
+
+func (r *Resolver) retainEntryLocked(key cacheKey, entry cacheEntry, state *refreshState) bool {
+	if r.cacheCapacity <= 0 || state == nil || state.version != r.versionLocked(key) {
+		return false
+	}
+
+	// Replacing a stale entry for the same key never needs to evict another
+	// key. A refresh state is deliberately kept separate from this metadata.
+	delete(r.cache, key)
+	if len(r.cache) >= r.cacheCapacity {
+		victim, found := r.lruVictimLocked()
+		if !found {
+			// Every retained entry is refreshing. The caller still receives the
+			// fresh result; retention is an optimization, not a correctness
+			// dependency.
+			return false
+		}
+		delete(r.cache, victim)
+	}
+	entry.accessSequence = r.nextAccessLocked()
+	r.cache[key] = entry
+	return true
+}
+
+func (r *Resolver) lruVictimLocked() (cacheKey, bool) {
+	var victim cacheKey
+	found := false
+	for key, entry := range r.cache {
+		if _, refreshing := r.refreshing[key]; refreshing {
+			continue
+		}
+		if !found || entry.accessSequence < r.cache[victim].accessSequence ||
+			(entry.accessSequence == r.cache[victim].accessSequence && cacheKeyLess(key, victim)) {
+			victim = key
+			found = true
+		}
+	}
+	return victim, found
+}
+
+func cacheKeyLess(left, right cacheKey) bool {
+	if left.groupVersion != right.groupVersion {
+		return left.groupVersion < right.groupVersion
+	}
+	return left.kind < right.kind
+}
+
+func (r *Resolver) refreshVersionCurrent(key cacheKey, version cacheVersion) bool {
+	r.cacheMu.RLock()
+	defer r.cacheMu.RUnlock()
+	return r.versionLocked(key) == version
 }
 
 // InvalidateGroupVersion removes every cached kind under a canonical API
@@ -157,10 +288,20 @@ func (r *Resolver) InvalidateGroupVersion(groupVersion string) {
 	}
 	r.ensureCache()
 	r.cacheMu.Lock()
+	keys := make(map[cacheKey]struct{})
 	for key := range r.cache {
 		if key.groupVersion == canonical {
+			keys[key] = struct{}{}
 			delete(r.cache, key)
 		}
+	}
+	for key := range r.refreshing {
+		if key.groupVersion == canonical {
+			keys[key] = struct{}{}
+		}
+	}
+	for key := range keys {
+		r.keyEpoch[key]++
 	}
 	r.cacheMu.Unlock()
 }
@@ -174,7 +315,9 @@ func (r *Resolver) InvalidateResource(groupVersion, kind string) {
 	}
 	r.ensureCache()
 	r.cacheMu.Lock()
-	delete(r.cache, cacheKey{groupVersion: canonical, kind: kind})
+	key := cacheKey{groupVersion: canonical, kind: kind}
+	delete(r.cache, key)
+	r.keyEpoch[key]++
 	r.cacheMu.Unlock()
 }
 
@@ -185,9 +328,8 @@ func (r *Resolver) InvalidateAll() {
 	}
 	r.ensureCache()
 	r.cacheMu.Lock()
-	for key := range r.cache {
-		delete(r.cache, key)
-	}
+	r.invalidationEpoch++
+	r.cache = make(map[cacheKey]cacheEntry)
 	r.cacheMu.Unlock()
 }
 
@@ -204,11 +346,13 @@ func canonicalGroupVersion(value string) (string, bool) {
 // constructor while tests and deployments can configure cache behavior.
 func NewResolver(client DiscoveryClient, options ...ResolverOption) *Resolver {
 	resolver := &Resolver{
-		client:     client,
-		cacheTTL:   DefaultCacheTTL,
-		clock:      Clock(time.Now),
-		cache:      make(map[cacheKey]cacheEntry),
-		refreshing: make(map[cacheKey]*refreshState),
+		client:        client,
+		cacheTTL:      DefaultCacheTTL,
+		cacheCapacity: DefaultCacheCapacity,
+		clock:         Clock(time.Now),
+		cache:         make(map[cacheKey]cacheEntry),
+		refreshing:    make(map[cacheKey]*refreshState),
+		keyEpoch:      make(map[cacheKey]uint64),
 	}
 	for _, option := range options {
 		if option != nil {
@@ -295,6 +439,9 @@ func (r *Resolver) resolveWithRefresh(ctx context.Context, descriptor SourceDesc
 	if !owner {
 		select {
 		case <-state.done:
+			if !r.refreshVersionCurrent(key, state.version) {
+				return r.resolveWithRefresh(ctx, descriptor, groupVersion, key)
+			}
 			if state.err != nil {
 				return Resolution{}, sourceScopedResolutionError(descriptor.SourceID, state.err, "discovery refresh failed")
 			}
@@ -315,11 +462,17 @@ func (r *Resolver) resolveWithRefresh(ctx context.Context, descriptor SourceDesc
 		return Resolution{}, err
 	}
 	refreshedEntry := cacheEntry{
-		resource:  resolution.Resource,
-		scope:     resolution.Scope,
-		expiresAt: r.clock().Add(r.cacheTTL),
+		resource: resolution.Resource,
+		scope:    resolution.Scope,
+		version:  state.version,
 	}
+	r.cacheMu.RLock()
+	refreshedEntry.expiresAt = r.clock().Add(r.cacheTTL)
+	r.cacheMu.RUnlock()
 	r.finishRefresh(key, state, refreshedEntry, nil)
+	if !r.refreshVersionCurrent(key, state.version) {
+		return r.resolveWithRefresh(ctx, descriptor, groupVersion, key)
+	}
 	return resolution, nil
 }
 

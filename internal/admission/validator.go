@@ -22,6 +22,7 @@ import (
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
 	"github.com/steeltanuki/kubeseer/internal/accesspolicy"
 	"github.com/steeltanuki/kubeseer/internal/discovery"
+	"github.com/steeltanuki/kubeseer/internal/limits"
 	"github.com/steeltanuki/kubeseer/internal/selection"
 )
 
@@ -32,17 +33,34 @@ type Validator struct {
 	resolver     selection.DiscoveryResolver
 	policySource accesspolicy.PolicySource
 	limits       Limits
+	budgets      *BudgetValidator
 }
 
 // NewValidator constructs a validator with the approved default budgets.
 func NewValidator(resolver selection.DiscoveryResolver, policySource accesspolicy.PolicySource) *Validator {
-	return &Validator{resolver: resolver, policySource: policySource, limits: DefaultLimits()}
+	return NewValidatorWithLimits(resolver, policySource, DefaultLimits())
 }
 
 // NewValidatorWithLimits constructs a validator with a defensive copy of the
 // supplied budgets. Non-positive fields continue to use approved defaults.
 func NewValidatorWithLimits(resolver selection.DiscoveryResolver, policySource accesspolicy.PolicySource, limits Limits) *Validator {
-	return &Validator{resolver: resolver, policySource: policySource, limits: normalizeLimits(limits)}
+	budgetValidator := NewBudgetValidator(limits)
+	return &Validator{resolver: resolver, policySource: policySource, limits: budgetValidator.Limits(), budgets: budgetValidator}
+}
+
+// NewValidatorWithProfile constructs admission using the same immutable
+// manager profile that reconciliation will use.
+func NewValidatorWithProfile(resolver selection.DiscoveryResolver, policySource accesspolicy.PolicySource, profile limits.Profile) *Validator {
+	return NewValidatorWithLimits(resolver, policySource, LimitsFromProfile(profile))
+}
+
+// NewValidatorWithBudgetValidator composes a pre-resolved common budget
+// boundary without exposing mutable validator state.
+func NewValidatorWithBudgetValidator(resolver selection.DiscoveryResolver, policySource accesspolicy.PolicySource, budgetValidator *BudgetValidator) *Validator {
+	if budgetValidator == nil {
+		budgetValidator = NewBudgetValidator(DefaultLimits())
+	}
+	return &Validator{resolver: resolver, policySource: policySource, limits: budgetValidator.Limits(), budgets: budgetValidator}
 }
 
 // ValidateKubeseer validates one proposed Kubeseer through the staged
@@ -52,7 +70,7 @@ func (v *Validator) ValidateKubeseer(ctx context.Context, object *v1alpha1.Kubes
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	issues := budgetIssues(ValidateKubeseerBudgetsWithLimits(object, v.validationLimits()))
+	issues := budgetIssues(v.budgetValidator().ValidateKubeseer(object))
 	if len(issues) != 0 {
 		return result(issues)
 	}
@@ -111,7 +129,7 @@ func (v *Validator) ValidateKubeseer(ctx context.Context, object *v1alpha1.Kubes
 // ValidateAccessPolicy validates a proposed policy without reading the
 // currently persisted policy or any Kubeseer object.
 func (v *Validator) ValidateAccessPolicy(_ context.Context, object *v1alpha1.KubeseerAccessPolicy) Result {
-	issues := budgetIssues(ValidateAccessPolicyBudgetsWithLimits(object, v.validationLimits()))
+	issues := budgetIssues(v.budgetValidator().ValidateAccessPolicy(object))
 	if len(issues) != 0 {
 		return result(issues)
 	}
@@ -128,6 +146,13 @@ func (v *Validator) validationLimits() Limits {
 		return DefaultLimits()
 	}
 	return normalizeLimits(v.limits)
+}
+
+func (v *Validator) budgetValidator() *BudgetValidator {
+	if v == nil || v.budgets == nil {
+		return NewBudgetValidator(DefaultLimits())
+	}
+	return v.budgets
 }
 
 func budgetIssues(input []BudgetIssue) []Issue {

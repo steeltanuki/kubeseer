@@ -67,6 +67,19 @@ func (s *ClientPolicySource) Get(ctx context.Context) (*v1alpha1.KubeseerAccessP
 // represented by a new valid or terminal deny-all snapshot; no previous
 // snapshot is accepted as an input or reused after failure.
 func Load(ctx context.Context, source PolicySource) Snapshot {
+	return LoadWithValidation(ctx, source, nil)
+}
+
+// PolicyValidation is an optional pure pre-compilation guard. It is used by
+// the runtime to apply the shared admission budget boundary before any policy
+// compiler work occurs, without importing a domain package here.
+type PolicyValidation func(*v1alpha1.KubeseerAccessPolicy) error
+
+// LoadWithValidation reads and compiles one fresh policy snapshot after the
+// supplied validation callback succeeds. A validation failure is deliberately
+// indistinguishable from another invalid policy to preserve fail-closed
+// behavior and sanitized policy diagnostics.
+func LoadWithValidation(ctx context.Context, source PolicySource, validate PolicyValidation) Snapshot {
 	if source == nil {
 		return NewDenyAllSnapshot(ReasonPolicyUnavailable, "policy is unavailable; observation denied")
 	}
@@ -86,6 +99,11 @@ func Load(ctx context.Context, source PolicySource) Snapshot {
 		Name:       policy.Name,
 		UID:        policy.UID,
 		Generation: policy.Generation,
+	}
+	if validate != nil {
+		if err := validate(policy); err != nil {
+			return NewDenyAllSnapshotWithIdentity(ReasonPolicyInvalid, "policy is invalid; observation denied", identity)
+		}
 	}
 	compiled, err := Compile(policy)
 	if err != nil {

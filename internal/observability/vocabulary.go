@@ -151,6 +151,12 @@ const (
 	ReasonAggregationInterrupted    Reason = "aggregation-interrupted"
 	ReasonInvalidSubject            Reason = "InvalidSubject"
 	ReasonContextCanceled           Reason = "ContextCanceled"
+	ReasonInvalidLimitConfiguration Reason = "InvalidLimitConfiguration"
+	ReasonSelectionLimitExceeded    Reason = "SelectionLimitExceeded"
+	ReasonValueLimitExceeded        Reason = "ValueLimitExceeded"
+	ReasonEvaluationTimedOut        Reason = "EvaluationTimedOut"
+	ReasonResultLimitExceeded       Reason = "ResultLimitExceeded"
+	ReasonStatusLimitInvalid        Reason = "StatusLimitInvalid"
 )
 
 // Severity is the closed structured-log severity vocabulary.
@@ -184,6 +190,23 @@ const (
 	StageAggregate Stage = "aggregate"
 	StageCompose   Stage = "compose"
 	StagePublish   Stage = "publish"
+)
+
+// LimitDimension is the closed diagnostic vocabulary for runtime ceilings.
+// It is a structured field only and is never a metric label.
+type LimitDimension string
+
+const (
+	LimitDimensionMatchedResources         LimitDimension = "matched_resources"
+	LimitDimensionSelectedInputBytes       LimitDimension = "selected_input_bytes"
+	LimitDimensionProducedValueBytes       LimitDimension = "produced_value_bytes"
+	LimitDimensionAggregationGroups        LimitDimension = "aggregation_groups"
+	LimitDimensionAggregationContributions LimitDimension = "aggregation_contributions"
+	LimitDimensionAggregationCollections   LimitDimension = "aggregation_collected_values"
+	LimitDimensionAggregationDistinct      LimitDimension = "aggregation_distinct_values"
+	LimitDimensionAggregationProvenance    LimitDimension = "aggregation_provenance"
+	LimitDimensionEvaluationTimeout        LimitDimension = "evaluation_timeout_ms"
+	LimitDimensionStatusBytes              LimitDimension = "status_bytes"
 )
 
 // Scope is the finite resource scope vocabulary used by metrics and safe
@@ -249,6 +272,18 @@ type SourceFailure struct {
 	Retry    RetryClassification
 }
 
+// LimitObservation describes one authoritative runtime ceiling failure. An
+// empty SourceID denotes a reconciliation-scoped ceiling such as a deadline
+// or status publication limit.
+type LimitObservation struct {
+	SourceID  string
+	Stage     Stage
+	Reason    Reason
+	Retry     RetryClassification
+	Dimension LimitDimension
+	Ceiling   int64
+}
+
 // WatchObservation describes an unexpected watch lifecycle transition.
 type WatchObservation struct {
 	Target WatchTarget
@@ -307,6 +342,8 @@ type LogRecord struct {
 	Target        WatchTarget
 	TraceID       string
 	SpanID        string
+	Dimension     LimitDimension
+	Ceiling       int64
 	Authorization *authorization.Record
 }
 
@@ -376,10 +413,37 @@ func normalizeReason(reason Reason) Reason {
 		ReasonUnsupportedGroupType, ReasonIncompatibleFunction, ReasonInvalidAverageOptions,
 		ReasonInvalidGroupKey, ReasonTargetFieldError,
 		ReasonOverflow, ReasonCardinalityExceeded, ReasonAggregationInterrupted,
-		ReasonInvalidSubject, ReasonContextCanceled:
+		ReasonInvalidSubject, ReasonContextCanceled, ReasonInvalidLimitConfiguration,
+		ReasonSelectionLimitExceeded, ReasonValueLimitExceeded, ReasonEvaluationTimedOut,
+		ReasonResultLimitExceeded, ReasonStatusLimitInvalid:
 		return reason
 	default:
 		return ReasonInternalError
+	}
+}
+
+func normalizeLimitDimension(dimension LimitDimension) LimitDimension {
+	switch dimension {
+	case LimitDimensionMatchedResources, LimitDimensionSelectedInputBytes,
+		LimitDimensionProducedValueBytes, LimitDimensionAggregationGroups,
+		LimitDimensionAggregationContributions, LimitDimensionAggregationCollections,
+		LimitDimensionAggregationDistinct, LimitDimensionAggregationProvenance,
+		LimitDimensionEvaluationTimeout, LimitDimensionStatusBytes:
+		return dimension
+	default:
+		return ""
+	}
+}
+
+func isLimitReason(reason Reason) bool {
+	switch reason {
+	case ReasonInvalidLimitConfiguration, ReasonSelectionLimitExceeded,
+		ReasonValueLimitExceeded, ReasonEvaluationTimedOut,
+		ReasonResultLimitExceeded, ReasonStatusLimitInvalid,
+		ReasonCardinalityExceeded:
+		return true
+	default:
+		return false
 	}
 }
 

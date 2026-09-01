@@ -20,10 +20,13 @@ import (
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
 	"github.com/steeltanuki/kubeseer/internal/accesspolicy"
+	"github.com/steeltanuki/kubeseer/internal/admission"
 	"github.com/steeltanuki/kubeseer/internal/authorization"
 	discoveryruntime "github.com/steeltanuki/kubeseer/internal/discovery"
+	"github.com/steeltanuki/kubeseer/internal/limits"
 	"github.com/steeltanuki/kubeseer/internal/observability"
 	"github.com/steeltanuki/kubeseer/internal/selection"
+	statuscontract "github.com/steeltanuki/kubeseer/internal/status"
 	k8sdiscovery "k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/metadata"
@@ -44,6 +47,17 @@ func SetupWithManager(mgr manager.Manager, options Options) error {
 	normalized, err := options.normalized()
 	if err != nil {
 		return err
+	}
+	profile := limits.DefaultProfile()
+	if normalized.LimitProfile != nil {
+		profile = *normalized.LimitProfile
+	}
+	normalized.LimitProfile = &profile
+	if !profile.Valid() {
+		return &limits.InvalidConfigurationError{Field: "limitProfile", Cause: errors.New("profile is incomplete")}
+	}
+	if err := statuscontract.ValidateCompactStatusLimit(profile.MaxStatusBytes()); err != nil {
+		return &limits.InvalidConfigurationError{Field: "maxStatusBytes", Cause: err}
 	}
 	apiReader := mgr.GetAPIReader()
 	managerClient := mgr.GetClient()
@@ -78,12 +92,14 @@ func SetupWithManager(mgr manager.Manager, options Options) error {
 	}
 
 	tracker := NewFreshnessTracker()
+	budgetValidator := admission.NewBudgetValidatorFromProfile(profile)
 	enforcer := authorization.NewEnforcer(observability.NewAuthorizationRecorder(observer))
 	store := NewClientKubeseerStore(apiReader)
 	routes := NewRouteRegistry(
 		NewClientMetadataWatcher(metadataClient),
 		tracker,
 		WithRouteWatchBackoff(normalized.WatchBackoffBase, normalized.WatchBackoffMax),
+		WithMaxActiveWatches(profile.MaxActiveWatches()),
 		WithRouteWatchObserver(observer),
 	)
 	dependencies := Dependencies{
@@ -91,22 +107,31 @@ func SetupWithManager(mgr manager.Manager, options Options) error {
 		Lister:       store,
 		PolicySource: accesspolicy.NewClientPolicySource(apiReader),
 		Enforcer:     enforcer,
-		Planner:      selection.NewPlanner(discoveryruntime.NewResolver(discoveryClient)),
+		Planner: selection.NewPlanner(discoveryruntime.NewResolver(
+			discoveryClient,
+			discoveryruntime.WithCacheTTL(profile.DiscoveryCacheTTL()),
+			discoveryruntime.WithCacheCapacity(profile.DiscoveryCacheEntries()),
+		)),
 		Executor: selection.NewExecutor(selection.NewDynamicResourceLister(dynamicClient, tracker),
 			selection.WithVerifier(tracker),
+			selection.WithLimits(profile),
 			selection.WithPageObserver(observability.NewPageObserver(observer)),
 		),
-		Routes:    routes,
-		Publisher: NewStatusPublisher(store, NewClientStatusWriter(managerClient.Status()), tracker, WithStatusObserver(observer)),
-		Tracker:   tracker,
-		Observer:  observer,
+		Routes:          routes,
+		Publisher:       NewStatusPublisher(store, NewClientStatusWriter(managerClient.Status()), tracker, WithStatusObserver(observer), WithMaxStatusBytes(profile.MaxStatusBytes())),
+		BudgetValidator: budgetValidator,
+		Tracker:         tracker,
+		Observer:        observer,
 	}
 	runtime, err := NewRuntime(normalized, dependencies)
 	if err != nil {
 		return err
 	}
 
-	controllerInstance, err := controller.New(controllerName, mgr, controller.Options{Reconciler: runtime})
+	controllerInstance, err := controller.New(controllerName, mgr, controller.Options{
+		Reconciler:              runtime,
+		MaxConcurrentReconciles: profile.MaxConcurrentReconciles(),
+	})
 	if err != nil {
 		return fmt.Errorf("create reconciliation controller: %w", err)
 	}

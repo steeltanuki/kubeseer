@@ -18,6 +18,7 @@ import (
 	"context"
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
+	"github.com/steeltanuki/kubeseer/internal/limits"
 	"github.com/steeltanuki/kubeseer/internal/operators"
 	"github.com/steeltanuki/kubeseer/internal/typedoutput"
 )
@@ -26,6 +27,13 @@ import (
 // caller source order. It consumes completed operator outcomes and performs
 // no Kubernetes I/O.
 func EvaluateBatch(ctx context.Context, inputs []SourceInput) []SourceOutcome {
+	return EvaluateBatchWithLimit(ctx, inputs, 0)
+}
+
+// EvaluateBatchWithLimit evaluates aggregation with one fresh canonical
+// accountant per source. Existing cardinality failures remain authoritative;
+// the value ceiling applies only to a successful aggregate projection.
+func EvaluateBatchWithLimit(ctx context.Context, inputs []SourceInput, maxBytes int64) []SourceOutcome {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -60,6 +68,15 @@ func EvaluateBatch(ctx context.Context, inputs []SourceInput) []SourceOutcome {
 		if source.Err() != nil {
 			outcomes[index] = SourceOutcome{sourceID: sourceID, operator: source}
 			continue
+		}
+		var accountant *limits.Accountant
+		if maxBytes > 0 {
+			var err error
+			accountant, err = limits.NewAccountant(maxBytes, "produced-values")
+			if err != nil {
+				outcomes[index] = valueLimitSourceOutcome(sourceID)
+				continue
+			}
 		}
 
 		outcome := SourceOutcome{sourceID: sourceID, operator: source}
@@ -129,9 +146,38 @@ func EvaluateBatch(ctx context.Context, inputs []SourceInput) []SourceOutcome {
 		if outcomes[index].sourceID != "" {
 			continue
 		}
+		if err := accountAggregateResults(accountant, outcome.aggregates); err != nil {
+			outcomes[index] = valueLimitSourceOutcome(sourceID)
+			continue
+		}
 		outcomes[index] = outcome
 	}
 	return outcomes
+}
+
+func accountAggregateResults(accountant *limits.Accountant, aggregates []AggregateOutcome) error {
+	if accountant == nil {
+		return nil
+	}
+	for _, aggregate := range aggregates {
+		projected, err := projectAggregate(aggregate)
+		if err != nil {
+			return err
+		}
+		if err := accountant.Add(projected); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func valueLimitSourceOutcome(sourceID string) SourceOutcome {
+	err := NewAggregateError(sourceID, "", "", "", nil, ReasonValueLimitExceeded, "produced value ceiling exceeded")
+	return SourceOutcome{
+		sourceID: sourceID,
+		operator: operators.NewSourceError(sourceID, operators.ReasonValueLimitExceeded, "produced value ceiling exceeded"),
+		err:      err,
+	}
 }
 
 func inputOperatorOutcome(input SourceInput) operators.SourceOutcome {

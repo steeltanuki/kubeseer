@@ -23,6 +23,7 @@ import (
 
 	"github.com/steeltanuki/kubeseer/internal/authorization"
 	"github.com/steeltanuki/kubeseer/internal/discovery"
+	"github.com/steeltanuki/kubeseer/internal/limits"
 	"github.com/steeltanuki/kubeseer/internal/observability"
 	"github.com/steeltanuki/kubeseer/internal/selection"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -214,6 +215,7 @@ func (w *ClientMetadataWatcher) Watch(ctx context.Context, permit WatchPermit, r
 type routeRegistryOptions struct {
 	watchBackoffBase time.Duration
 	watchBackoffMax  time.Duration
+	maxActiveWatches int
 	watchObserver    *observability.Observer
 }
 
@@ -228,6 +230,17 @@ func WithRouteWatchBackoff(base, maximum time.Duration) RouteRegistryOption {
 		}
 		if maximum > 0 {
 			options.watchBackoffMax = maximum
+		}
+	}
+}
+
+// WithMaxActiveWatches configures the maximum number of exact metadata watch
+// supervisors retained by the registry. Bound routes beyond this ceiling stay
+// registered for periodic safety reconciliation.
+func WithMaxActiveWatches(capacity int) RouteRegistryOption {
+	return func(options *routeRegistryOptions) {
+		if capacity > 0 {
+			options.maxActiveWatches = capacity
 		}
 	}
 }
@@ -254,6 +267,7 @@ type RouteRegistry struct {
 	started  bool
 	ctx      context.Context
 	queue    workqueue.TypedRateLimitingInterface[reconcile.Request]
+	ingress  TriggerIngress
 }
 
 // NewRouteRegistry creates an identity-only route registry.
@@ -261,6 +275,7 @@ func NewRouteRegistry(watcher MetadataWatcher, tracker *FreshnessTracker, option
 	settings := routeRegistryOptions{
 		watchBackoffBase: defaultWatchBackoffBase,
 		watchBackoffMax:  defaultWatchBackoffMax,
+		maxActiveWatches: limits.DefaultMaxActiveWatches,
 	}
 	for _, option := range options {
 		if option != nil {
@@ -278,6 +293,17 @@ func NewRouteRegistry(watcher MetadataWatcher, tracker *FreshnessTracker, option
 		byTarget: make(map[WatchAddress]map[routeBindingKey]RouteBinding),
 		watches:  make(map[WatchAddress]*watchSupervisor),
 	}
+}
+
+// SetTriggerIngress routes source-watch identities through the manager-owned
+// bounded trigger ingress. A nil value restores standalone queue behavior.
+func (r *RouteRegistry) SetTriggerIngress(ingress TriggerIngress) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.ingress = ingress
+	r.mu.Unlock()
 }
 
 // Start binds the registry to the controller queue and starts all existing
@@ -376,19 +402,7 @@ func (r *RouteRegistry) Replace(lease Lease, routes []AuthorizedRoute) error {
 	}
 	started := r.started
 	ctx := r.ctx
-	for address := range r.byTarget {
-		if _, exists := r.watches[address]; !exists {
-			r.watches[address] = &watchSupervisor{registry: r, address: address, watcher: r.watcher, base: r.options.watchBackoffBase, maximum: r.options.watchBackoffMax, observer: r.options.watchObserver}
-		}
-	}
-	toStart := make([]*watchSupervisor, 0)
-	if started {
-		for _, supervisor := range r.watches {
-			if !supervisor.isStarted() {
-				toStart = append(toStart, supervisor)
-			}
-		}
-	}
+	toStart := r.ensureWatchCapacityLocked()
 	r.mu.Unlock()
 	for _, supervisor := range toStop {
 		supervisor.stop()
@@ -436,6 +450,9 @@ func (r *RouteRegistry) currentPermit(address WatchAddress) (WatchPermit, bool) 
 	}
 	r.mu.Lock()
 	toStop := r.pruneStaleLocked(address)
+	started := r.started
+	ctx := r.ctx
+	toStart := r.ensureWatchCapacityLocked()
 	bindings := r.byTarget[address]
 	ordered := make([]RouteBinding, 0, len(bindings))
 	for _, binding := range bindings {
@@ -444,6 +461,11 @@ func (r *RouteRegistry) currentPermit(address WatchAddress) (WatchPermit, bool) 
 	r.mu.Unlock()
 	for _, supervisor := range toStop {
 		supervisor.stop()
+	}
+	if started {
+		for _, supervisor := range toStart {
+			r.startSupervisorAndWait(supervisor, ctx)
+		}
 	}
 	if len(ordered) == 0 {
 		return WatchPermit{}, false
@@ -525,6 +547,57 @@ func (r *RouteRegistry) removeBindingLocked(binding RouteBinding) *watchSupervis
 	return supervisor
 }
 
+func (r *RouteRegistry) ensureWatchCapacityLocked() []*watchSupervisor {
+	if r == nil {
+		return nil
+	}
+	capacity := r.options.maxActiveWatches
+	if capacity <= 0 {
+		capacity = limits.DefaultMaxActiveWatches
+	}
+	addresses := make([]WatchAddress, 0, len(r.byTarget))
+	for address := range r.byTarget {
+		addresses = append(addresses, address)
+	}
+	sort.Slice(addresses, func(i, j int) bool { return watchAddressLess(addresses[i], addresses[j]) })
+	toStart := make([]*watchSupervisor, 0)
+	for _, address := range addresses {
+		if len(r.watches) >= capacity {
+			break
+		}
+		if _, exists := r.watches[address]; exists {
+			continue
+		}
+		supervisor := &watchSupervisor{
+			registry: r,
+			address:  address,
+			watcher:  r.watcher,
+			base:     r.options.watchBackoffBase,
+			maximum:  r.options.watchBackoffMax,
+			observer: r.options.watchObserver,
+		}
+		r.watches[address] = supervisor
+		toStart = append(toStart, supervisor)
+	}
+	return toStart
+}
+
+func watchAddressLess(left, right WatchAddress) bool {
+	if left.GVR.Group != right.GVR.Group {
+		return left.GVR.Group < right.GVR.Group
+	}
+	if left.GVR.Version != right.GVR.Version {
+		return left.GVR.Version < right.GVR.Version
+	}
+	if left.GVR.Resource != right.GVR.Resource {
+		return left.GVR.Resource < right.GVR.Resource
+	}
+	if left.Scope != right.Scope {
+		return left.Scope < right.Scope
+	}
+	return left.Namespace < right.Namespace
+}
+
 func keyForBinding(binding RouteBinding) routeBindingKey {
 	return routeBindingKey{
 		Address:     binding.Address,
@@ -550,9 +623,17 @@ func (r *RouteRegistry) RemoveOwner(owner types.NamespacedName) {
 			toStop = append(toStop, supervisor)
 		}
 	}
+	started := r.started
+	ctx := r.ctx
+	toStart := r.ensureWatchCapacityLocked()
 	r.mu.Unlock()
 	for _, supervisor := range toStop {
 		supervisor.stop()
+	}
+	if started {
+		for _, supervisor := range toStart {
+			r.startSupervisorAndWait(supervisor, ctx)
+		}
 	}
 }
 
@@ -586,6 +667,9 @@ func (r *RouteRegistry) currentOwners(address WatchAddress) []types.NamespacedNa
 	}
 	r.mu.Lock()
 	toStop := r.pruneStaleLocked(address)
+	started := r.started
+	ctx := r.ctx
+	toStart := r.ensureWatchCapacityLocked()
 	owners := make([]types.NamespacedName, 0, len(r.byTarget[address]))
 	seen := make(map[types.NamespacedName]struct{}, len(r.byTarget[address]))
 	for _, binding := range r.byTarget[address] {
@@ -598,6 +682,11 @@ func (r *RouteRegistry) currentOwners(address WatchAddress) []types.NamespacedNa
 	r.mu.Unlock()
 	for _, supervisor := range toStop {
 		supervisor.stop()
+	}
+	if started {
+		for _, supervisor := range toStart {
+			r.startSupervisorAndWait(supervisor, ctx)
+		}
 	}
 	sort.Slice(owners, func(i, j int) bool {
 		if owners[i].Namespace != owners[j].Namespace {
@@ -635,9 +724,12 @@ func (r *RouteRegistry) routeEvent(address WatchAddress) {
 	owners := r.currentOwners(address)
 	r.mu.RLock()
 	queue := r.queue
+	ingress := r.ingress
 	r.mu.RUnlock()
 	for _, owner := range owners {
-		if queue != nil {
+		if ingress != nil {
+			ingress.Enqueue(owner)
+		} else if queue != nil {
 			queue.Add(requestForKey(owner))
 		}
 	}

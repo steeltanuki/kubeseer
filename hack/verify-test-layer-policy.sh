@@ -71,6 +71,19 @@ check_envtest_suite internal/selection/envtest_test.go TestEnvtestSelection
 check_envtest_suite test/envtest/admission_validation_envtest_test.go TestEnvtestAdmissionValidation
 check_envtest_suite test/envtest/reconciliation_runtime_envtest_test.go TestEnvtestReconciliationRuntime
 
+check_required_marker() {
+	local relative_path="$1"
+	local marker="$2"
+	local file="$ROOT_DIR/$relative_path"
+	if [[ -f "$file" ]] && ! grep -F -q -- "$marker" "$file"; then
+		violation "$relative_path must register the required production marker $marker"
+	fi
+}
+
+check_required_marker test/integration/installation_access_policy_test.go 'MODULE_INTEGRATION=performance-and-limits STATUS=passed'
+check_required_marker test/integration/performance_limits_profile_test.go 'MODULE_INTEGRATION=performance-and-limits STATUS=passed'
+check_required_marker test/envtest/reconciliation_runtime_envtest_test.go 'API_CONTRACT=performance-and-limits STATUS=passed'
+
 if ((failures > 0)); then
 	printf 'Test layer policy failed (%d violation(s))\n' "$failures" >&2
 	exit 1

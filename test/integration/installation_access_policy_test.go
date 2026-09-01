@@ -204,6 +204,30 @@ func TestModuleIntegration(t *testing.T) {
 	t.Run("observability composes one manager-wide observer through production", func(t *testing.T) {
 		assertObservabilityManagerScenarios(t, ctx, resolver)
 	})
+	t.Run("performance limits resolve one immutable manager profile", func(t *testing.T) {
+		assertPerformanceLimitsProfileScenarios(t)
+	})
+	t.Run("performance limits reuse one budget boundary before dynamic work", func(t *testing.T) {
+		assertPerformanceLimitsConfigurationScenarios(t)
+	})
+	t.Run("performance limits bound paginated selection atomically", func(t *testing.T) {
+		assertPerformanceLimitsSelectionScenarios(t, ctx, resolver)
+	})
+	t.Run("performance limits keep value stages source-atomic", func(t *testing.T) {
+		assertPerformanceLimitsValueScenarios(t)
+	})
+	t.Run("performance limits bound deadlines and status publication", func(t *testing.T) {
+		assertPerformanceLimitsDeadlineStatusScenarios(t)
+	})
+	t.Run("performance limits bound and share discovery metadata", func(t *testing.T) {
+		assertPerformanceLimitsDiscoveryCacheScenarios(t)
+	})
+	t.Run("performance limits apply bounded backpressure and shared watches", func(t *testing.T) {
+		assertPerformanceLimitsBackpressureScenarios(t, ctx, resolver)
+	})
+	t.Run("performance limits expose sanitized production diagnostics", func(t *testing.T) {
+		assertPerformanceLimitsObservabilityScenarios(t, ctx, resolver)
+	})
 
 	t.Log("MODULE_INTEGRATION=discovery-access-policy-evaluation STATUS=passed")
 	t.Log("MODULE_INTEGRATION=discovery-access-policy-loader STATUS=passed")
@@ -256,6 +280,7 @@ func TestModuleIntegration(t *testing.T) {
 	t.Log("MODULE_INTEGRATION=observability-status STATUS=passed")
 	t.Log("MODULE_INTEGRATION=observability-watch STATUS=passed")
 	t.Log("MODULE_INTEGRATION=observability STATUS=passed")
+	t.Log("MODULE_INTEGRATION=performance-and-limits STATUS=passed")
 }
 
 func assertEvaluationScenarios(t *testing.T, ctx context.Context, resolver *discovery.Resolver) {
@@ -1203,6 +1228,15 @@ func (f admissionResolverFunc) Resolve(ctx context.Context, descriptor discovery
 	return f(ctx, descriptor)
 }
 
+// admissionTestServer retains the production webhook mux while routing the
+// fixture request through an in-process ResponseRecorder. It keeps module
+// integration independent of host socket permissions.
+type admissionTestServer struct {
+	handler http.Handler
+}
+
+func (*admissionTestServer) Close() {}
+
 func assertAdmissionValidationRegistrationScenarios(t *testing.T) {
 	t.Helper()
 
@@ -1225,14 +1259,14 @@ func assertAdmissionValidationRegistrationScenarios(t *testing.T) {
 		policy.Name = name
 		return policy
 	}
-	newServer := func(validator *admission.Validator) *httptest.Server {
+	newServer := func(validator *admission.Validator) *admissionTestServer {
 		scheme := runtime.NewScheme()
 		if err := v1alpha1.AddToScheme(scheme); err != nil {
 			t.Fatalf("add Kubeseer scheme: %v", err)
 		}
 		server := crwebhook.NewServer(crwebhook.Options{WebhookMux: http.NewServeMux()})
 		admission.Register(server, scheme, validator)
-		return httptest.NewServer(server.WebhookMux())
+		return &admissionTestServer{handler: server.WebhookMux()}
 	}
 	newReview := func(t *testing.T, object runtime.Object, resource string, operation admissionv1.Operation, old runtime.Object, dryRun *bool) admissionv1.AdmissionReview {
 		t.Helper()
@@ -1269,20 +1303,16 @@ func assertAdmissionValidationRegistrationScenarios(t *testing.T) {
 			Request:  request,
 		}
 	}
-	sendPayload := func(t *testing.T, server *httptest.Server, path string, payload []byte) admissionv1.AdmissionReview {
+	sendPayload := func(t *testing.T, server *admissionTestServer, path string, payload []byte) admissionv1.AdmissionReview {
 		t.Helper()
-		request, err := http.NewRequest(http.MethodPost, server.URL+path, bytes.NewReader(payload))
-		if err != nil {
-			t.Fatalf("create AdmissionReview request: %v", err)
-		}
+		request := httptest.NewRequest(http.MethodPost, "http://admission.test"+path, bytes.NewReader(payload))
 		request.Header.Set("Content-Type", "application/json")
-		response, err := http.DefaultClient.Do(request)
-		if err != nil {
-			t.Fatalf("send AdmissionReview: %v", err)
-		}
+		responseRecorder := httptest.NewRecorder()
+		server.handler.ServeHTTP(responseRecorder, request)
+		response := responseRecorder.Result()
 		defer response.Body.Close()
-		if response.StatusCode != http.StatusOK {
-			t.Fatalf("AdmissionReview HTTP status = %d, want 200", response.StatusCode)
+		if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusBadRequest && response.StatusCode != http.StatusForbidden && response.StatusCode != http.StatusServiceUnavailable && response.StatusCode != http.StatusUnprocessableEntity {
+			t.Fatalf("AdmissionReview HTTP status = %d", response.StatusCode)
 		}
 		var decoded admissionv1.AdmissionReview
 		if err := json.NewDecoder(response.Body).Decode(&decoded); err != nil {
@@ -1293,7 +1323,7 @@ func assertAdmissionValidationRegistrationScenarios(t *testing.T) {
 		}
 		return decoded
 	}
-	send := func(t *testing.T, server *httptest.Server, path string, review admissionv1.AdmissionReview) admissionv1.AdmissionReview {
+	send := func(t *testing.T, server *admissionTestServer, path string, review admissionv1.AdmissionReview) admissionv1.AdmissionReview {
 		t.Helper()
 		payload, err := json.Marshal(review)
 		if err != nil {

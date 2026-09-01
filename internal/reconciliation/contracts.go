@@ -22,7 +22,9 @@ import (
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
 	"github.com/steeltanuki/kubeseer/internal/accesspolicy"
+	"github.com/steeltanuki/kubeseer/internal/admission"
 	"github.com/steeltanuki/kubeseer/internal/authorization"
+	"github.com/steeltanuki/kubeseer/internal/limits"
 	"github.com/steeltanuki/kubeseer/internal/observability"
 	"github.com/steeltanuki/kubeseer/internal/selection"
 	statuscontract "github.com/steeltanuki/kubeseer/internal/status"
@@ -42,6 +44,10 @@ const (
 // not a public Kubeseer API field; it belongs to manager configuration.
 type Options struct {
 	SafetyInterval time.Duration
+
+	// LimitProfile is the immutable manager-wide profile resolved by the
+	// composition root. Nil preserves direct-constructor defaults.
+	LimitProfile *limits.Profile
 
 	// TraceProvider is the optional manager-wide OpenTelemetry provider. All
 	// other observability facilities come from the owning manager at setup
@@ -122,17 +128,18 @@ type RouteManager interface {
 // outbound I/O while retaining the real discovery, policy, selection,
 // extraction, and typed-output implementations.
 type Dependencies struct {
-	Reader       KubeseerReader
-	Lister       KubeseerLister
-	PolicySource accesspolicy.PolicySource
-	Enforcer     *authorization.Enforcer
-	Planner      *selection.Planner
-	Executor     *selection.Executor
-	Routes       RouteManager
-	Publisher    StatusPublisherPort
-	Tracker      *FreshnessTracker
-	Trigger      *TriggerSource
-	Observer     *observability.Observer
+	Reader          KubeseerReader
+	Lister          KubeseerLister
+	PolicySource    accesspolicy.PolicySource
+	Enforcer        *authorization.Enforcer
+	Planner         *selection.Planner
+	Executor        *selection.Executor
+	Routes          RouteManager
+	Publisher       StatusPublisherPort
+	BudgetValidator *admission.BudgetValidator
+	Tracker         *FreshnessTracker
+	Trigger         *TriggerSource
+	Observer        *observability.Observer
 }
 
 // Lease is a process-local freshness capability. It is valid only for the
@@ -158,6 +165,7 @@ type Candidate struct {
 type Runtime struct {
 	options Options
 	deps    Dependencies
+	profile limits.Profile
 	trigger *TriggerSource
 	gate    *executionGate
 }
@@ -194,6 +202,19 @@ func NewRuntime(options Options, dependencies Dependencies) (*Runtime, error) {
 	if dependencies.Publisher == nil {
 		return nil, errors.New("reconciliation status publisher is required")
 	}
+	profile := limits.DefaultProfile()
+	if normalized.LimitProfile != nil {
+		profile = *normalized.LimitProfile
+		if !profile.Valid() {
+			return nil, &limits.InvalidConfigurationError{Field: "limitProfile", Cause: errors.New("profile is incomplete")}
+		}
+	}
+	if err := statuscontract.ValidateCompactStatusLimit(profile.MaxStatusBytes()); err != nil {
+		return nil, &limits.InvalidConfigurationError{Field: "maxStatusBytes", Cause: err}
+	}
+	if dependencies.BudgetValidator == nil {
+		dependencies.BudgetValidator = admission.NewBudgetValidatorFromProfile(profile)
+	}
 	if dependencies.Tracker == nil {
 		dependencies.Tracker = NewFreshnessTracker()
 	}
@@ -207,9 +228,18 @@ func NewRuntime(options Options, dependencies Dependencies) (*Runtime, error) {
 	return &Runtime{
 		options: normalized,
 		deps:    dependencies,
+		profile: profile,
 		trigger: trigger,
 		gate:    newExecutionGate(),
 	}, nil
+}
+
+// LimitProfile returns the immutable profile copied into this runtime.
+func (r *Runtime) LimitProfile() limits.Profile {
+	if r == nil {
+		return limits.DefaultProfile()
+	}
+	return r.profile
 }
 
 // NewRuntimeWithDependencies is an argument-order-friendly alias for callers
@@ -231,7 +261,7 @@ func (r *Runtime) LifecycleHandler() *LifecycleHandler {
 	if r == nil {
 		return nil
 	}
-	return NewLifecycleHandler(r.deps.Tracker, r.deps.Routes)
+	return NewLifecycleHandler(r.deps.Tracker, r.deps.Routes, r.trigger)
 }
 
 // PolicyHandler returns the typed installation-policy event handler.

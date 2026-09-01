@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/steeltanuki/kubeseer/api/v1alpha1"
+	"github.com/steeltanuki/kubeseer/internal/limits"
 	"github.com/steeltanuki/kubeseer/internal/selection"
 	"github.com/steeltanuki/kubeseer/internal/typedoutput"
 )
@@ -36,6 +37,12 @@ type SourceInput struct {
 // into deterministic operator-interrupted outcomes while completed sources
 // remain intact.
 func EvaluateBatch(ctx context.Context, inputs []SourceInput) []SourceOutcome {
+	return EvaluateBatchWithLimit(ctx, inputs, 0)
+}
+
+// EvaluateBatchWithLimit evaluates sources with a fresh canonical produced
+// value accountant per source. A zero ceiling preserves direct-call behavior.
+func EvaluateBatchWithLimit(ctx context.Context, inputs []SourceInput, maxBytes int64) []SourceOutcome {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -80,6 +87,15 @@ func EvaluateBatch(ctx context.Context, inputs []SourceInput) []SourceOutcome {
 
 		plan := input.Plan.Plan()
 		resources := input.Typed.Resources()
+		var accountant *limits.Accountant
+		if maxBytes > 0 {
+			var err error
+			accountant, err = limits.NewAccountant(maxBytes, "produced-values")
+			if err != nil {
+				outcomes[index] = NewSourceError(sourceID, ReasonValueLimitExceeded, "produced value ceiling exceeded")
+				continue
+			}
+		}
 		processed := make([]ResourceOutcome, 0, len(resources))
 		for _, typedResource := range resources {
 			if cause := ctx.Err(); cause != nil {
@@ -94,8 +110,16 @@ func EvaluateBatch(ctx context.Context, inputs []SourceInput) []SourceOutcome {
 					outcomes[index] = interruptedSourceOutcome(sourceID, failure)
 					break
 				}
+				if err := accountOperatorResource(accountant, resource); err != nil {
+					outcomes[index] = NewSourceError(sourceID, ReasonValueLimitExceeded, "produced value ceiling exceeded")
+					break
+				}
 				processed = append(processed, resource)
 				continue
+			}
+			if err := accountOperatorResource(accountant, resource); err != nil {
+				outcomes[index] = NewSourceError(sourceID, ReasonValueLimitExceeded, "produced value ceiling exceeded")
+				break
 			}
 			processed = append(processed, resource)
 		}
@@ -105,6 +129,26 @@ func EvaluateBatch(ctx context.Context, inputs []SourceInput) []SourceOutcome {
 		outcomes[index] = SourceOutcome{sourceID: sourceID, resources: processed}
 	}
 	return outcomes
+}
+
+func accountOperatorResource(accountant *limits.Accountant, resource ResourceOutcome) error {
+	if accountant == nil || resource.state == ResourceRejected {
+		return nil
+	}
+	var projected v1alpha1.KubeseerResourceResult
+	var err error
+	if resource.state == ResourceAccepted {
+		projected, err = typedoutput.ProjectResourceResult(resource.provenance, resource.fields)
+	} else if resource.state == ResourceUnsuccessful {
+		projected, err = typedoutput.ProjectResourceResult(resource.provenance, nil)
+		if err == nil {
+			projected.Error = publicOperatorResultError(resource.failure)
+		}
+	}
+	if err != nil {
+		return err
+	}
+	return accountant.Add(projected)
 }
 
 func evaluateResource(ctx context.Context, plan SourcePlan, input typedoutput.ResourceOutcome) (ResourceOutcome, *OperatorError) {
