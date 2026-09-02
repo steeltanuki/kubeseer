@@ -17,4 +17,10 @@
 //
 // Planning is pure with respect to resource instances. Authorization is bound
 // to exact read targets before the executor receives an executable capability.
+//
+// Responsibility: resolve source targets, bind complete authorization, and
+// execute bounded, source-atomic Kubernetes LIST/WATCH reads.
+//
+// Boundary: selection consumes discovery and authorization ports and returns
+// sanitized outcomes; extraction and reconciliation remain downstream.
 package selection

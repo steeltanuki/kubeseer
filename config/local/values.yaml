@@ -38,6 +38,10 @@ accessPolicy:
       kinds: ["Pod"]
     - apiGroups: ["apps"]
       kinds: ["Deployment"]
+    # Service is admitted so the authorization-denial example can be created;
+    # its verifier then narrows the live policy before asserting runtime denial.
+    - apiGroups: [""]
+      kinds: ["Service"]
     - apiGroups: ["fixtures.kubeseer.io"]
       kinds: ["Widget"]
   allowClusterScoped: false

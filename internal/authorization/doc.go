@@ -18,4 +18,10 @@
 // The package deliberately does not load or interpret policy rules. It owns
 // subject identity, sanitized evidence, capability construction, and the
 // freshness port shared by higher-level runtime components.
+//
+// Responsibility: bind complete policy decisions to opaque, freshness-checked
+// capabilities and sanitized authorization evidence.
+//
+// Boundary: authorization never performs Kubernetes reads or evaluates policy;
+// consuming selection and watch adapters must present its capabilities.
 package authorization

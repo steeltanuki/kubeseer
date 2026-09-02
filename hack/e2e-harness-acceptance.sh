@@ -351,4 +351,5 @@ zero_output="$(run_with_status 2 env PATH="$BIN_DIR:$ORIGINAL_PATH" TRACE_FILE="
 assert_contains "$zero_output" 'TEST_LAYER=end-to-end STATUS=not-applicable'
 assert_not_contains "$(<"$zero_trace")" 'args=create cluster'
 
+printf '%s\n' 'E2E harness acceptance passed'
 printf '%s\n' 'E2E_HARNESS_ACCEPTANCE=complete STATUS=passed'

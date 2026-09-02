@@ -16,6 +16,12 @@
 // canonical byte accounting shared by the runtime's bounded stages. It has no
 // dependency on a domain package so every adapter can depend on it without a
 // package cycle.
+//
+// Responsibility: expose validated immutable ceilings and account produced
+// bytes consistently across admission, selection, aggregation, and status.
+//
+// Boundary: limits contains no Kubernetes I/O or domain orchestration and is
+// consumed as a narrow budgeting utility by higher-level modules.
 package limits
 
 import (

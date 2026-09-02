@@ -15,4 +15,10 @@
 // Package observability owns the passive, sanitized signal vocabulary used by
 // the reconciliation runtime. It does not perform Kubernetes I/O, authorize
 // work, or retain an audit history.
+//
+// Responsibility: emit bounded, stable observations for lifecycle, policy,
+// read, status, and performance events without carrying protected values.
+//
+// Boundary: observability is a passive consumer-facing signal layer; it never
+// controls reconciliation or performs external I/O.
 package observability

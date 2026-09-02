@@ -118,6 +118,20 @@ apply_one() {
 	printf 'EXAMPLE=%s STATUS=applied\n' "$name"
 }
 
+# The authorization-denial object must pass admission before it can exercise
+# runtime policy revalidation.  Keep the baseline resource set explicit so a
+# local verification run can remove Service from the active policy and restore
+# the exact managed profile afterward.
+narrow_authorization_denial_policy() {
+	kubectl_local patch kubeseeraccesspolicy installation-access-ceiling --type=merge \
+		-p='{"spec":{"resources":[{"apiGroups":[""],"kinds":["Pod"]},{"apiGroups":["apps"],"kinds":["Deployment"]},{"apiGroups":["fixtures.kubeseer.io"],"kinds":["Widget"]}]}}'
+}
+
+restore_authorization_denial_policy() {
+	kubectl_local patch kubeseeraccesspolicy installation-access-ceiling --type=merge \
+		-p='{"spec":{"resources":[{"apiGroups":[""],"kinds":["Pod"]},{"apiGroups":["apps"],"kinds":["Deployment"]},{"apiGroups":[""],"kinds":["Service"]},{"apiGroups":["fixtures.kubeseer.io"],"kinds":["Widget"]}]}}'
+}
+
 inspect_one() {
 	local name="$1" namespace
 	namespace="$(namespace_for "$name")"
@@ -129,12 +143,34 @@ verify_one() {
 	namespace="$(namespace_for "$name")"
 	if [[ -n "${KUBESEER_LOCAL_PROBE_BIN:-}" ]]; then command=("$KUBESEER_LOCAL_PROBE_BIN"); fi
 	if [[ "$name" == partial-degradation ]]; then
+		# First let the initial successful reconciliation publish Ready.  This
+		# prevents the fixture removal from racing the first evaluation when the
+		# complete catalog was just (re)applied.
+		kubectl_local --namespace "$namespace" wait --for=condition=Ready --timeout="${KUBESEER_LOCAL_TIMEOUT:-2m}" kubeseer/degraded
 		# Leave the successful Deployment in place, then remove only the
 		# degradable Widget and its fixture type before observing status.
 		kubectl_local --namespace "$namespace" delete widget degraded-widget --ignore-not-found=true >/dev/null || true
 		kubectl_local delete crd widgets.fixtures.kubeseer.io --ignore-not-found=true >/dev/null || true
 	fi
-	"${command[@]}" verify --state-dir "$STATE_DIR" --metadata "$STATE_DIR/metadata.v1" --kubeconfig "$KUBECONFIG_PATH" --context "$KUBE_CONTEXT" --timeout "${KUBESEER_LOCAL_TIMEOUT:-2m}" --example "$name" --namespace "$namespace"
+	if [[ "$name" == authorization-denial ]]; then
+		# Admission already accepted the object while Service was in the local
+		# profile.  Narrowing only the persisted policy now exercises the runtime
+		# AuthorizationDenied path required by this example.
+		local verify_status
+		narrow_authorization_denial_policy
+		if "${command[@]}" verify --state-dir "$STATE_DIR" --metadata "$STATE_DIR/metadata.v1" --kubeconfig "$KUBECONFIG_PATH" --context "$KUBE_CONTEXT" --timeout "${KUBESEER_LOCAL_TIMEOUT:-2m}" --example "$name" --namespace "$namespace"; then
+			verify_status=0
+		else
+			verify_status=$?
+		fi
+		if ! restore_authorization_denial_policy; then
+			printf '%s\n' 'failed to restore installation-access-ceiling after authorization-denial verification' >&2
+			return 1
+		fi
+		((verify_status == 0)) || return "$verify_status"
+	else
+		"${command[@]}" verify --state-dir "$STATE_DIR" --metadata "$STATE_DIR/metadata.v1" --kubeconfig "$KUBECONFIG_PATH" --context "$KUBE_CONTEXT" --timeout "${KUBESEER_LOCAL_TIMEOUT:-2m}" --example "$name" --namespace "$namespace"
+	fi
 	printf 'EXAMPLE=%s STATUS=passed\n' "$name"
 }
 
@@ -152,6 +188,11 @@ down_one() {
 		if kubectl_local get crd widgets.fixtures.kubeseer.io >/dev/null 2>&1; then
 			kubectl_local --namespace "$namespace" delete -f "$EXAMPLES_DIR/$name/workload.yaml" --ignore-not-found=true >/dev/null
 		fi
+	elif [[ "$name" == cross-namespace-aggregation ]]; then
+		# The workload manifest deliberately contains objects in both exact
+		# aggregation namespaces; let each object namespace from the manifest
+		# drive deletion instead of imposing namespace A on namespace B.
+		kubectl_local delete -f "$EXAMPLES_DIR/$name/workload.yaml" --ignore-not-found=true >/dev/null
 	else
 		kubectl_local --namespace "$namespace" delete -f "$EXAMPLES_DIR/$name/workload.yaml" --ignore-not-found=true >/dev/null
 	fi

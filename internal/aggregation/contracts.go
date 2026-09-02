@@ -15,6 +15,12 @@
 // Package aggregation reduces accepted typed operator outcomes without
 // performing Kubernetes I/O. It is deliberately downstream of selection,
 // extraction, typed conversion, and value-operator evaluation.
+//
+// Responsibility: group and reduce accepted typed outcomes with deterministic
+// ordering, exact numeric semantics, and bounded result accounting.
+//
+// Boundary: aggregation consumes immutable upstream outcomes and exposes pure
+// result values; Kubernetes clients and reconciliation remain outside it.
 package aggregation
 
 import (

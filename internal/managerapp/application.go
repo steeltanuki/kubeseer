@@ -15,6 +15,12 @@
 // Package managerapp owns the production composition root. Keeping this
 // package separate from the command parser lets integration tests construct
 // the same manager that the container starts without a live cluster.
+//
+// Responsibility: assemble the production manager, clients, webhooks, and
+// reconciliation runtime from explicit configuration and infrastructure ports.
+//
+// Boundary: managerapp wires modules but does not redefine their domain
+// contracts or bypass authorization and status-publication boundaries.
 package managerapp
 
 import (

@@ -15,6 +15,12 @@
 // Package operators plans and evaluates the closed, field-local operator
 // vocabulary over immutable typed-output outcomes. It performs no Kubernetes
 // I/O, discovery, extraction, authorization, or status writes.
+//
+// Responsibility: compile complete operator sources, evaluate typed matches,
+// and project deterministic accepted, rejected, and failed outcomes.
+//
+// Boundary: operators consume immutable typed-output plans and return values;
+// Kubernetes access, policy decisions, and reconciliation are external.
 package operators
 
 import (

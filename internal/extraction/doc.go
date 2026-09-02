@@ -14,4 +14,10 @@
 
 // Package extraction compiles and evaluates the deliberately small field-path
 // language used by Kubeseer sources. It performs no Kubernetes API I/O.
+//
+// Responsibility: validate the approved path grammar and extract native,
+// provenance-preserving matches from immutable resource values.
+//
+// Boundary: extraction is a pure value operation; selection, Kubernetes I/O,
+// typed conversion, and status publication are owned by other packages.
 package extraction

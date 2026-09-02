@@ -16,6 +16,12 @@
 // local environment. It deliberately imports only Kubernetes clients and the
 // public Kubeseer API; lifecycle and reconciliation remain in the shell and
 // controller packages respectively.
+//
+// Responsibility: inspect the owned local environment and project bounded,
+// sanitized public state, examples, and diagnostics for contributors.
+//
+// Boundary: the probe performs no lifecycle mutation and never exposes raw
+// kubeconfig, credentials, resource bodies, or controller internals.
 package localprobe
 
 import (

@@ -15,6 +15,12 @@
 // Package admission owns bounded, side-effect-free validation of proposed
 // Kubeseer configuration. Dynamic validation is layered on these guards so an
 // over-budget request cannot reach discovery or policy evaluation.
+//
+// Responsibility: validate bounded, structural, semantic, and dynamic
+// admission inputs while returning deterministic, sanitized diagnostics.
+//
+// Boundary: Kubernetes discovery and policy access arrive through consumer-
+// owned ports; admission never reads observed resource instances directly.
 package admission
 
 import (

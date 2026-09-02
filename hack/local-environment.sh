@@ -32,6 +32,16 @@ readonly KUBERNETES_VERSION="${KUBERNETES_VERSION:-1.35.6}"
 readonly LOCAL_READYZ_PORT="${KUBESEER_LOCAL_READYZ_PORT:-18081}"
 readonly LOCAL_METRICS_PORT="${KUBESEER_LOCAL_METRICS_PORT:-18080}"
 readonly LOCAL_FIELD_MANAGER="kubeseer-local-environment"
+readonly LOCAL_EXAMPLE_NAMESPACES=(
+	kubeseer-example-builtin
+	kubeseer-example-typed
+	kubeseer-example-operator
+	kubeseer-example-aggregation-a
+	kubeseer-example-aggregation-b
+	kubeseer-example-custom
+	kubeseer-example-denial
+	kubeseer-example-degraded
+)
 readonly SANITIZED_VARIABLES=(
 	KUBECONFIG USE_EXISTING_CLUSTER KIND_EXPERIMENTAL_PROVIDER
 	AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE AWS_DEFAULT_PROFILE
@@ -356,6 +366,19 @@ build_and_load_image() {
 	done <<<"$nodes"
 }
 
+ensure_local_example_namespaces() {
+	local namespace
+	for namespace in "${LOCAL_EXAMPLE_NAMESPACES[@]}"; do
+		kp_run_kubectl "$kubeconfig_path" "$LOCAL_KUBE_CONTEXT" apply --server-side \
+			--field-manager="$LOCAL_FIELD_MANAGER" -f - <<EOF
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: $namespace
+EOF
+	done
+}
+
 install_package() {
 	local cert_manifest="$cache_dir/downloads/cert-manager-${CERT_MANAGER_VERSION}.yaml"
 	local cert_url="https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml"
@@ -370,6 +393,7 @@ install_package() {
 		crd/certificates.cert-manager.io crd/issuers.cert-manager.io crd/clusterissuers.cert-manager.io || return 1
 	kp_run_kubectl "$kubeconfig_path" "$LOCAL_KUBE_CONTEXT" --namespace cert-manager wait --for=condition=Available --timeout=10m deployment --all || return 1
 	[[ -f "$ROOT_DIR/config/local/values.yaml" ]] || { printf 'local Helm values profile is missing\n' >&2; return 1; }
+	ensure_local_example_namespaces || return 1
 	kp_run_helm "$kubeconfig_path" "$LOCAL_KUBE_CONTEXT" "$state_dir/helm/config" "$cache_dir/helm" "$state_dir/helm/data" \
 		upgrade --install "$LOCAL_RELEASE" "$ROOT_DIR/charts/kubeseer" --namespace "$LOCAL_NAMESPACE" --create-namespace \
 		--values "$ROOT_DIR/config/local/values.yaml" --set "image.repository=${image_ref%:*}" --set "image.tag=$image_tag" \
@@ -517,7 +541,12 @@ run_verify() {
 	wait_for_local_http "deployment/$LOCAL_RELEASE" "$LOCAL_READYZ_PORT" 8081 /readyz ok || return 1
 	wait_for_local_http "service/${LOCAL_RELEASE}-metrics" "$LOCAL_METRICS_PORT" 8080 /metrics '# HELP' || return 1
 	probe readiness >/dev/null || return 1
-	probe verify
+	# The catalog executor owns the authorization-denial policy-drift fixture;
+	# it narrows and restores the live policy around that one probe assertion.
+	# Keep the public assertions in the typed local probe while letting the
+	# workflow layer control this intentional runtime transition.
+	KUBESEER_LOCAL_STATE_DIR="$state_dir" KUBESEER_LOCAL_CACHE_DIR="$cache_dir" \
+		"$ROOT_DIR/hack/local-examples.sh" verify
 	worktree_unchanged || return 1
 	printf 'LOCAL_ENVIRONMENT=verify STATUS=passed\n'
 }

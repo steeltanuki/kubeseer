@@ -14,4 +14,10 @@
 
 // Package typedoutput converts native extraction matches into explicit logical
 // values without performing Kubernetes I/O or changing extraction semantics.
+//
+// Responsibility: validate scalar and composite type declarations, convert
+// extraction outcomes exactly, and preserve cardinality and provenance.
+//
+// Boundary: typedoutput is a pure conversion boundary; Kubernetes reads,
+// operators, aggregation, and status publication belong to consuming modules.
 package typedoutput

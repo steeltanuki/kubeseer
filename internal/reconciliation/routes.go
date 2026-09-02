@@ -839,6 +839,11 @@ func (s *watchSupervisor) run(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		// A closed or failed WATCH can mean that the observed type was
+		// removed (for example, a fixture CRD deletion).  Reconcile every
+		// current owner immediately so the status reflects the unavailable
+		// source instead of waiting for the periodic safety interval.
+		s.registry.routeEvent(s.address)
 		if isExpiredWatchError(err) {
 			resourceVersion = ""
 		}

@@ -15,6 +15,12 @@
 // Package purge contains the deliberately separate, destructive CRD cleanup
 // path. It has no dependency on the Helm release and never selects Secrets or
 // arbitrary objects by label.
+//
+// Responsibility: delete only the explicitly confirmed Kubeseer CRs and CRDs
+// from the caller-selected Kubernetes target with bounded, sanitized results.
+//
+// Boundary: purge requires explicit kubeconfig, context, server, and token;
+// it never consults ambient targets or manages the Helm release lifecycle.
 package purge
 
 import (

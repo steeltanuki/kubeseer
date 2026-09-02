@@ -19,4 +19,10 @@
 // scheduling, retries, orchestration, and status-subresource publication. It
 // deliberately keeps Kubernetes clients behind narrow ports so the same
 // runtime can be exercised by cross-module and envtest suites.
+//
+// Responsibility: coordinate authorized selection, extraction, typing,
+// operators, aggregation, retries, and guarded semantic status publication.
+//
+// Boundary: reconciliation owns orchestration and lifecycle state; concrete
+// Kubernetes clients enter only through explicit adapters and ports.
 package reconciliation

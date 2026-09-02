@@ -204,3 +204,8 @@ Review this file before non-trivial work when the current request matches past m
 - Lesson: A proof can be structurally valid yet unrunnable at its execution point when it depends on artifacts introduced by a later task
 - Guardrail: Before opening task review, walk leaf tasks in order and ensure every proof consumes only repository artifacts created by that task or an earlier one
 
+### 2026-09-02T14:00:07Z | local-development-environment | execute
+- Trigger: Full local proof exposed admission/example policy and cross-namespace cleanup conflicts
+- Lesson: Runtime authorization-denial examples must be created under an admitted baseline, then exercise policy drift; multi-namespace manifests must be deleted without a forced single namespace.
+- Guardrail: Keep local policy drift explicit and reversible around the probe, wait for initial readiness before fixture removal, and let manifest namespaces drive multi-namespace cleanup.
+

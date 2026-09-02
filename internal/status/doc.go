@@ -14,4 +14,10 @@
 
 // Package status owns pure semantic composition primitives for the public
 // Kubeseer status contract.
+//
+// Responsibility: normalize, hash, compare, and project deterministic status
+// snapshots and condition assessments from completed runtime outcomes.
+//
+// Boundary: status performs no Kubernetes I/O and never decides authorization
+// or reads resource data outside the values supplied by reconciliation.
 package status
