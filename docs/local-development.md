@@ -5,6 +5,11 @@ This guide describes the persistent contributor environment implemented by the
 Podman and kind. macOS, Windows, WSL, Podman machine, Docker, minikube, k3d,
 and non-amd64 hosts are uncertified and are rejected by `local-check`.
 
+The [README](../README.md) is the documentation entry point. Use
+[Examples](examples.md) for the scenario catalog,
+[Development and verification](development.md) for test layers, and
+[Troubleshooting](troubleshooting.md#local-environment-failure) for recovery.
+
 ## Fixed identities and versions
 
 The environment owns exactly kind cluster `kubeseer-local`, kubeconfig context

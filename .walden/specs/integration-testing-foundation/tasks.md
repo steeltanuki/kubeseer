@@ -1,9 +1,9 @@
 ---
 walden_schema_version: v1alpha1
 status: approved
-approved_at: 2026-08-26T08:11:37Z
-last_modified: 2026-08-26T08:11:37Z
-approved_fingerprint: sha256:8a147b1aee5a6684febea7fcc4a03f1f70c58f113eac99b0adb577047e014d02
+approved_at: 2026-09-02T17:05:23Z
+last_modified: 2026-09-02T17:05:23Z
+approved_fingerprint: sha256:f735290627b354da3e086c86b3cac60af12764edec98d7d07f957d3758c721b6
 source_design_approved_at: 2026-08-25T13:42:19Z
 source_design_fingerprint: sha256:5ed040de4077c66ff76591309afc4862013bfe4ae5c2d521fafa477231594fae
 ---
@@ -91,8 +91,8 @@ source_design_fingerprint: sha256:5ed040de4077c66ff76591309afc4862013bfe4ae5c2d5
         expect_output: "E2E harness acceptance passed"
         covers: ["R3.AC2", "R4.AC1", "R4.AC4", "R4.AC6", "R5.AC1", "R5.AC3", "R5.AC4", "R5.AC5", "NFR3", "NFR4", "NFR5"]
       - command: ["make", "e2e"]
-        expect_exit: 2
-        expect_output: "TEST_LAYER=end-to-end STATUS=not-applicable"
+        expect_output: "E2E_CERTIFICATION=complete STATUS=passed"
+        timeout: 90m
         covers: ["R4.AC4", "R4.AC6"]
 
 - [x] 4. Retire unit tests and seal repository verification

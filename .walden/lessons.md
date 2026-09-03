@@ -209,3 +209,13 @@ Review this file before non-trivial work when the current request matches past m
 - Lesson: Runtime authorization-denial examples must be created under an admitted baseline, then exercise policy drift; multi-namespace manifests must be deleted without a forced single namespace.
 - Guardrail: Keep local policy drift explicit and reversible around the probe, wait for initial readiness before fixture removal, and let manifest namespaces drive multi-namespace cleanup.
 
+### 2026-09-02T17:03:51Z | integration-testing-foundation | tasks
+- Trigger: The end-to-end-scenarios implementation made the foundation make e2e proof obsolete
+- Lesson: When a later approved feature makes a previously unavailable test boundary executable, update the foundation proof to assert the real success contract.
+- Guardrail: Keep foundation task proofs synchronized with the current executable entry point and re-open the Tasks approval gate before re-verification.
+
+### 2026-09-02T17:17:08Z | integration-testing-foundation | execute
+- Trigger: Initial post-approval verification ran without the recorded Podman runtime and network access
+- Lesson: A valid proof can fail before reaching its assertion when the runner cannot access Podman runtime state or download uncached Go modules.
+- Guardrail: Before full re-verification, compare environment probes and use the recorded writable caches, network access, and XDG_RUNTIME_DIR needed by the proof.
+

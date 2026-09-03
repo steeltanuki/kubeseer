@@ -4,8 +4,8 @@
 
 ## Typed extraction
 
-The example extracts native Deployment availability and preserves it as a
-boolean. Use the constrained interface:
+The example extracts a Deployment's native replica count and preserves it as
+an integer. Use the constrained interface:
 
 `make local-example EXAMPLE=typed-extraction ACTION=apply`
 `make local-example EXAMPLE=typed-extraction ACTION=inspect`

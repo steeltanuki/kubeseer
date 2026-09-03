@@ -6,6 +6,12 @@ supports Kubernetes `1.35.6` and `1.36.2`, Helm 3.12 or newer, and the
 `>=1.35.0-0 <1.37.0-0`; a cluster outside that range is rejected before
 resources are rendered or installed.
 
+For policy, RBAC, certificate, limit, and process-setting decisions, read
+[Configuration](configuration.md). For runtime checks after installation, see
+[Operations](operations.md); for trust boundaries and data exposure, see
+[Security model](security.md). The [README](../README.md) is the documentation
+entry point.
+
 ## Prerequisites
 
 The administrator needs:

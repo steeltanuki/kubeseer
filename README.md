@@ -1,53 +1,163 @@
 # Kubeseer
 
-Kubeseer is a Kubernetes operator that exposes a declarative Custom Resource for inspecting, extracting, filtering, and aggregating information from Kubernetes resources.
+Kubeseer is a Kubernetes operator that builds deterministic, typed views of
+Kubernetes resources. A namespaced `Kubeseer` custom resource declares what to
+observe, how to select objects, which values to extract, which predicates to
+apply, and how to aggregate the result. The controller publishes that view in
+the resource's `status`.
 
-A Kubeseer resource can observe both built-in Kubernetes objects and Custom Resources, select objects across one or more namespaces, extract values through JSONPath, convert them into typed outputs, and publish the resulting view in its status.
+Kubeseer can observe built-in objects and structural Custom Resources, combine
+data from multiple namespaces, preserve Kubernetes-aware types, and continue
+publishing useful sibling results when one source degrades. Every read is
+bounded by both Kubernetes RBAC and the administrator-owned
+`installation-access-ceiling` policy.
 
-The operator is designed around an administrator-defined access boundary. During installation, administrators define which namespaces and resource types Kubeseer may inspect. Individual Kubeseer resources can further restrict that scope, but cannot expand it.
+## What it provides
 
-## Main goals
+- discovery of built-in and custom Kubernetes resource types;
+- selection by namespace, exact name, labels, label expressions, and field
+  selector;
+- a deliberately restricted, non-executable JSONPath subset;
+- typed values: string, integer, number, boolean, timestamp, duration,
+  quantity, object, and list;
+- predicates and transforms such as `gte`, `contains`, `matches`, `in`,
+  `default`, and `coalesce`;
+- deterministic `collect`, `count`, `sum`, `min`, `max`, `average`, `first`,
+  `last`, and `distinct` aggregations;
+- cross-namespace results with optional resource provenance;
+- explicit conditions, summaries, sanitized errors, Kubernetes Events,
+  Prometheus metrics, structured logs, and optional tracing;
+- validating admission, runtime revalidation, bounded execution, and
+  fail-closed authorization.
 
-- Inspect built-in Kubernetes resources and Custom Resources.
-- Select resources by name, namespace, labels, and other supported selectors.
-- Extract fields through a controlled JSONPath-based model.
-- Preserve and expose typed values.
-- Filter, group, and aggregate values from multiple resources.
-- Aggregate information across namespaces.
-- Publish deterministic results through the Kubeseer resource status.
-- Enforce installation-level access policies and avoid privilege escalation.
-- Reconcile efficiently, updating status only when the semantic result changes.
+## Quick start
 
-The current functional breakdown and proposed implementation roadmap are documented in [SPECIFICATIONS.md](SPECIFICATIONS.md).
+The shortest supported evaluation path is the persistent local environment on
+Linux/amd64 with rootless Podman and kind:
 
-The canonical Helm package and lifecycle procedures are documented in
-[docs/installation.md](docs/installation.md); chart defaults and the values
-contract are in [charts/kubeseer/README.md](charts/kubeseer/README.md).
+```sh
+make local-check
+make local-up
+make local-examples
+make local-verify
+make local-status
+```
 
-The persistent kind-on-rootless-Podman contributor workflow, bundled examples,
-and diagnostics are documented in [docs/local-development.md](docs/local-development.md).
+Inspect one example through the constrained helper:
 
-## Walden and AI agent experimentation
+```sh
+make local-example EXAMPLE=builtin-resource ACTION=inspect
+```
 
-Kubeseer is also an experimental project for exploring spec-driven software delivery with [Walden](https://github.com/andrearaponi/walden) and AI coding agents.
+When finished, remove the example fixtures and the owned kind cluster:
 
-The project is intentionally divided into small, independently reviewable and verifiable features. Each feature is expected to progress through Walden's requirements, design, task-planning, execution, and evidence workflow.
+```sh
+make local-examples-down
+make local-down
+```
 
-This repository is used to experiment with:
+The complete prerequisites, fixed identities, diagnostics, and failure
+semantics are in the [local development guide](docs/local-development.md).
+For a real cluster, follow the [installation and lifecycle guide](docs/installation.md).
 
-- requirements written before implementation;
-- explicit traceability between requirements, design decisions, tasks, and tests;
-- human-reviewed specifications produced with the assistance of AI agents;
-- executable verification proofs for implementation tasks;
-- durable evidence that binds completed work to the approved specification and code;
-- collaboration between multiple AI agents while preserving deterministic project gates;
-- the strengths and limitations of agent-assisted development on a real Kubernetes operator.
+## A minimal resource
 
-AI agents may help analyse the problem, propose specifications, design the architecture, implement code, and prepare verification steps. Architectural decisions, approvals, and responsibility for the final result remain with the human maintainer.
+This resource reads one Deployment from its own namespace and publishes the
+declared replica count as an integer:
 
-## Project status
+```yaml
+apiVersion: kubeseer.io/v1alpha1
+kind: Kubeseer
+metadata:
+  name: deployment-view
+  namespace: applications
+spec:
+  sources:
+    - id: deployment
+      resource:
+        apiVersion: apps/v1
+        kind: Deployment
+      selector:
+        name: web
+      fields:
+        - name: replicas
+          path: "{.spec.replicas}"
+          type: integer
+```
 
-The packaging-and-installation specification is implemented through the
-canonical Helm chart, explicit CRD upgrade gate, dual certificate modes, and
-separate confirmed purge path. The remaining product roadmap continues to be
-tracked in the Walden specifications.
+Omitting `namespaces` means the containing namespace for a namespaced resource.
+Creation succeeds only if admission can resolve the target and the requested
+scope fits the active installation policy. At runtime the controller must also
+hold exact logical authorization and Kubernetes RBAC before it performs a
+`LIST` or maintains a source watch.
+
+Use conditions first when reading the result:
+
+```sh
+kubectl -n applications get kubeseer deployment-view \
+  -o jsonpath='{range .status.conditions[*]}{.type}={.status} ({.reason}){"\n"}{end}'
+kubectl -n applications get kubeseer deployment-view -o yaml
+```
+
+`Ready=True` means the current generation produced its intended semantic
+result. `Degraded=True` means a useful partial result was retained while at
+least one isolated evaluation failed. See [API reference](docs/api-reference.md)
+for the complete status contract.
+
+## Documentation
+
+| Guide | Use it for |
+| --- | --- |
+| [Concepts and architecture](docs/concepts-and-architecture.md) | Mental model, evaluation pipeline, reconciliation, and package boundaries |
+| [API reference](docs/api-reference.md) | `Kubeseer` and `KubeseerAccessPolicy` fields, JSONPath, types, operators, aggregations, and status |
+| [Configuration](docs/configuration.md) | Helm policy, RBAC, certificates, limits, and deployment settings |
+| [Installation and lifecycle](docs/installation.md) | Production install, upgrades, rollback, uninstall, purge, and compatibility checks |
+| [Security model](docs/security.md) | Trust boundaries, authorization, data exposure, and hardening |
+| [Operations](docs/operations.md) | Health, metrics, Events, status interpretation, and operational diagnosis |
+| [Local development](docs/local-development.md) | Persistent kind-on-Podman environment and supported local workflow |
+| [Development and verification](docs/development.md) | Repository layout, generation, test layers, E2E, and Walden workflow |
+| [Examples](docs/examples.md) | Runnable scenario catalog and expected outcomes |
+| [Troubleshooting](docs/troubleshooting.md) | Symptom-oriented checks and recovery procedures |
+| [Helm values reference](charts/kubeseer/README.md) | Every supported chart value and its default |
+
+The generated CRDs under `config/crd/bases/` are the machine-readable API
+schema. [SPECIFICATIONS.md](SPECIFICATIONS.md) explains the feature portfolio;
+the approved requirements, designs, task plans, and verification evidence live
+under `.walden/`.
+
+## Compatibility
+
+| Component | Supported or verified value |
+| --- | --- |
+| Kubernetes API | `kubeseer.io/v1alpha1` |
+| Kubernetes | 1.35.6 and 1.36.2 |
+| Helm chart gate | `>=1.35.0-0 <1.37.0-0` |
+| Helm | 3.12 or newer |
+| Default certificate provider | cert-manager v1.18.2 |
+| Local environment | Linux/amd64, rootless Podman, kind |
+
+The exact development toolchain and kind node-image pins are defined in
+[`hack/toolchain.mk`](hack/toolchain.mk).
+
+## Project status and delivery model
+
+The repository's Walden portfolio currently records all 18 planned features as
+approved and implemented. That includes the API foundation, selection,
+extraction, typing, operators, aggregation, status, reconciliation,
+authorization, admission, observability, integration and E2E verification,
+packaging, and the local environment.
+
+Kubeseer is also an experiment in specification-driven delivery with
+[Walden](https://github.com/andrearaponi/walden) and AI coding agents. Features
+progress through reviewed requirements, design, task planning, implementation,
+and durable verification evidence. AI agents may assist at each stage;
+architectural approval and responsibility for the result remain with the human
+maintainer.
+
+Before treating a commit as release-ready, run the repository verification
+appropriate to the change and the isolated `make e2e` certification described
+in [development and verification](docs/development.md).
+
+## License
+
+Kubeseer is licensed under the Apache License 2.0. See [LICENSE](LICENSE).

@@ -6,6 +6,10 @@ never uses Helm `lookup`. The Kubernetes compatibility gate is
 `>=1.35.0-0 <1.37.0-0`; the verified matrix is Kubernetes `1.35.6` and
 `1.36.2`.
 
+Use the project [README](../../README.md) as the documentation entry point,
+[Configuration](../../docs/configuration.md) for deployment decisions, and
+[Installation](../../docs/installation.md) for lifecycle procedures.
+
 ## Prerequisites
 
 - Helm 3.12 or newer.
