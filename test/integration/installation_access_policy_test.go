@@ -249,6 +249,9 @@ func TestModuleIntegration(t *testing.T) {
 	t.Run("packaging separates reversible uninstall from confirmed purge", func(t *testing.T) {
 		assertPackagingUninstallPurgeScenarios(t)
 	})
+	t.Run("local probe aggregates typed EndpointSlice webhook backends", func(t *testing.T) {
+		assertLocalEndpointSliceObserverScenarios(t, ctx)
+	})
 
 	t.Log("MODULE_INTEGRATION=discovery-access-policy-evaluation STATUS=passed")
 	t.Log("MODULE_INTEGRATION=discovery-access-policy-loader STATUS=passed")

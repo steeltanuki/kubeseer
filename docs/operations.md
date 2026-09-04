@@ -27,8 +27,13 @@ kubectl --context my-cluster -n kubeseer-system \
 kubectl --context my-cluster -n kubeseer-system \
   get deployment kubeseer -o wide
 kubectl --context my-cluster -n kubeseer-system \
-  get pods,service,endpoints
+  get pods,service
+kubectl --context my-cluster -n kubeseer-system \
+  get endpointslice --selector kubernetes.io/service-name=kubeseer-webhook
 ```
+
+The last command inspects every controller-managed webhook backend through the
+discovery/v1 EndpointSlice API and the standard Service-name selector.
 
 For direct endpoint inspection without exposing the Service externally:
 

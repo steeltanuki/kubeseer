@@ -219,3 +219,28 @@ Review this file before non-trivial work when the current request matches past m
 - Lesson: A valid proof can fail before reaching its assertion when the runner cannot access Podman runtime state or download uncached Go modules.
 - Guardrail: Before full re-verification, compare environment probes and use the recorded writable caches, network access, and XDG_RUNTIME_DIR needed by the proof.
 
+### 2026-09-03T08:45:54Z | local-development-environment | requirements
+- Trigger: A contributor observed the Kubernetes 1.33+ core/v1 Endpoints deprecation warning during make local-up after the local workflow had been completed
+- Lesson: An API-agnostic webhook reachability requirement allowed the implementation to depend on a deprecated Kubernetes resource across a compatibility matrix where the deprecation warning is expected
+- Guardrail: Require local and E2E webhook readiness observers to use discovery.k8s.io/v1 EndpointSlice and prove that supported workflows do not request core/v1 Endpoints
+
+### 2026-09-03T08:57:38Z | local-development-environment | design
+- Trigger: A read-only memory keyword scan passed Markdown backticks inside a double-quoted shell pattern and attempted command substitution
+- Lesson: A previously recorded shell-safety lesson was reviewed but not enforced while constructing a later search command
+- Guardrail: Use single-quoted rg patterns whenever Markdown backticks are literal and reject double-quoted search patterns containing shell substitution syntax before execution
+
+### 2026-09-03T09:08:04Z | local-development-environment | tasks
+- Trigger: Task-plan non-vacuity review found that make test-local-environment can emit its generic success marker after taking the fake-tool fallback
+- Lesson: A genuine-cluster proof is vacuous when its expected output is shared with a fallback that never contacts the Kubernetes API server
+- Guardrail: Require a genuine-only terminal marker that the fake fallback cannot emit for every proof intended to certify live cluster behavior
+
+### 2026-09-03T10:03:26Z | local-development-environment | execute
+- Trigger: Genuine local acceptance encountered an existing persistently owned kubeseer-local cluster while using an isolated temporary state directory.
+- Lesson: A temporary local acceptance state directory does not isolate the fixed cluster identity from a contributor-owned persistent cluster.
+- Guardrail: Before genuine acceptance, inspect the fixed cluster identity; preserve an existing owned environment and run the proof with an explicit disposable cluster identity when cleanup is not authorized.
+
+### 2026-09-03T10:28:20Z | local-development-environment | execute
+- Trigger: Independent E2E observability scenario read the persistent local cluster because its fixed metrics and readiness port-forwards occupied 18080 and 18081.
+- Lesson: Run-unique Kubernetes identity does not by itself isolate fixed host port-forwards from a persistent local workflow.
+- Guardrail: Before E2E certification, reserve run-owned readiness and metrics ports or verify they are free; never accept a pre-existing listener as the E2E forward.
+

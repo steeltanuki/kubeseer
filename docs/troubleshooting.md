@@ -45,7 +45,8 @@ required webhook Service DNS names. Follow the staged CA rollover in the
 If `kubectl apply` reports a connection, TLS, or webhook timeout error:
 
 1. confirm the Deployment is ready;
-2. confirm the `kubeseer-webhook` Service has endpoints;
+2. confirm the `kubeseer-webhook` Service has at least one ready EndpointSlice
+   endpoint using the standard `kubernetes.io/service-name` selector;
 3. inspect the `ValidatingWebhookConfiguration` Service namespace/name and CA
    bundle presence;
 4. inspect certificate readiness and manager logs;

@@ -1,11 +1,11 @@
 ---
 walden_schema_version: v1alpha1
 status: approved
-approved_at: 2026-09-01T18:53:13Z
-last_modified: 2026-09-01T18:53:13Z
-approved_fingerprint: sha256:516862975fc6af08a2c5e1d84a03481870bcda2b8746939cee5348cd97bfb58d
-source_requirements_approved_at: 2026-09-01T18:25:07Z
-source_requirements_fingerprint: sha256:2e3cf860c2525787b1c145fa464358465ef84b327e619823b833c7b7f6b0e732
+approved_at: 2026-09-03T09:03:56Z
+last_modified: 2026-09-03T09:03:56Z
+approved_fingerprint: sha256:ed40a58d26c328ce42ae3da7d7d15c97505545095de0ce2419f9df81a119a9ea
+source_requirements_approved_at: 2026-09-03T08:54:34Z
+source_requirements_fingerprint: sha256:bbb9db7d26f122b209515c4b12663a4b4fda6c81a7a6c7fa9bddd75675c72e13
 ---
 
 # Local Development Environment Design
@@ -43,9 +43,18 @@ documentation coverage, and label-scoped cleanup. `make local-verify` proves
 package readiness and every example, while `make e2e` remains an independent
 run-unique release-certification path.
 
+Webhook backend observation uses `discovery.k8s.io/v1 EndpointSlice`
+throughout the local probe, disposable E2E readiness, and contributor
+documentation. Consumers list every slice in the Service namespace with the
+standard `kubernetes.io/service-name` label, aggregate ready endpoint entries,
+and never fall back to deprecated core `v1 Endpoints`. Kubernetes documents
+both the one-Service-to-many-slices relationship and label-based lookup in the
+[EndpointSlice API reference](https://kubernetes.io/docs/reference/kubernetes-api/discovery/endpoint-slice-v1/).
+
 <!-- assumed: repository-external defaults follow XDG state and cache conventions, with explicit absolute `KUBESEER_LOCAL_STATE_DIR` and `KUBESEER_LOCAL_CACHE_DIR` overrides allowed for CI (source: R3.AC3, C9, C10, and the existing E2E run-owned directory model) -->
 <!-- assumed: a read-only Go probe is the smallest safe typed observer because Go and client-go are existing dependencies while jq is not a prerequisite (source: .walden/constitution.md, go.mod, and R8.AC4) -->
 <!-- assumed: local lifecycle and E2E share only stateless provider helpers; identities, state machines, kubeconfigs, diagnostics, and cleanup remain separate (source: R8.AC10, R8.AC12, C7, and C8) -->
+<!-- assumed: an EndpointSlice endpoint with `conditions.ready` absent is ready because the discovery/v1 API defines nil as true (source: Kubernetes EndpointSlice API reference and R6.AC15) -->
 
 ## Architecture
 
@@ -75,8 +84,11 @@ kind `kubeseer-local` via rootless Podman
                     v
           go run ./cmd/kubeseer-local
           identity | readiness | verify | diagnostics
+                    |
+                    +-> discovery/v1 EndpointSlice LIST
 
 make e2e -> hack/e2e-harness.sh -> independent run-unique cluster
+                                      +-> discovery/v1 EndpointSlice LIST
 ```
 
 The Makefile is the supported user-facing router. Each target passes central
@@ -114,8 +126,9 @@ for acceptance testing, but are not an alternative public workflow.
    `IfNotPresent`. A rejected upgrade leaves the prior successful revision.
 8. Run the typed readiness probe. Success requires both Kubeseer CRDs,
    Deployment availability, serving Certificate readiness, every non-empty
-   webhook CA bundle, webhook endpoints, `/readyz`, `/metrics`, and the exact
-   policy singleton. Then record the converged source and image identities.
+   webhook CA bundle, at least one ready endpoint aggregated from all webhook
+   Service EndpointSlices, `/readyz`, `/metrics`, and the exact policy
+   singleton. Then record the converged source and image identities.
 9. Compare the worktree snapshot. Drift fails the action and reports paths
    without resetting, deleting, or stashing contributor work.
 
@@ -173,6 +186,19 @@ reason, return non-zero, and print no success marker.
 - Why rejected: It duplicates mature CLI behavior and the existing shell
   lifecycle pattern while hiding exact destructive commands behind more code.
 
+### Endpoint backend observation: aggregate EndpointSlices
+
+- Selected: List every `discovery.k8s.io/v1 EndpointSlice` in the Service
+  namespace with `kubernetes.io/service-name=<release>-webhook`, then aggregate
+  endpoint entries whose `conditions.ready` value is true or absent.
+- Why selected: EndpointSlices are stable, support one-to-many and dual-stack
+  Service backends, and are the Kubernetes replacement for Endpoints. The
+  Kubernetes migration guidance requires label-based listing because slice
+  names are not predictable: [Endpoints deprecation guidance](https://kubernetes.io/blog/2025/04/24/endpoints-deprecation/).
+- Rejected alternative: Continue reading core `v1 Endpoints` and suppress the
+  server warning. Suppression would hide a deprecated dependency, retain the
+  single-object and primary-address-family limitations, and fail `NFR10`.
+
 ## Simplicity And Elegance Review
 
 - Simplest viable shape: Eight Make targets route to one state machine; one
@@ -184,9 +210,15 @@ reason, return non-zero, and print no success marker.
 - First-draft challenge: Separate scripts or binaries per action would let
   argument and ownership checks diverge. The final shape has one identity gate
   before every cluster read or write.
+- Endpoint-migration challenge: A generic cross-harness readiness binary would
+  share more code, but it would also couple the fixed local metadata contract to
+  the run-unique E2E lifecycle. The design keeps each existing observer boundary
+  and aligns only its stable EndpointSlice query/readiness semantics and proofs.
 - Future-proofing: Named profiles, multiple clusters, Docker, Podman machine,
   offline bootstrap, additional hosts, registries, and scenario reuse remain
-  deferred. Versioned metadata permits a future approved migration.
+  deferred. Versioned metadata permits a future approved migration; stable
+  EndpointSlice consumption removes the known Kubernetes 1.33+ API deprecation
+  without adding compatibility branches.
 
 ## Components And Interfaces
 
@@ -214,7 +246,7 @@ members of the declared matrix and cannot expand compatibility claims.
 - Inputs/Outputs: Absolute paths and exact identities in; bounded command result
   out.
 - Dependencies: `hack/kind-podman-common.sh`, pinned external CLIs.
-- Requirements: `R2`, `R3`, `R4`, `R6`, `R8`, `NFR1`, `NFR4`, `NFR7`, `NFR9`.
+- Requirements: `R2`, `R3`, `R4`, `R6`, `R8`, `NFR1`, `NFR4`, `NFR7`, `NFR9`, `NFR10`.
 
 The helper never reads ambient kubeconfig and exposes no generic prune or
 wildcard delete. Cloud and provider-discovery variables are unset for every
@@ -228,7 +260,7 @@ child. E2E retains its run-unique identity and local retains its fixed identity.
   output, and terminal status.
 - Dependencies: provider helpers, external CLIs, Dockerfile, chart, Go probe.
 - Requirements: `R1` through `R6`, `R8` through `R10`, `NFR1` through `NFR7`,
-  `NFR9`.
+  `NFR9`, `NFR10`.
 
 Mutating traps cover only resources created by the current action. No trap
 deletes a previously owned cluster. `down` validates metadata, kubeconfig,
@@ -290,15 +322,32 @@ only that example's catalog-owned resources.
 - Inputs/Outputs: `go run ./cmd/kubeseer-local
   <identity|readiness|verify|diagnostics>` with absolute paths; structured JSON
   and stable phase/example records.
-- Dependencies: client-go, Kubeseer API types, approved condition and
-  observability vocabularies; no reconciliation packages.
+- Dependencies: client-go discovery/v1 and core clients, Kubeseer API types,
+  approved condition and observability vocabularies; no reconciliation
+  packages.
 - Requirements: `R3`, `R6` through `R9`, `NFR1`, `NFR2`, `NFR4`, `NFR6`,
-  `NFR8`, `NFR9`.
+  `NFR8`, `NFR9`, `NFR10`, `C13`.
 
 Clients come only from stored kubeconfig. The selected context, loopback API
 endpoint, server version, metadata, and node labels must agree before any
 observation. All waits have deadlines and identify their predicate. Assertions
 use literal public outcomes and do not reproduce product algorithms.
+
+One internal read-only helper receives namespace and Service name, lists
+EndpointSlices with an escaped equality selector built from
+`discoveryv1.LabelServiceName`, and returns the number of ready endpoint
+entries across every matching slice. `conditions.ready == nil` is treated as
+ready according to the discovery/v1 contract; explicit false is excluded. The
+readiness command fails on a list error or zero ready entries. Status and
+diagnostics reuse the same helper, preserve their bounded numeric projection,
+and represent an unavailable list without exposing raw API response bodies.
+No consumer predicts slice names, creates slices, or reads core `v1 Endpoints`.
+
+The E2E package gate performs the equivalent label-selected EndpointSlice
+list through its explicit kubeconfig and context, and non-vacuously asserts at
+least one ready endpoint before admission probes. This changes only the
+backend-readiness observer; E2E identity, lifecycle, scenarios, and authority
+remain unchanged.
 
 ### Documentation and acceptance harness
 
@@ -307,12 +356,17 @@ use literal public outcomes and do not reproduce product algorithms.
   `make test-local-environment`; documentation and acceptance evidence.
 - Dependencies: public targets, fake tools, explicit Linux/amd64 rootless
   Podman runner for genuine proof.
-- Requirements: `R2`, `R8`, `R11`, `NFR5`, `NFR7`, `NFR8`.
+- Requirements: `R2`, `R8`, `R11`, `NFR5`, `NFR7`, `NFR8`, `NFR10`.
 
 Fake-tool acceptance proves argument rejection, ordering, ownership conflicts,
 worktree preservation, and exact cleanup. Genuine acceptance invokes the same
 Make targets against temporary absolute state/cache roots, requires every
 phase marker, and proves the cluster absent at completion.
+
+Contributor documentation uses `kubectl get endpointslice --selector
+kubernetes.io/service-name=<service>` for direct backend inspection. Static
+documentation checks reject commands that direct contributors to core
+`v1 Endpoints`.
 
 ## Data Models
 
@@ -365,6 +419,24 @@ records action and PID for diagnosis, but PID alone never authorizes removal.
 | `conflict` | Exact name/state exists without full agreement | Preserve all resources and fail closed |
 | `unreachable` | Owned cluster exists but API cannot respond | Preserve state; allow local diagnostics or explicit down |
 
+### Webhook backend readiness
+
+The observer input is `(namespace, serviceName)`. Its Kubernetes query is one
+namespace-scoped EndpointSlice LIST with the standard Service-name label. The
+result joins zero or more slices and counts endpoint entries using these
+semantics:
+
+| `conditions.ready` | Readiness contribution |
+| --- | --- |
+| absent | ready, as required by discovery/v1 |
+| `true` | ready |
+| `false` | not ready |
+
+Only the aggregate count enters readiness/status/diagnostic output. Endpoint
+addresses, target references, node names, zones, and topology are neither
+required nor serialized. A zero count is not success even when matching slices
+exist.
+
 ### Diagnostic projection
 
 Each unique diagnostic directory contains a manifest of successfully written
@@ -393,6 +465,11 @@ stable unavailable outcome and diagnostics perform no cluster write.
 - cert-manager failure precedes Helm. Atomic Helm failure retains the prior
   successful revision.
 - Readiness timeout names the exact condition, endpoint, or object.
+- EndpointSlice listing errors fail readiness without falling back to core
+  `v1 Endpoints`; status and diagnostics retain their sanitized unavailable
+  projection.
+- Zero matching EndpointSlices and matching slices with zero ready endpoints
+  both report webhook Service reachability as unavailable.
 - Example failures name the stable example; cleanup success cannot mask them.
 - Empty catalogs, zero selected objects, missing verifiers, or omitted phases
   are non-zero failures.
@@ -429,6 +506,9 @@ stable unavailable outcome and diagnostics perform no cluster write.
 | OCI import partially fails | Name failed nodes and stop convergence | Import repeats on next setup |
 | cert-manager is unavailable | Stop before Kubeseer release | Offline first bootstrap is unsupported |
 | Helm rollout fails | Atomic upgrade preserves prior revision | Setup fails although old release may work |
+| EndpointSlice list is forbidden or unavailable | Fail the readiness predicate with a sanitized Service-level error | Deprecated Endpoints is never used as fallback |
+| EndpointSlices exist without a ready endpoint | Keep waiting until the bounded deadline | Slice existence alone does not prove reachability |
+| A Service spans multiple EndpointSlices | Aggregate every label-selected slice | Observation performs one namespaced LIST rather than one object GET |
 | Catalog and policy diverge | Static cross-check of identities and scopes | New examples need coordinated changes |
 | Negative example fails differently | Require exact approved denial | Generic failure never proves authorization |
 | API is unavailable for diagnostics | Emit local metadata and stable outcome | Cluster projection is incomplete |
@@ -443,7 +523,9 @@ boundaries:
 - static verification checks licenses, target wiring, version mapping, shell
   safety, forbidden ambient kubeconfig/prune/purge paths, metadata schema,
   values/schema compatibility, RBAC/policy least privilege, catalog uniqueness,
-  manifests, documentation coverage, and E2E identity separation;
+  manifests, documentation coverage, E2E identity separation, EndpointSlice
+  label selection, and absence of supported-workflow core `v1 Endpoints`
+  consumers;
 - a fake-tool shell harness proves preflight-before-mutation, argument rejection,
   exact commands, state transitions, interrupted creation cleanup, owned-state
   preservation, collision refusal, markers, and worktree invariance;
@@ -451,13 +533,16 @@ boundaries:
   Linux/amd64 rootless-Podman runner using temporary external roots: check, up,
   repeated up, status, examples, repeated examples, verify, diagnostics,
   examples-down, and down. It checks markers, singleton cardinality, diagnostic
-  sentinels, unrelated kind/Podman sentinels, and worktree invariance;
+  sentinels, unrelated kind/Podman sentinels, worktree invariance, ready
+  EndpointSlice aggregation, and absence of the Kubernetes Endpoints
+  deprecation warning;
 - the Go probe runs only against that genuine installed cluster. It registers
   exactly seven catalog names, rejects zero selection, uses bounded observation,
   and asserts public status, provenance, typed values, aggregation, admission
   denial, and degradation;
 - existing E2E acceptance proves `make e2e` remains run-unique and never
-  resolves or reuses `kubeseer-local`.
+  resolves or reuses `kubeseer-local`; its package gate asserts label-selected
+  EndpointSlice readiness and emits no core Endpoints deprecation warning.
 
 The genuine local suite is contributor-workflow evidence, not a replacement or
 alias for release certification.
@@ -466,6 +551,10 @@ alias for release certification.
 
 - Lifecycle proof: fake-tool acceptance and genuine repeated lifecycle prove
   `R1`-`R6`, ownership, image identity, package convergence, and teardown.
+- EndpointSlice proof: static checks, fake command traces, local readiness,
+  status, diagnostics, and the E2E package gate prove label-selected multi-slice
+  aggregation, ready/nil-ready semantics, zero-ready failure, and absence of
+  core `v1 Endpoints` requests for `R6`, `R8`, `R9`, `NFR10`, and `C13`.
 - Example proof: catalog validation, apply, typed assertions, exact denial,
   degradation, repeated convergence, and ordered cleanup prove `R7`.
 - Isolation proof: ambient credential sentinels, unrelated kind/Podman
@@ -473,8 +562,8 @@ alias for release certification.
 - Diagnostic proof: reachable and unreachable runs validate schema, bounds,
   destination, forbidden-sentinel absence, and zero cluster writes for `R9`.
 - Documentation proof: executable extraction checks versions, identities,
-  limitations, network needs, inspection, examples, destructive targets, and
-  README linkage for `R11`.
+  limitations, network needs, EndpointSlice inspection, examples, destructive
+  targets, and README linkage for `R11`.
 - Operational evidence: markers, metadata, node/image identity, Helm history,
   readiness JSON, per-example outcomes, diagnostic manifest, cleanup report,
   and worktree hashes form the handoff.
@@ -490,12 +579,12 @@ alias for release certification.
 | `R3` | Orchestrator; ownership metadata/states; identity proof |
 | `R4` | Source identity; OCI import; repeated-source proof |
 | `R5` | Local values; canonical Helm convergence; policy/RBAC checks |
-| `R6` | Typed readiness; bounded flow; repeatability proof |
+| `R6` | Typed EndpointSlice readiness; bounded flow; repeatability proof |
 | `R7` | Ordered catalog/executor; typed example verifier |
-| `R8` | Local probe; independent E2E boundary; genuine CI target |
-| `R9` | Diagnostic projection and sanitized diagnostic proof |
+| `R8` | Local and E2E EndpointSlice gates; independent identities; genuine CI target |
+| `R9` | EndpointSlice-backed diagnostic projection and sanitized proof |
 | `R10` | Ownership-gated down; scoped example cleanup; sentinels |
-| `R11` | Documentation component and executable documentation checks |
+| `R11` | EndpointSlice inspection guidance and executable documentation checks |
 | `NFR1` | Exact identities, sanitized wrappers, ownership states |
 | `NFR2` | Separate policy/RBAC and allowlisted diagnostics |
 | `NFR3` | Content identity, central pins, idempotent convergence |
@@ -505,6 +594,7 @@ alias for release certification.
 | `NFR7` | Linux/amd64, rootless Podman, no cloud/registry dependency |
 | `NFR8` | Cardinality gates, exact denial, typed public assertions |
 | `NFR9` | Shared helpers and canonical build/package/E2E contracts |
+| `NFR10` | Stable discovery/v1 consumers and deprecation-warning regression gates |
 | `C1` | Approved packaging and E2E inputs are composed, not redefined |
 | `C2` | Linux/amd64 is the only accepted host profile |
 | `C3` | kind always selects rootless Podman explicitly |
@@ -517,3 +607,4 @@ alias for release certification.
 | `C10` | Path validation and worktree snapshots enforce external state |
 | `C11` | New artifacts retain Apache-2.0 metadata |
 | `C12` | Static, acceptance, and genuine cluster layers; no unit layer |
+| `C13` | Label-selected EndpointSlice LIST and multi-slice ready aggregation |

@@ -80,8 +80,14 @@ kubectl --kubeconfig "$STATE/kubeconfig" --context kind-kubeseer-local \
 kubectl --kubeconfig "$STATE/kubeconfig" --context kind-kubeseer-local \
   -n kubeseer-system get events
 kubectl --kubeconfig "$STATE/kubeconfig" --context kind-kubeseer-local \
+  -n kubeseer-system get endpointslice \
+  --selector kubernetes.io/service-name=kubeseer-webhook
+kubectl --kubeconfig "$STATE/kubeconfig" --context kind-kubeseer-local \
   -n kubeseer-system logs deployment/kubeseer --all-containers --tail=200
 ```
+
+The EndpointSlice command lists all ready and non-ready backends associated
+with the webhook Service without relying on deprecated core `v1 Endpoints`.
 
 The manager readiness endpoint is `/readyz`; the metrics endpoint is
 `/metrics`. Conditions, Events, and status summaries are public observations.

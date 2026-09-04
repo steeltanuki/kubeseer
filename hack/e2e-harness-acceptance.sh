@@ -157,6 +157,52 @@ if [[ "${1:-}" == port-forward ]]; then
 fi
 if [[ "${1:-}" == get ]]; then
 	joined="$*"
+	if [[ "${2:-}" == endpointslice ]]; then
+		expected_selector='kubernetes.io/service-name=kubeseer-webhook'
+		selector=''
+		selector_count=0
+		namespace=''
+		namespace_count=0
+		for ((index = 3; index <= $#; index++)); do
+			argument="${!index}"
+			case "$argument" in
+			--selector)
+				next_index=$((index + 1))
+				[[ "$next_index" -le "$#" ]] || exit 66
+				selector="${!next_index}"
+				selector_count=$((selector_count + 1))
+				index=$next_index
+				;;
+			--namespace|-n)
+				next_index=$((index + 1))
+				[[ "$next_index" -le "$#" ]] || exit 66
+				namespace="${!next_index}"
+				namespace_count=$((namespace_count + 1))
+				index=$next_index
+				;;
+			esac
+		done
+		if [[ "$selector_count" != 1 || "$selector" != "$expected_selector" || \
+			"$namespace_count" != 1 || "$namespace" != kubeseer-system ]]; then
+			printf 'unexpected EndpointSlice scope or selector: %s\n' "$joined" >&2
+			exit 66
+		fi
+		if [[ "$joined" != *jsonpath* || "$joined" != *'items[*].endpoints[*]'* ]]; then
+			printf 'EndpointSlice observation did not aggregate every slice endpoint: %s\n' "$joined" >&2
+			exit 66
+		fi
+		printf '%s\n' 'endpoint-slices=2 endpoint-records=3' >>"$TRACE_FILE"
+		if [[ "${KUBESEER_NO_READY_ENDPOINTSLICE-}" == 1 ]]; then
+			printf '%s\n' 'false|endpoint' 'false|endpoint'
+		else
+			printf '%s\n' 'true|endpoint' 'false|endpoint' '|endpoint'
+		fi
+		exit 0
+	fi
+	if [[ "${2:-}" == endpoints ]]; then
+		printf '%s\n' 'deprecated core v1 Endpoints command was requested' >&2
+		exit 67
+	fi
 	if [[ "$joined" == *validatingwebhookconfiguration* && "$joined" == *jsonpath* ]]; then
 		if [[ "${KUBESEER_EMPTY_CA-}" == 1 ]]; then
 			printf '\n\n'
@@ -168,7 +214,7 @@ if [[ "${1:-}" == get ]]; then
 	if [[ "$joined" == *kubeseeraccesspolicy* ]]; then
 		printf '%s\n' 'kubeseeraccesspolicy.kubeseer.io/installation-access-ceiling'
 	fi
-	if [[ "$joined" == *nodes* || "$joined" == *deployment* || "$joined" == *events* || "$joined" == *endpoints* ]]; then
+	if [[ "$joined" == *nodes* || "$joined" == *deployment* || "$joined" == *events* ]]; then
 		printf '%s\n' 'stub'
 	fi
 	exit 0
@@ -291,6 +337,11 @@ assert_contains "$trace_output" 'ctr --namespace k8s.io images import'
 assert_contains "$trace_output" 'args=delete cluster --name kubeseer-e2e-'
 assert_contains "$trace_output" 'upgrade --install kubeseer'
 assert_contains "$trace_output" 'cert-manager/releases/download/v1.18.2/cert-manager.yaml'
+assert_contains "$trace_output" 'get endpointslice --namespace kubeseer-system'
+assert_contains "$trace_output" '--selector kubernetes.io/service-name=kubeseer-webhook'
+assert_contains "$trace_output" 'items[*].endpoints[*]'
+assert_contains "$trace_output" 'endpoint-slices=2 endpoint-records=3'
+assert_not_contains "$trace_output" 'get endpoints '
 assert_not_contains "$trace_output" "$AMBIENT_KUBECONFIG"
 assert_not_contains "$trace_output" 'ambient-cloud-secret'
 assert_not_contains "$trace_output" 'prune'
@@ -311,6 +362,15 @@ second_output="$(run_success 2>&1)"
 assert_contains "$second_output" 'TEST_LAYER=end-to-end STATUS=passed'
 second_name="$(sed -n 's/.*args=create cluster --name \([^ ]*\).*/\1/p' "$TRACE_PATH" | head -n 1)"
 [[ "$create_name" != "$second_name" ]] || { printf '%s\n' 'cluster names are not run-unique' >&2; exit 1; }
+
+no_ready_trace="$FIXTURE_DIR/no-ready.trace"
+no_ready_output="$(run_with_status 1 env PATH="$BIN_DIR:$ORIGINAL_PATH" TRACE_FILE="$no_ready_trace" \
+	KUBECONFIG="$AMBIENT_KUBECONFIG" USE_EXISTING_CLUSTER=true KUBESEER_NO_READY_ENDPOINTSLICE=1 \
+	"$HARNESS" "$PACKAGE_DIR" '^TestEndToEnd$')"
+assert_contains "$no_ready_output" 'webhook Service has no ready EndpointSlice endpoints'
+no_ready_trace_output="$(<"$no_ready_trace")"
+assert_contains "$no_ready_trace_output" 'get endpointslice --namespace kubeseer-system'
+assert_not_contains "$no_ready_trace_output" 'get endpoints '
 
 negative_trace="$FIXTURE_DIR/negative.trace"
 negative_output="$(run_with_status 1 env PATH="$BIN_DIR:$ORIGINAL_PATH" TRACE_FILE="$negative_trace" \

@@ -45,6 +45,10 @@ fi
 if rg -n 'internal/(discovery|selection|extraction|operators|aggregation|authorization|reconciliation|status)' "$ROOT_DIR/internal/localprobe" "$ROOT_DIR/cmd/kubeseer-local" >/dev/null; then
 	fail 'local probe imports production algorithms'
 fi
+if rg -n 'CoreV1\(\)[[:space:]]*\.Endpoints' "$ROOT_DIR/internal/localprobe" "$ROOT_DIR/cmd/kubeseer-local" >/dev/null; then
+	fail 'local probe requests deprecated core v1 Endpoints'
+fi
+rg -q 'discoveryv1\.LabelServiceName|EndpointSlices' "$ROOT_DIR/internal/localprobe/probe.go" || fail 'local probe EndpointSlice observer is missing'
 
 mapfile -t catalog < <(sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' "$ROOT_DIR/examples/catalog.txt")
 [[ "${#catalog[@]}" == 7 ]] || fail 'catalog does not contain exactly seven entries'
@@ -101,7 +105,27 @@ fi
 if [[ "$MODE" == complete ]]; then
 	[[ -f "$ROOT_DIR/docs/local-development.md" ]] || fail 'local development guide is missing'
 	rg -q 'local-development.md' "$ROOT_DIR/README.md" || fail 'README does not link local guide'
-	for documented in 'Linux/amd64' 'macOS' 'Windows' 'WSL' 'non-amd64' 'kubeseer-local' 'kind-kubeseer-local' 'kubeseer-system' 'installation-access-ceiling' 'local-check' 'local-up' 'local-status' 'local-examples' 'local-verify' 'local-diagnostics' 'local-examples-down' 'local-down' '/readyz' '/metrics' 'Events' 'logs' 'rootless Podman' 'cert-manager' 'run-unique' 'external registry' 'external clusters' 'externalSecret'; do
+	if rg -n 'CoreV1\(\)[[:space:]]*\.Endpoints' \
+		"$ROOT_DIR/internal" "$ROOT_DIR/cmd" "$ROOT_DIR/hack/e2e-harness.sh" >/dev/null; then
+		fail 'supported production or E2E path requests deprecated core v1 Endpoints'
+	fi
+	if rg -n '(^|[[:space:]])get[[:space:]]+[^#]*([,[:space:]])endpoints([[:space:]]|$)' \
+		--glob '*.sh' --glob '!verify-local-environment.sh' --glob '!e2e-harness-acceptance.sh' \
+		"$ROOT_DIR/hack" >/dev/null; then
+		fail 'supported harness path uses deprecated kubectl get endpoints'
+	fi
+	if rg -n '(^|[[:space:]])get[[:space:]]+[^#]*([,[:space:]])endpoints([[:space:]]|$)' \
+		--glob '*.md' "$ROOT_DIR/docs" >/dev/null; then
+		fail 'documented workflow uses deprecated kubectl get endpoints'
+	fi
+	for inspected in "$ROOT_DIR/hack/e2e-harness.sh" "$ROOT_DIR/docs/operations.md" "$ROOT_DIR/docs/local-development.md"; do
+		rg -q 'get endpointslice' "$inspected" || fail "EndpointSlice inspection is missing: ${inspected#"$ROOT_DIR/"}"
+		rg -q 'kubernetes.io/service-name' "$inspected" || fail "Service-name selector is missing: ${inspected#"$ROOT_DIR/"}"
+	done
+	rg -q 'items\[\*\]\.endpoints\[\*\]' "$ROOT_DIR/hack/e2e-harness.sh" || fail 'E2E EndpointSlice aggregation is missing'
+	rg -q 'LOCAL_ENDPOINTSLICE_ACCEPTANCE=genuine STATUS=passed' "$ROOT_DIR/hack/test-local-environment.sh" || fail 'genuine EndpointSlice acceptance marker is missing'
+	rg -q 'v1 Endpoints is deprecated' "$ROOT_DIR/hack/test-local-environment.sh" || fail 'genuine deprecation-warning gate is missing'
+	for documented in 'Linux/amd64' 'macOS' 'Windows' 'WSL' 'non-amd64' 'kubeseer-local' 'kind-kubeseer-local' 'kubeseer-system' 'installation-access-ceiling' 'local-check' 'local-up' 'local-status' 'local-examples' 'local-verify' 'local-diagnostics' 'local-examples-down' 'local-down' '/readyz' '/metrics' 'Events' 'logs' 'rootless Podman' 'cert-manager' 'run-unique' 'external registry' 'external clusters' 'externalSecret' 'EndpointSlice' 'kubernetes.io/service-name'; do
 		rg -F -q -- "$documented" "$ROOT_DIR/docs/local-development.md" || fail "local guide lacks ${documented}"
 	done
 	for name in "${catalog[@]}"; do

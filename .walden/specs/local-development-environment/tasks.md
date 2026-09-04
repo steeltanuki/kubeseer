@@ -1,16 +1,16 @@
 ---
 walden_schema_version: v1alpha1
 status: approved
-approved_at: 2026-09-01T19:05:43Z
-last_modified: 2026-09-01T19:43:38Z
-approved_fingerprint: sha256:d2dadb778a12e8875379abc4081b38c35e0768044f51e3d74140545120ce45b9
-source_design_approved_at: 2026-09-01T18:53:13Z
-source_design_fingerprint: sha256:516862975fc6af08a2c5e1d84a03481870bcda2b8746939cee5348cd97bfb58d
+approved_at: 2026-09-03T09:11:53Z
+last_modified: 2026-09-03T10:48:55Z
+approved_fingerprint: sha256:ee12d619f4ca0d88d4dfe16dc606c004e7f1cfa1f98c87e41b4813793ae738fc
+source_design_approved_at: 2026-09-03T09:03:56Z
+source_design_fingerprint: sha256:ed40a58d26c328ce42ae3da7d7d15c97505545095de0ce2419f9df81a119a9ea
 ---
 
 # Implementation Plan
 
-<!-- assumed: incremental leaf proofs use read-only static checks and traced fake-tool acceptance; task 9.1 owns the atomic genuine kind-on-Podman proof of runtime behavior because the approved Design requires the same public lifecycle to be exercised end to end -->
+<!-- assumed: incremental leaf proofs use read-only static checks and traced fake-tool acceptance; completed task 9.1 established the atomic genuine kind-on-Podman harness, and task 10.3 extends that same public proof for the EndpointSlice migration -->
 
 - [x] 1. Establish the public command, toolchain, and sanitized process contracts
   - [x] 1.1 Add central versions, Make routing, provider helpers, preflight, and acceptance foundations
@@ -278,3 +278,80 @@ source_design_fingerprint: sha256:516862975fc6af08a2c5e1d84a03481870bcda2b874693
         expect_output: "LOCAL_ENVIRONMENT_ACCEPTANCE=complete STATUS=passed"
         timeout: 120m
         covers: ["R6.AC1", "R6.AC2", "R6.AC3", "R6.AC4", "R6.AC5", "R6.AC6", "R6.AC7", "R6.AC8", "R6.AC9", "R6.AC10", "R6.AC11", "R6.AC12", "R6.AC13", "R7.AC1", "R7.AC2", "R7.AC3", "R7.AC4", "R7.AC5", "R7.AC6", "R7.AC7", "R7.AC8", "R7.AC9", "R7.AC10", "R7.AC11", "R7.AC12", "R7.AC13", "R7.AC14", "R7.AC15", "R7.AC16", "R7.AC17", "R7.AC18", "R7.AC19", "R7.AC20", "R8.AC1", "R8.AC2", "R8.AC3", "R8.AC4", "R8.AC5", "R8.AC6", "R8.AC7", "R8.AC8", "R8.AC9", "R8.AC10", "R8.AC11", "R8.AC12", "R9.AC1", "R9.AC2", "R9.AC3", "R9.AC4", "R9.AC5", "R9.AC6", "R9.AC7", "R9.AC8", "R9.AC9", "R9.AC10", "R9.AC11", "R9.AC12", "R9.AC13", "R9.AC14", "R9.AC15", "R9.AC16", "NFR1", "NFR2", "NFR3", "NFR4", "NFR5", "NFR6", "NFR7", "NFR8", "NFR9", "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "C11", "C12"]
+
+- [x] 10. Migrate webhook backend observation to EndpointSlice
+  - [x] 10.1 Implement one typed EndpointSlice observer for local readiness, status, and diagnostics
+    - Replace both local-probe core `v1 Endpoints` reads with one production
+      observer over the client-go discovery/v1 lister. List every EndpointSlice
+      in the release namespace with an escaped equality selector built from
+      `discoveryv1.LabelServiceName`; never predict slice names or fall back to
+      the deprecated API.
+    - Aggregate endpoint entries across all matching slices. Treat absent and
+      true `conditions.ready` values as ready, exclude explicit false, return an
+      actionable Service-level error on list failure or zero ready endpoints,
+      and expose only the bounded aggregate count through status and diagnostics.
+    - Extend `TestModuleIntegration` through the production observer boundary
+      with label-selection, multiple-slice, nil/true/false readiness, zero-ready,
+      and list-error scenarios. Extend the local probe/static gate to reject
+      core `v1 Endpoints` consumers without adding a package-local unit layer.
+    - Requirements: `R6.AC6`, `R6.AC10`, `R6.AC14`, `R6.AC15`, `R6.AC16`, `R9.AC5`, `R9.AC17`, `NFR10`, `C13`
+    - Design: Components And Interfaces / Typed local probe; Data Models / Webhook backend readiness; Error Handling; Security Considerations; Testing Strategy; Verification Plan
+    - Verification:
+      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-endpointslice-go-build GOMODCACHE=/tmp/kubeseer-endpointslice-go-mod make test-integration"]
+        expect_output: "TEST_LAYER=module-integration STATUS=passed"
+        timeout: 35m
+        covers: ["R6.AC6", "R6.AC10", "R6.AC14", "R6.AC15", "R6.AC16", "R9.AC5", "R9.AC17", "NFR10", "C13"]
+      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-endpointslice-go-build GOMODCACHE=/tmp/kubeseer-endpointslice-go-mod ./hack/verify-local-environment.sh probe"]
+        expect_output: "LOCAL_ENVIRONMENT_VERIFY=probe STATUS=passed"
+        timeout: 35m
+
+  - [x] 10.2 Migrate the E2E readiness gate and contributor inspection guidance
+    - Replace the E2E harness `kubectl get endpoints` gate with a
+      namespace-scoped, label-selected discovery/v1 EndpointSlice observation
+      that requires at least one ready endpoint while preserving the run-unique
+      cluster, explicit kubeconfig/context, scenario registry, and certification
+      marker.
+    - Extend E2E fake-tool acceptance to require the exact Service-name selector,
+      multiple-slice aggregation, non-vacuous ready output, and absence of the
+      legacy command. Update operations and local-development guidance to use
+      `kubectl get endpointslice` with the standard label selector.
+    - Extend complete static verification to reject production, harness, and
+      documented core `v1 Endpoints` reads while retaining legitimate API
+      deprecation rationale in the approved specification.
+    - Requirements: `R8.AC12`, `R8.AC13`, `R11.AC6`, `R11.AC13`, `NFR10`, `C13`
+    - Design: Options Considered / Endpoint backend observation; Components And Interfaces / Documentation and acceptance harness; Testing Strategy; Verification Plan
+    - Verification:
+      - command: ["./hack/e2e-harness-acceptance.sh"]
+        expect_output: "E2E_HARNESS_ACCEPTANCE=complete STATUS=passed"
+        timeout: 25m
+        covers: ["R8.AC12", "R8.AC13", "NFR10", "C13"]
+      - command: ["make", "verify-local-environment"]
+        expect_output: "LOCAL_ENVIRONMENT_VERIFY=complete STATUS=passed"
+        timeout: 45m
+        covers: ["R11.AC6", "R11.AC13", "NFR10", "C13"]
+
+  - [x] 10.3 Prove warning-free EndpointSlice behavior on the genuine cluster paths
+    - Extend the genuine local lifecycle harness to retain the combined output
+      of `local-up`, `local-status`, verification, and diagnostics; fail on the
+      Kubernetes core Endpoints deprecation warning while retaining every
+      existing marker, sentinel, cleanup, and worktree-invariance assertion.
+      Emit `LOCAL_ENDPOINTSLICE_ACCEPTANCE=genuine STATUS=passed` only after the
+      real Podman/kind path completes; the fake-tool fallback must not emit it.
+    - Exercise the installed Service's controller-managed EndpointSlices and
+      require the local readiness, status, and diagnostic projections to report
+      at least one ready backend. Keep every observation bounded and perform no
+      manual mutation of controller-owned EndpointSlices.
+    - Run the independent full `make e2e` certification after its readiness gate
+      migration and require its canonical terminal marker. Preserve failure
+      diagnostics and exact cleanup for both owned cluster identities.
+    - Requirements: `R6.AC6`, `R6.AC10`, `R6.AC14`, `R6.AC15`, `R6.AC16`, `R8.AC13`, `R9.AC5`, `R9.AC17`, `NFR10`, `C13`
+    - Design: Architecture / Lifecycle flow; Components And Interfaces / Typed local probe, Documentation and acceptance harness; Data Models / Webhook backend readiness; Failure Modes And Tradeoffs; Testing Strategy; Verification Plan
+    - Verification:
+      - command: ["sh", "-c", "GOCACHE=/tmp/kubeseer-endpointslice-go-build GOMODCACHE=/tmp/kubeseer-endpointslice-go-mod make test-local-environment"]
+        expect_output: "LOCAL_ENDPOINTSLICE_ACCEPTANCE=genuine STATUS=passed"
+        timeout: 120m
+        covers: ["R6.AC6", "R6.AC10", "R6.AC14", "R6.AC15", "R6.AC16", "R9.AC5", "R9.AC17", "NFR10", "C13"]
+      - command: ["make", "e2e"]
+        expect_output: "E2E_CERTIFICATION=complete STATUS=passed"
+        timeout: 90m
+        covers: ["R8.AC13", "NFR10", "C13"]
