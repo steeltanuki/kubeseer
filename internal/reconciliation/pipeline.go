@@ -114,6 +114,19 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName, at
 	sources := object.Spec.Sources
 	if budgetIssues := r.deps.BudgetValidator.ValidateKubeseer(object); len(budgetIssues) != 0 {
 		runtimeErr := configurationBudgetRuntimeError(budgetIssues)
+		// A budget rejection invalidates every observation owned by this
+		// Kubeseer.  Publish through the same lease-guarded status path while
+		// deliberately avoiding policy, discovery, and source I/O.
+		r.deps.Routes.RemoveOwner(key)
+		completeObservedStage(attempt, leaseCtx, observability.StageCompose)
+		rejection := statuscontract.Evaluation{ConfigurationBudgetExceeded: true}
+		if publishErr := r.deps.Publisher.Publish(leaseCtx, lease, rejection); publishErr != nil {
+			if errors.Is(publishErr, ErrStaleLease) || errors.Is(publishErr, context.Canceled) || errors.Is(publishErr, context.DeadlineExceeded) {
+				return reconcile.Result{}, nil, skippedTerminal(leaseCtx)
+			}
+			return reconcile.Result{}, publishErr, terminalForError(publishErr)
+		}
+		completeObservedStage(attempt, leaseCtx, observability.StagePublish)
 		return reconcile.Result{}, runtimeErr, terminalForError(runtimeErr)
 	}
 	aggregationLimits := aggregation.LimitsFromProfile(r.profile)
@@ -267,7 +280,12 @@ func (r *Runtime) reconcileKey(ctx context.Context, key types.NamespacedName, at
 			routes = append(routes, entry.authorizedSet...)
 		}
 	}
-	if err := r.deps.Routes.Replace(lease, routes); err != nil {
+	if err := r.deps.Routes.Replace(evaluationCtx, lease, routes); err != nil {
+		if timedOut, interrupted := evaluationState(evaluationCtx, leaseCtx, r.deps.Tracker, lease); timedOut {
+			return r.finishTimedOutEvaluation(lease, leaseCtx, attempt, result, completed, planned, snapshot, sources)
+		} else if interrupted {
+			return reconcile.Result{}, nil, skippedTerminal(leaseCtx)
+		}
 		if errors.Is(err, ErrStaleLease) || IsRetryable(err) == false && !r.deps.Tracker.IsLeaseCurrent(lease) {
 			return reconcile.Result{}, nil, skippedTerminal(leaseCtx)
 		}

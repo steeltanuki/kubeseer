@@ -28,6 +28,7 @@ import (
 	"github.com/steeltanuki/kubeseer/internal/extraction"
 	"github.com/steeltanuki/kubeseer/internal/selection"
 	"github.com/steeltanuki/kubeseer/internal/typedoutput"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 func assertTypedOutputConversionScenarios(t *testing.T) {
@@ -253,4 +254,180 @@ func assertTypedMatchValue(t *testing.T, match typedoutput.Match, typeName v1alp
 	default:
 		t.Fatalf("assertTypedMatchValue called for unsupported type %q", typeName)
 	}
+}
+
+// assertNativeQuantityCompatibility exercises the production extraction-to-conversion
+// path for the complete quantity suffix family and the newly accepted nano/micro forms.
+func assertNativeQuantityCompatibility(t *testing.T) {
+	t.Helper()
+
+	tests := []struct {
+		name         string
+		input        string
+		wantBaseUnit string
+	}{
+		{name: "unitless", input: "1", wantBaseUnit: "1"},
+		{name: "milli", input: "1m", wantBaseUnit: "0.001"},
+		{name: "nano", input: "100n", wantBaseUnit: "0.0000001"},
+		{name: "micro", input: "100u", wantBaseUnit: "0.0001"},
+		{name: "negative-nano", input: "-100n", wantBaseUnit: "-0.0000001"},
+		{name: "negative-micro", input: "-100u", wantBaseUnit: "-0.0001"},
+		{name: "kilo", input: "1k", wantBaseUnit: "1000"},
+		{name: "mega", input: "1M", wantBaseUnit: "1000000"},
+		{name: "giga", input: "1G", wantBaseUnit: "1000000000"},
+		{name: "tera", input: "1T", wantBaseUnit: "1000000000000"},
+		{name: "peta", input: "1P", wantBaseUnit: "1000000000000000"},
+		{name: "exa", input: "1E", wantBaseUnit: "1000000000000000000"},
+		{name: "kibi", input: "1Ki", wantBaseUnit: "1024"},
+		{name: "mebi", input: "1Mi", wantBaseUnit: "1048576"},
+		{name: "gibi", input: "1Gi", wantBaseUnit: "1073741824"},
+		{name: "tebi", input: "1Ti", wantBaseUnit: "1099511627776"},
+		{name: "pebi", input: "1Pi", wantBaseUnit: "1125899906842624"},
+		{name: "exbi", input: "1Ei", wantBaseUnit: "1152921504606846976"},
+		{name: "positive-exponent", input: "1e3", wantBaseUnit: "1000"},
+		{name: "negative-exponent", input: "1e-7", wantBaseUnit: "0.0000001"},
+		{name: "maximum-int64", input: "9223372036854775807", wantBaseUnit: "9223372036854775807"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			match, err := convertExtractedNativeScalar(t, test.input, v1alpha1.ValueTypeQuantity)
+			if err != nil {
+				t.Fatalf("convert quantity %q: %v", test.input, err)
+			}
+			quantity, baseUnits, ok := match.QuantityValue()
+			if !ok {
+				t.Fatalf("quantity conversion returned no quantity value for %q", test.input)
+			}
+			nativeQuantity, err := resource.ParseQuantity(test.input)
+			if err != nil {
+				t.Fatalf("native quantity parser rejected fixture %q: %v", test.input, err)
+			}
+			if quantity.String() != nativeQuantity.String() {
+				t.Fatalf("canonical quantity = %q, native canonical = %q", quantity.String(), nativeQuantity.String())
+			}
+			if baseUnits != test.wantBaseUnit {
+				t.Fatalf("normalized base units = %q, want %q", baseUnits, test.wantBaseUnit)
+			}
+		})
+	}
+
+	errorTests := []struct {
+		name   string
+		input  string
+		reason typedoutput.ConversionErrorReason
+	}{
+		{name: "malformed-suffix", input: "1z", reason: typedoutput.ReasonInvalidValue},
+		{name: "malformed-text", input: "not-a-quantity", reason: typedoutput.ReasonInvalidValue},
+		{name: "positive-overflow", input: "9223372036854775808", reason: typedoutput.ReasonConversionOverflow},
+		{name: "negative-overflow", input: "-9223372036854775808", reason: typedoutput.ReasonConversionOverflow},
+		{name: "native-rounding", input: "0.0000000001", reason: typedoutput.ReasonForbiddenConversion},
+	}
+	for _, test := range errorTests {
+		t.Run(test.name, func(t *testing.T) {
+			match, err := convertExtractedNativeScalar(t, test.input, v1alpha1.ValueTypeQuantity)
+			if err == nil || !typedoutput.HasReason(err, test.reason) {
+				t.Fatalf("quantity conversion = match %#v err %v, want reason %s", match, err, test.reason)
+			}
+			if strings.Contains(err.Error(), test.input) {
+				t.Fatalf("quantity diagnostic exposed input %q: %v", test.input, err)
+			}
+		})
+	}
+}
+
+// assertNativeDurationCompatibility exercises exact duration parsing and all
+// accepted microsecond code points through the production extraction path.
+func assertNativeDurationCompatibility(t *testing.T) {
+	t.Helper()
+
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{name: "zero", input: "0"},
+		{name: "positive-zero", input: "+0"},
+		{name: "negative-zero", input: "-0"},
+		{name: "ascii-microsecond", input: "1us"},
+		{name: "micro-sign-microsecond", input: "1µs"},
+		{name: "greek-mu-microsecond", input: "1μs"},
+		{name: "negative-greek-mu-microsecond", input: "-1μs"},
+		{name: "ordinary-duration", input: "1.5s"},
+		{name: "compound-duration", input: "1h2m3.004s"},
+		{name: "negative-compound-duration", input: "-1.5ms"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			match, err := convertExtractedNativeScalar(t, test.input, v1alpha1.ValueTypeDuration)
+			if err != nil {
+				t.Fatalf("convert duration %q: %v", test.input, err)
+			}
+			got, ok := match.DurationValue()
+			if !ok {
+				t.Fatalf("duration conversion returned no duration value for %q", test.input)
+			}
+			want, err := time.ParseDuration(test.input)
+			if err != nil {
+				t.Fatalf("native duration parser rejected fixture %q: %v", test.input, err)
+			}
+			if got != want || got.String() != want.String() {
+				t.Fatalf("duration = %v, want native value %v", got, want)
+			}
+		})
+	}
+
+	errorTests := []struct {
+		name   string
+		input  string
+		reason typedoutput.ConversionErrorReason
+	}{
+		{name: "bare-number", input: "1", reason: typedoutput.ReasonInvalidValue},
+		{name: "malformed-text", input: "forever", reason: typedoutput.ReasonInvalidValue},
+		{name: "bare-sign", input: "+", reason: typedoutput.ReasonInvalidValue},
+		{name: "fractional-nanosecond", input: "0.1ns", reason: typedoutput.ReasonForbiddenConversion},
+		{name: "positive-overflow", input: "2562047h47m16.854775808s", reason: typedoutput.ReasonConversionOverflow},
+		{name: "negative-overflow", input: "-2562047h47m16.854775809s", reason: typedoutput.ReasonConversionOverflow},
+	}
+	for _, test := range errorTests {
+		t.Run(test.name, func(t *testing.T) {
+			match, err := convertExtractedNativeScalar(t, test.input, v1alpha1.ValueTypeDuration)
+			if err == nil || !typedoutput.HasReason(err, test.reason) {
+				t.Fatalf("duration conversion = match %#v err %v, want reason %s", match, err, test.reason)
+			}
+			if len(test.input) > 2 && strings.Contains(err.Error(), test.input) {
+				t.Fatalf("duration diagnostic exposed input %q: %v", test.input, err)
+			}
+		})
+	}
+}
+
+// convertExtractedNativeScalar keeps the regression scenarios on the real
+// field-extraction and typed-conversion boundary instead of private helpers.
+func convertExtractedNativeScalar(t *testing.T, input string, typeName v1alpha1.KubeseerValueType) (typedoutput.Match, error) {
+	t.Helper()
+	source := v1alpha1.KubeseerSource{
+		ID: "native-scalar-source",
+		Fields: []v1alpha1.KubeseerField{{
+			Name: "value",
+			Path: "{.data.value}",
+			Type: typeName,
+		}},
+	}
+	planOutcome := typedoutput.CompileSource(source)
+	if len(planOutcome.Failures()) != 0 || len(planOutcome.Plan().Fields()) != 1 {
+		t.Fatalf("compile native scalar source: failures=%#v fields=%#v", planOutcome.Failures(), planOutcome.Plan().Fields())
+	}
+	extracted := extraction.ExtractBatch(context.Background(), []extraction.SourceInput{{
+		Source: source,
+		Selection: selection.SelectionOutcome{
+			SourceID: source.ID,
+			Resources: []selection.SelectedResource{selectedExtractionResourceWithObject(map[string]any{
+				"data": map[string]any{"value": input},
+			})},
+		},
+	}})[0]
+	if extracted.Err != nil || len(extracted.Resources) != 1 || len(extracted.Resources[0].Fields) != 1 || extracted.Resources[0].Fields[0].Matches.Len() != 1 {
+		t.Fatalf("extract native scalar %q: outcome=%#v", input, extracted)
+	}
+	native := extracted.Resources[0].Fields[0].Matches.Values()[0]
+	return typedoutput.ConvertMatch(planOutcome.Plan().Fields()[0], native, &extracted.Resources[0].Provenance)
 }

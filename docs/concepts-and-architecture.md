@@ -86,6 +86,35 @@ Every extracted value is converted to its declared type. Timestamp, duration,
 and quantity values use Kubernetes-aware canonical representations. Failed
 conversions are explicit and do not silently coerce data.
 
+### Exact native scalar conversion
+
+Quantity fields use the Kubernetes parser pinned by `go.mod`, while duration
+fields use Go's `time.ParseDuration` grammar. Native parser success supplies
+canonical text but is not the complete acceptance rule: Kubeseer independently
+accumulates an exact rational magnitude, rejects values outside the existing
+representation ceiling (or signed `int64` nanosecond range), and rejects any
+value that the native parser would round. No alternate Unicode normalization or
+implicit unit conversion is applied.
+
+The documented compatibility cases are:
+
+- quantity `100n` -> `baseUnits: "0.0000001"`;
+- quantity `100u` -> `baseUnits: "0.0001"`;
+- quantity `-100u` -> `baseUnits: "-0.0001"`;
+- duration strings `"0"`, `"+0"`, and `"-0"` -> `canonical: "0s"`,
+  `nanoseconds: 0`;
+- ASCII `"1us"`, U+00B5 MICRO SIGN `"1µs"`, and U+03BC GREEK SMALL LETTER MU
+  `"1μs"` -> `canonical: "1µs"`, `nanoseconds: 1000`.
+
+Existing decimal (`1.5`), exponent (`1e3`), binary quantity (`1Gi`), and
+compound duration (`1h2m3.004s`) forms retain their exact semantics. A
+quantity such as `0.0000000001` or a duration such as `0.1ns` is syntactically
+close to a valid value but is rejected with a no-rounding error. Conversion
+errors are field-scoped and public diagnostics contain the reason and safe
+message only, never the extracted value, JSONPath, or resource body. See the
+[API examples](api-reference.md#native-duration-and-quantity-spellings) for
+the serialized payload shape.
+
 ### 5. Operators
 
 Operators run in declaration order. Predicates decide whether the current
@@ -130,6 +159,39 @@ Observed-resource watches are conservative and selector-independent. They
 signal that a source may need reevaluation; the authorized `LIST` performs the
 actual selection. Policy or generation changes cancel stale work, invalidate
 routes, and require new authorization before more observation.
+
+## Watch lifecycle and observation gaps
+
+An evaluation context and a source-watch supervisor have different lifetimes.
+The evaluation context covers one reconciliation and its `EvaluationTimeout`;
+the supervisor owns the transport for one exact `WatchAddress` (resource,
+scope, and namespace) and can be shared by several current owners. A caller
+deadline or ordinary completion therefore ends only that evaluation. It does
+not cancel an established shared stream that still has a current owner.
+
+`RouteRegistry` waits for readiness only for the targets requested by the
+current reconciliation. It obtains a fresh exact permit before every serial
+WATCH attempt, bounds establishment with the resolved `EvaluationTimeout`,
+and never starts a second attempt while the previous transport call is still
+blocked. A successful WATCH is ready before the initial `LIST` begins.
+
+Startup failure, a reconnect after a stream gap, or a capacity promotion marks
+the target for recovery. The supervisor then sends current authorized owners
+through the coalescing ingress so a fresh `LIST` covers the interval in which
+no event could have been observed. The periodic safety interval remains a
+second, bounded backstop. If UID, generation, deletion, or policy epoch makes
+an owner stale, it is removed before recovery is queued; a fresh reconciliation
+must establish authority again.
+
+The supervisor cancels its transport when its last current owner disappears or
+when the manager shuts down. Late responses are checked against supervisor
+identity and cancellation and are stopped without routing an event. The
+transport must honor its context for prompt shutdown; a context-ignoring
+implementation cannot be forcibly terminated by the registry.
+
+See [Operations](operations.md#diagnose-stalled-watch-startup-and-recovery) for
+safe startup/retry diagnosis and the [Security model](security.md#watch-authority-and-transport-lifetime)
+for the authority boundary.
 
 The resource has no controller finalizer. Deleting a `Kubeseer` removes its
 routes through normal reconciliation and garbage-free in-memory cleanup.

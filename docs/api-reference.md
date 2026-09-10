@@ -123,6 +123,39 @@ rejected. This is intentionally not the complete kubectl JSONPath language.
 Conversions never truncate, round, apply locale parsing, or implicitly turn a
 scalar into a string. Non-finite numbers are rejected.
 
+### Native duration and quantity spellings
+
+`quantity` accepts the grammar of the repository-pinned Kubernetes quantity
+parser. The `n` and `u` decimal suffixes are exact when they fit the existing
+representation limit; canonical text comes from the native quantity value and
+`baseUnits` is the independently checked normalized decimal.
+
+| Quoted input | Public type | Canonical payload | Normalized value |
+| --- | --- | --- | --- |
+| `100n` | `quantity` | `quantityValue.canonical: "100n"` | `quantityValue.baseUnits: "0.0000001"` |
+| `100u` | `quantity` | `quantityValue.canonical: "100u"` | `quantityValue.baseUnits: "0.0001"` |
+| `-100u` | `quantity` | `quantityValue.canonical: "-100u"` | `quantityValue.baseUnits: "-0.0001"` |
+
+`duration` follows Go's native duration grammar. Unitless `"0"`, `"+0"`, and
+`"-0"` all serialize as `canonical: "0s"` with `nanoseconds: 0`. The ASCII
+`"1us"`, U+00B5 MICRO SIGN `"1µs"`, and U+03BC GREEK SMALL LETTER MU
+`"1μs"` spellings all represent 1,000 nanoseconds; canonical duration text
+uses Go's `µs` form.
+
+```yaml
+quantityValue:
+  canonical: "100n"
+  baseUnits: "0.0000001"
+durationValue:
+  canonical: "1µs"
+  nanoseconds: 1000
+```
+
+The parser's acceptance does not permit loss of information: quantity
+`0.0000000001` and duration `0.1ns` are rejected rather than rounded. See the
+[exact conversion model](concepts-and-architecture.md#exact-native-scalar-conversion)
+for range and diagnostic rules.
+
 ## Operators
 
 Operators execute in declaration order. Predicates decide whether the current
@@ -231,6 +264,54 @@ Common public reasons are:
 
 Messages are sanitized and bounded. Automation should branch on condition
 type, status, reason, and `observedGeneration`, not parse human messages.
+
+### Configuration-budget rejection
+
+The manager applies its effective admission budget again at reconciliation
+time. If a declaration no longer fits (for example after a profile change), it
+publishes a terminal, current-generation status with these conditions:
+
+| Condition | Status | Reason |
+| --- | --- | --- |
+| `Accepted` | `False` | `ConfigurationBudgetExceeded` |
+| `Authorized` | `Unknown` | `AuthorizationNotEvaluated` |
+| `SourcesResolved` | `Unknown` | `ResolutionNotEvaluated` |
+| `Ready` | `False` | `ConfigurationBudgetExceeded` |
+| `Degraded` | `True` | `EvaluationUnavailable` |
+
+This status is deliberately status-only. `status.result`, `status.summary`,
+and `status.resultHash` are absent rather than empty, and the manager does not
+read observed resources to remove the old values. A synthetic status-only
+projection looks like this:
+
+```yaml
+apiVersion: kubeseer.io/v1alpha1
+kind: Kubeseer
+metadata:
+  generation: 8
+status:
+  observedGeneration: 8
+  conditions:
+  - type: Accepted
+    status: "False"
+    reason: ConfigurationBudgetExceeded
+  - type: Authorized
+    status: Unknown
+    reason: AuthorizationNotEvaluated
+  - type: SourcesResolved
+    status: Unknown
+    reason: ResolutionNotEvaluated
+  - type: Ready
+    status: "False"
+    reason: ConfigurationBudgetExceeded
+  - type: Degraded
+    status: "True"
+    reason: EvaluationUnavailable
+```
+
+See [operations diagnosis](operations.md#diagnose-configuration-budget-rejection)
+for generation and field-presence checks, and [the security boundary](security.md#budget-rejection-and-data-removal)
+for the successful-write rule.
 
 ### Summary and result
 

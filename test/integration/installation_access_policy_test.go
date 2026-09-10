@@ -96,6 +96,12 @@ func TestModuleIntegration(t *testing.T) {
 	t.Run("typed-output scalar planning and conversions remain explicit", func(t *testing.T) {
 		assertTypedOutputConversionScenarios(t)
 	})
+	t.Run("NativeQuantityCompatibility", func(t *testing.T) {
+		assertNativeQuantityCompatibility(t)
+	})
+	t.Run("NativeDurationCompatibility", func(t *testing.T) {
+		assertNativeDurationCompatibility(t)
+	})
 	t.Run("typed-output outcomes preserve cardinality and composite values", func(t *testing.T) {
 		assertTypedOutputCardinalityScenarios(t)
 	})
@@ -104,6 +110,12 @@ func TestModuleIntegration(t *testing.T) {
 	})
 	t.Run("typed-output batches isolate fields, sources, and cancellation", func(t *testing.T) {
 		assertTypedOutputIsolationScenarios(t)
+	})
+	t.Run("NativeScalarPipeline", func(t *testing.T) {
+		assertNativeScalarPipelineScenarios(t)
+	})
+	t.Run("NativeScalarDocumentation", func(t *testing.T) {
+		assertNativeScalarDocumentation(t)
 	})
 	t.Run("value operators reuse typed conversion and plan complete sources", func(t *testing.T) {
 		assertValueOperatorPlanningScenarios(t)
@@ -159,6 +171,18 @@ func TestModuleIntegration(t *testing.T) {
 	t.Run("reconciliation runtime routes authorized metadata events", func(t *testing.T) {
 		assertReconciliationRuntimeWatchRoutingScenarios(t, ctx, resolver)
 	})
+	t.Run("WatchStartupCancellation", func(t *testing.T) {
+		assertWatchStartupCancellation(t, ctx, resolver)
+	})
+	t.Run("WatchSupervisorEstablishment", func(t *testing.T) {
+		assertWatchSupervisorEstablishment(t, ctx, resolver)
+	})
+	t.Run("WatchStartupRecovery", func(t *testing.T) {
+		assertWatchStartupRecovery(t, ctx, resolver)
+	})
+	t.Run("WatchStartupDocumentation", func(t *testing.T) {
+		assertWatchStartupDocumentation(t)
+	})
 	t.Run("authorization enforcement retains current capability-backed watch permits", func(t *testing.T) {
 		assertAuthorizationEnforcementWatchScenarios(t, ctx, resolver)
 	})
@@ -185,6 +209,15 @@ func TestModuleIntegration(t *testing.T) {
 	})
 	t.Run("status publisher writes only complete semantic snapshots", func(t *testing.T) {
 		assertStatusAndConditionsPublisherScenarios(t, ctx)
+	})
+	t.Run("BudgetRejectionStatus", func(t *testing.T) {
+		assertBudgetRejectionStatus(t)
+	})
+	t.Run("BudgetRejectionRuntime", func(t *testing.T) {
+		assertBudgetRejectionRuntime(t, resolver)
+	})
+	t.Run("BudgetRejectionDocumentation", func(t *testing.T) {
+		assertBudgetRejectionDocumentation(t)
 	})
 	t.Run("observability core keeps stable signals passive and bounded", func(t *testing.T) {
 		assertObservabilityCoreScenarios(t)
@@ -297,6 +330,9 @@ func TestModuleIntegration(t *testing.T) {
 	t.Log("MODULE_INTEGRATION=status-and-conditions-conditions STATUS=passed")
 	t.Log("MODULE_INTEGRATION=status-and-conditions-pipeline STATUS=passed")
 	t.Log("MODULE_INTEGRATION=status-and-conditions-publisher STATUS=passed")
+	t.Log("MODULE_INTEGRATION=configuration-budget-status STATUS=passed")
+	t.Log("MODULE_INTEGRATION=configuration-budget-runtime STATUS=passed")
+	t.Log("MODULE_INTEGRATION=configuration-budget-documentation STATUS=passed")
 	t.Log("MODULE_INTEGRATION=admission-validation STATUS=passed")
 	t.Log("MODULE_INTEGRATION=observability-core STATUS=passed")
 	t.Log("MODULE_INTEGRATION=observability-boundaries STATUS=passed")

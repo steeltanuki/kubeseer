@@ -244,3 +244,18 @@ Review this file before non-trivial work when the current request matches past m
 - Lesson: Run-unique Kubernetes identity does not by itself isolate fixed host port-forwards from a persistent local workflow.
 - Guardrail: Before E2E certification, reserve run-owned readiness and metrics ports or verify they are free; never accept a pre-existing listener as the E2E forward.
 
+### 2026-09-10T07:16:17Z | native-scalar-conversion-compatibility | execute
+- Trigger: walden verify encountered Podman profile drift in the sandbox
+- Lesson: API envtest proofs can fail before assertions when the sandbox cannot initialize Podman, even though the same exact proof passes with the recorded runtime.
+- Guardrail: Before re-verifying envtest-backed tasks, compare the recorded environment profile and run the exact proof with the required writable runtime directory and authorized Podman access.
+
+### 2026-09-10T08:45:39Z | configuration-budget-status-invalidation | tasks
+- Trigger: Sandbox envtest could not bind its local control-plane socket, and the route promotion proof exposed a blocking initial Replace fixture.
+- Lesson: Run the exact envtest proof with approved local-socket escalation; keep initial Replace readiness ordering while making RemoveOwner promotion nonblocking, and drive deliberately stalled initial replacements asynchronously in tests.
+- Guardrail: Before completion, rerun every exact Walden proof on the final code, inspect all RouteRegistry promotion callsites, and run the route race proof to catch hidden waits.
+
+### 2026-09-10T11:58:24Z | watch-startup-cancellation | tasks
+- Trigger: envtest ha rilevato WATCH duplicati dopo una risposta di establishment riuscita
+- Lesson: Non cancellare il contesto di trasporto quando la risposta WATCH ha vinto la gara del timer: il contesto figlio deve restare supervisor-owned per tutta la vita dello stream.
+- Guardrail: Separare il timer di establishment dalla cancellazione del trasporto; annullare il trasporto solo su timeout, rimozione dell'ultimo owner o shutdown e mantenere una prova envtest con uno stream attivo.
+

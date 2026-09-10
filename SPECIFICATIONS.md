@@ -1049,3 +1049,30 @@ The first implementation milestone should prove the following end-to-end behavio
 9. the operator does not update status when the semantic result is unchanged.
 
 Selectors spanning many resources, advanced operators, and advanced aggregations should be introduced only after this slice has been certified.
+
+# 11. Corrective features from project review
+
+The September 5, 2026 review identified four actionable issues. These three
+follow-up features supplement the original 18-feature baseline. Each follows
+its own Requirements → Design → Tasks approval chain. Existing baseline
+approvals do not approve these corrections.
+
+| Priority / finding | Corrective feature | Observable outcome | Baseline dependencies |
+| --- | --- | --- | --- |
+| P1 / 1 | [configuration-budget-status-invalidation](.walden/specs/configuration-budget-status-invalidation/requirements.md) | Rejected persisted configurations lose old results through guarded status publication, including after policy removal or restriction. | performance-and-limits, reconciliation-runtime, status-and-conditions, authorization-enforcement |
+| P1 / 2 | [watch-startup-cancellation](.walden/specs/watch-startup-cancellation/requirements.md) | Stalled WATCH establishment respects evaluation deadlines and lease cancellation while preserving other authorized owners. | reconciliation-runtime, performance-and-limits, authorization-enforcement |
+| P2 / 3 and 4 | [native-scalar-conversion-compatibility](.walden/specs/native-scalar-conversion-compatibility/requirements.md) | Exact native quantity and duration inputs, including nano/micro quantities and zero/microsecond durations, convert successfully. | typed-output-model, field-extraction, kubeseer-api-foundation |
+
+All three also depend on integration-testing-foundation. Recommended priority
+is the table order; the corrective features do not depend on each other.
+Their Requirements documents record reproduction cases, failure handling,
+compatibility constraints, and verification expectations. Requirements and
+Designs are approved. Each Tasks plan contains four implementation/test or
+documentation leaf tasks and is prepared for review; implementation requires
+approved Tasks and an explicit execution request.
+
+The configuration-budget correction deliberately changes the old runtime
+test expectation of no status publication on budget failure. The corrective
+Designs and Tasks identify the affected baseline design/proof reconciliation
+and review gates required before execution. The two runtime corrections share
+one non-waiting route-promotion helper, which is implemented or reused once.

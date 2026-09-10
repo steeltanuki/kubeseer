@@ -582,11 +582,13 @@ type runtimePipelinePolicySource struct {
 	mu     sync.Mutex
 	policy *v1alpha1.KubeseerAccessPolicy
 	err    error
+	calls  int
 }
 
 func (s *runtimePipelinePolicySource) Get(context.Context) (*v1alpha1.KubeseerAccessPolicy, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.calls++
 	if s.err != nil {
 		return nil, s.err
 	}
@@ -594,6 +596,12 @@ func (s *runtimePipelinePolicySource) Get(context.Context) (*v1alpha1.KubeseerAc
 		return nil, nil
 	}
 	return s.policy.DeepCopy(), nil
+}
+
+func (s *runtimePipelinePolicySource) Calls() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.calls
 }
 
 func (s *runtimePipelinePolicySource) SetPolicy(policy *v1alpha1.KubeseerAccessPolicy) {
@@ -676,16 +684,32 @@ type runtimePipelineRouteReplacement struct {
 type runtimePipelineRoutes struct {
 	mu           sync.Mutex
 	replacements []runtimePipelineRouteReplacement
+	removed      []types.NamespacedName
 }
 
-func (r *runtimePipelineRoutes) Replace(lease reconciliation.Lease, routes []reconciliation.AuthorizedRoute) error {
+func (r *runtimePipelineRoutes) Replace(_ context.Context, lease reconciliation.Lease, routes []reconciliation.AuthorizedRoute) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.replacements = append(r.replacements, runtimePipelineRouteReplacement{Lease: lease, RouteCount: len(routes)})
 	return nil
 }
 
-func (r *runtimePipelineRoutes) RemoveOwner(types.NamespacedName) {}
+func (r *runtimePipelineRoutes) RemoveOwner(owner types.NamespacedName) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.removed = append(r.removed, owner)
+}
+
+func (r *runtimePipelineRoutes) Removed(owner types.NamespacedName) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, removed := range r.removed {
+		if removed == owner {
+			return true
+		}
+	}
+	return false
+}
 
 func (r *runtimePipelineRoutes) RemoveAll() {}
 

@@ -102,7 +102,7 @@ func TestAPIContract(t *testing.T) {
 	resources := clients.Dynamic.Resource(kubeseerResourceGVR).Namespace(namespace)
 	accessPolicies := clients.Dynamic.Resource(accessPolicyResourceGVR)
 	environment.AddCleanup("delete Kubeseer API contract fixtures", func(ctx context.Context) error {
-		for _, name := range []string{"minimal", "valid-source", "negative-generation", "status-isolation", "typed-persistence", "untyped-field-compatible", "invalid-field-type", "typed-result-persistence", "operator-persistence", "operator-empty", "invalid-operator-name", "duplicate-source-ids", "missing-resource", "invalid-namespace", "duplicate-namespaces", "missing-field-name", "missing-field-path", "invalid-field-name", "overlong-field-path", "duplicate-field-names", "aggregation-persistence", "aggregation-empty", "invalid-aggregation-function", "invalid-aggregation-rounding", "invalid-aggregation-precision"} {
+		for _, name := range []string{"minimal", "valid-source", "negative-generation", "status-isolation", "typed-persistence", "untyped-field-compatible", "invalid-field-type", "typed-result-persistence", "native-scalar-persistence", "operator-persistence", "operator-empty", "invalid-operator-name", "duplicate-source-ids", "missing-resource", "invalid-namespace", "duplicate-namespaces", "missing-field-name", "missing-field-path", "invalid-field-name", "overlong-field-path", "duplicate-field-names", "aggregation-persistence", "aggregation-empty", "invalid-aggregation-function", "invalid-aggregation-rounding", "invalid-aggregation-precision"} {
 			err := resources.Delete(ctx, name, metav1.DeleteOptions{})
 			if err != nil && !apierrors.IsNotFound(err) {
 				return err
@@ -120,6 +120,9 @@ func TestAPIContract(t *testing.T) {
 
 	assertTypedSchemeAndClient(t, ctx, resources, namespace, environment.Config())
 	assertTypedOutputAPIScenarios(t, ctx, resources, namespace)
+	t.Run("NativeScalarPersistence", func(t *testing.T) {
+		assertNativeScalarPersistence(t, ctx, resources, namespace)
+	})
 	assertValueOperatorsAPIScenarios(t, ctx, resources, namespace)
 	assertCrossNamespaceAggregationAPIScenarios(t, ctx, resources, namespace)
 	createMinimalResource(t, ctx, resources, namespace)
@@ -845,6 +848,91 @@ func assertTypedResultStatusPersistence(t *testing.T, ctx context.Context, resou
 	}
 	if decoded.Status.Result == nil || !typedResultSemanticallyEqual(result, *decoded.Status.Result) {
 		t.Fatalf("status subresource changed typed result semantics: expected=%#v actual=%#v", result, decoded.Status.Result)
+	}
+}
+
+func assertNativeScalarPersistence(t *testing.T, ctx context.Context, resources dynamic.ResourceInterface, namespace string) {
+	t.Helper()
+
+	quantityNano := KubeseerQuantityValue{Canonical: "100n", BaseUnits: "0.0000001"}
+	quantityMicro := KubeseerQuantityValue{Canonical: "100u", BaseUnits: "0.0001"}
+	durationZero := KubeseerDurationValue{Canonical: "0s", Nanoseconds: 0}
+	durationMicro := KubeseerDurationValue{Canonical: "1µs", Nanoseconds: 1000}
+	result := KubeseerResult{
+		Sources: []KubeseerSourceResult{{
+			ID:    "native-scalar-persisted-source",
+			State: SourceStateValues,
+			Resources: []KubeseerResourceResult{{
+				APIVersion: "v1",
+				Kind:       "ConfigMap",
+				Namespace:  namespace,
+				Name:       "native-scalar-persisted-resource",
+				UID:        types.UID("native-scalar-persisted-uid"),
+				Fields: []KubeseerFieldResult{
+					{Name: "duration-micro", Type: ValueTypeDuration, State: FieldStateValues, Matches: []KubeseerTypedMatch{{State: MatchStateValue, DurationValue: &durationMicro}}},
+					{Name: "duration-zero", Type: ValueTypeDuration, State: FieldStateValues, Matches: []KubeseerTypedMatch{{State: MatchStateValue, DurationValue: &durationZero}}},
+					{Name: "absent-duration", Type: ValueTypeDuration, State: FieldStateAbsent},
+					{Name: "null-quantity", Type: ValueTypeQuantity, State: FieldStateValues, Matches: []KubeseerTypedMatch{{State: MatchStateNull}}},
+					{Name: "quantity-micro", Type: ValueTypeQuantity, State: FieldStateValues, Matches: []KubeseerTypedMatch{{State: MatchStateValue, QuantityValue: &quantityMicro}}},
+					{Name: "quantity-nano", Type: ValueTypeQuantity, State: FieldStateValues, Matches: []KubeseerTypedMatch{{State: MatchStateValue, QuantityValue: &quantityNano}}},
+				},
+			}},
+		}},
+	}
+
+	object := newKubeseer("native-scalar-persistence", namespace, map[string]interface{}{})
+	created, err := resources.Create(ctx, object, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("create native scalar persistence fixture: %v", err)
+	}
+	statusObject, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&Kubeseer{Status: KubeseerStatus{Result: &result}})
+	if err != nil {
+		t.Fatalf("convert native scalar result for API persistence: %v", err)
+	}
+	status, ok := statusObject["status"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("converted native scalar status has unexpected shape: %#v", statusObject["status"])
+	}
+	statusUpdate := created.DeepCopy()
+	statusUpdate.Object["status"] = status
+	if _, err := resources.UpdateStatus(ctx, statusUpdate, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("persist native scalar result through status subresource: %v", err)
+	}
+	stored, err := resources.Get(ctx, object.GetName(), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get native scalar persistence fixture: %v", err)
+	}
+	var decoded Kubeseer
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(stored.Object, &decoded); err != nil {
+		t.Fatalf("decode persisted native scalar result: %v", err)
+	}
+	if decoded.Status.Result == nil || !typedResultSemanticallyEqual(result, *decoded.Status.Result) {
+		t.Fatalf("status subresource changed native scalar semantics: expected=%#v actual=%#v", result, decoded.Status.Result)
+	}
+	if len(decoded.Status.Result.Sources) != 1 || len(decoded.Status.Result.Sources[0].Resources) != 1 {
+		t.Fatalf("decoded native scalar result envelope = %#v", decoded.Status.Result)
+	}
+	fields := make(map[string]KubeseerFieldResult, len(decoded.Status.Result.Sources[0].Resources[0].Fields))
+	for _, field := range decoded.Status.Result.Sources[0].Resources[0].Fields {
+		fields[field.Name] = field
+	}
+	if fields["quantity-nano"].Type != ValueTypeQuantity || fields["quantity-nano"].State != FieldStateValues || len(fields["quantity-nano"].Matches) != 1 || fields["quantity-nano"].Matches[0].QuantityValue == nil || fields["quantity-nano"].Matches[0].QuantityValue.Canonical != "100n" || fields["quantity-nano"].Matches[0].QuantityValue.BaseUnits != "0.0000001" {
+		t.Fatalf("decoded nano quantity payload = %#v", fields["quantity-nano"])
+	}
+	if fields["quantity-micro"].Type != ValueTypeQuantity || fields["quantity-micro"].Matches[0].QuantityValue == nil || fields["quantity-micro"].Matches[0].QuantityValue.Canonical != "100u" || fields["quantity-micro"].Matches[0].QuantityValue.BaseUnits != "0.0001" {
+		t.Fatalf("decoded micro quantity payload = %#v", fields["quantity-micro"])
+	}
+	if fields["duration-zero"].Type != ValueTypeDuration || fields["duration-zero"].Matches[0].DurationValue == nil || fields["duration-zero"].Matches[0].DurationValue.Canonical != "0s" || fields["duration-zero"].Matches[0].DurationValue.Nanoseconds != 0 {
+		t.Fatalf("decoded zero duration payload = %#v", fields["duration-zero"])
+	}
+	if fields["duration-micro"].Type != ValueTypeDuration || fields["duration-micro"].Matches[0].DurationValue == nil || fields["duration-micro"].Matches[0].DurationValue.Canonical != "1µs" || fields["duration-micro"].Matches[0].DurationValue.Nanoseconds != 1000 {
+		t.Fatalf("decoded micro duration payload = %#v", fields["duration-micro"])
+	}
+	if fields["absent-duration"].Type != ValueTypeDuration || fields["absent-duration"].State != FieldStateAbsent || len(fields["absent-duration"].Matches) != 0 {
+		t.Fatalf("decoded absent duration semantics = %#v", fields["absent-duration"])
+	}
+	if fields["null-quantity"].Type != ValueTypeQuantity || fields["null-quantity"].State != FieldStateValues || len(fields["null-quantity"].Matches) != 1 || fields["null-quantity"].Matches[0].State != MatchStateNull || fields["null-quantity"].Matches[0].QuantityValue != nil {
+		t.Fatalf("decoded null quantity semantics = %#v", fields["null-quantity"])
 	}
 }
 

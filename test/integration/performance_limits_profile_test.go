@@ -242,8 +242,10 @@ func assertPerformanceLimitsConfigurationScenarios(t *testing.T) {
 	if _, err := runtime.Reconcile(context.Background(), reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "team-a", Name: "budgeted"}}); err == nil || !strings.Contains(err.Error(), "ConfigurationBudgetExceeded") {
 		t.Fatalf("runtime did not reject persisted over-budget object: %v", err)
 	}
-	if len(lister.Calls()) != 0 || len(publisher.Publications()) != 0 || routes.LastRouteCount() != 0 {
-		t.Fatalf("runtime budget rejection reached dynamic work: lists=%#v publications=%d routes=%d", lister.Calls(), len(publisher.Publications()), routes.LastRouteCount())
+	publications := publisher.Publications()
+	key := types.NamespacedName{Namespace: object.Namespace, Name: object.Name}
+	if len(lister.Calls()) != 0 || len(publications) != 1 || !publications[0].Evaluation.ConfigurationBudgetExceeded || publications[0].Evaluation.Result != nil || !routes.Removed(key) {
+		t.Fatalf("runtime budget rejection reached dynamic work or missed cleanup: lists=%#v publications=%#v removed=%t", lister.Calls(), publications, routes.Removed(key))
 	}
 	t.Log("MODULE_INTEGRATION=performance-and-limits-configuration STATUS=passed")
 }
@@ -1258,23 +1260,23 @@ func assertPerformanceLimitsBackpressureScenarios(t *testing.T, ctx context.Cont
 			t.Fatalf("job watch address: %v", err)
 		}
 
-		if err := registry.Replace(leaseA, []reconciliation.AuthorizedRoute{makeRoute(leaseA, appTarget)}); err != nil {
+		if err := registry.Replace(context.Background(), leaseA, []reconciliation.AuthorizedRoute{makeRoute(leaseA, appTarget)}); err != nil {
 			t.Fatalf("install first bounded route: %v", err)
 		}
 		waitForRuntimeWatchCondition(t, func() bool { return len(watcher.Calls()) >= 1 })
 		if registry.WatchCount() != 1 || watcher.Calls()[0].Address != appAddress {
 			t.Fatalf("first bounded watch = count/%d calls=%#v", registry.WatchCount(), watcher.Calls())
 		}
-		if err := registry.Replace(leasePeer, []reconciliation.AuthorizedRoute{makeRoute(leasePeer, appPeerTarget)}); err != nil {
+		if err := registry.Replace(context.Background(), leasePeer, []reconciliation.AuthorizedRoute{makeRoute(leasePeer, appPeerTarget)}); err != nil {
 			t.Fatalf("install shared bounded route: %v", err)
 		}
 		if registry.WatchCount() != 1 || len(watcher.Calls()) != 1 || !reflect.DeepEqual(registry.Owners(appAddress), []types.NamespacedName{ownerA, ownerPeer}) {
 			t.Fatalf("shared exact watch state = watches/%d calls/%d owners=%#v", registry.WatchCount(), len(watcher.Calls()), registry.Owners(appAddress))
 		}
-		if err := registry.Replace(leaseB, []reconciliation.AuthorizedRoute{makeRoute(leaseB, podTarget)}); err != nil {
+		if err := registry.Replace(context.Background(), leaseB, []reconciliation.AuthorizedRoute{makeRoute(leaseB, podTarget)}); err != nil {
 			t.Fatalf("install excess pod route: %v", err)
 		}
-		if err := registry.Replace(leaseC, []reconciliation.AuthorizedRoute{makeRoute(leaseC, jobTarget)}); err != nil {
+		if err := registry.Replace(context.Background(), leaseC, []reconciliation.AuthorizedRoute{makeRoute(leaseC, jobTarget)}); err != nil {
 			t.Fatalf("install excess job route: %v", err)
 		}
 		if registry.WatchCount() != 1 || registry.BindingCount(ownerB) != 1 || registry.BindingCount(ownerC) != 1 {
