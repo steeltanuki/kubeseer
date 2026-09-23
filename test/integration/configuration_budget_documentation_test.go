@@ -146,10 +146,21 @@ func documentationSection(document, startHeading, endHeading string) string {
 		return ""
 	}
 	section := document[start:]
-	if end := strings.Index(section[len(startHeading):], endHeading); end >= 0 {
-		section = section[:len(startHeading)+end]
+	body := section[len(startHeading):]
+	end := len(section)
+	if explicitEnd := strings.Index(body, endHeading); explicitEnd >= 0 {
+		end = len(startHeading) + explicitEnd
 	}
-	return section
+	depth := len(startHeading) - len(strings.TrimLeft(startHeading, "#"))
+	for level := 1; level <= depth; level++ {
+		if nextHeading := strings.Index(body, "\n"+strings.Repeat("#", level)+" "); nextHeading >= 0 {
+			candidate := len(startHeading) + nextHeading + 1
+			if candidate < end {
+				end = candidate
+			}
+		}
+	}
+	return section[:end]
 }
 
 func documentationCodeBlocks(section string) []string {
