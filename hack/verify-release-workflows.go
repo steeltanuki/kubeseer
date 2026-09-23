@@ -108,6 +108,24 @@ func requireRipgrepSetup(job object, installName, beforeName string) {
 	check(installCount == 1 && targetIndex >= 0 && installIndex < targetIndex, installName+" must precede "+beforeName)
 }
 
+func requireModuleSetup(job object, beforeName string) {
+	setupIndex, targetIndex, goSetupIndex, setupCount := -1, -1, -1, 0
+	for index, step := range steps(job) {
+		if strings.HasPrefix(str(step["uses"]), "actions/setup-go@") {
+			goSetupIndex = index
+		}
+		if str(step["name"]) == "Download project modules for offline verification" {
+			setupCount++
+			check(strings.TrimSpace(str(step["run"])) == "go mod download", "module setup must download the project's declared dependencies")
+			setupIndex = index
+		}
+		if str(step["name"]) == beforeName {
+			targetIndex = index
+		}
+	}
+	check(setupCount == 1 && goSetupIndex >= 0 && goSetupIndex < setupIndex && setupIndex < targetIndex, "module setup must follow actions/setup-go and precede "+beforeName)
+}
+
 func permissions(value interface{}) map[string]string {
 	result := map[string]string{}
 	for key, value := range obj(value) {
@@ -234,8 +252,9 @@ func main() {
 	ciJob := obj(ciJobs["validate"])
 	check(hasPermissions(ciJob["permissions"], map[string]string{"contents": "read"}), "CI job token must be read-only")
 	requireRipgrepSetup(ciJob, "Install ripgrep for repository verification", "Verify generated files, package rules, and repository boundaries")
+	requireModuleSetup(ciJob, "Verify generated files, package rules, and repository boundaries")
 	ciRuns := runs(ciJob)
-	check(runCount(ciJob) == 4, "CI must have one ripgrep setup and exactly three validation commands")
+	check(runCount(ciJob) == 5, "CI must set up Go modules and ripgrep before its three validation commands")
 	for _, command := range []string{"make verify", "make test", "make test-release-distribution SCENARIO=policy"} {
 		check(exactRunLineCount(ciJob, command) == 1, "CI must invoke exactly once: "+command)
 	}
@@ -263,6 +282,7 @@ func main() {
 
 	gateRuns := runs(gates)
 	requireRipgrepSetup(gates, "Install ripgrep for repository verification", "Verify generated files and package contracts")
+	requireModuleSetup(gates, "Verify generated files and package contracts")
 	for _, command := range []string{
 		"./hack/release-distribution.sh validate --tag \"$GITHUB_REF_NAME\" --source-sha \"$source_sha\"",
 		"./hack/local-environment.sh check",
@@ -275,7 +295,7 @@ func main() {
 	} {
 		check(exactRunLineCount(gates, command) == 1, "release gates must run exactly once: "+command)
 	}
-	check(runCount(gates) == 9, "release gate job must contain one ripgrep setup and the approved eight commands")
+	check(runCount(gates) == 10, "release gate job must set up Go modules and ripgrep before the approved eight commands")
 	for _, duplicate := range []string{"make build", "make verify-package", "make test-integration"} {
 		check(!strings.Contains(gateRuns, duplicate), "release workflow duplicates an existing verification contract: "+duplicate)
 	}

@@ -32,6 +32,9 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      - name: Download project modules for offline verification
+        run: go mod download
+
       - name: Install ripgrep for repository verification
         run: |
           sudo apt-get update
