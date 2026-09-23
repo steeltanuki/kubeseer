@@ -27,6 +27,12 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      - name: Install ripgrep for repository verification
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ripgrep
+          rg --version
+
       - name: Verify generated files, package rules, and repository boundaries
         run: make verify
 

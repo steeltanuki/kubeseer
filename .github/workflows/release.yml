@@ -32,6 +32,12 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      - name: Install ripgrep for repository verification
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ripgrep
+          rg --version
+
       - name: Validate stable tag identity and protected source lineage
         id: source
         shell: bash
@@ -81,6 +87,12 @@ jobs:
         with:
           ref: ${{ needs.gates.outputs.source_sha }}
           persist-credentials: false
+
+      - name: Install ripgrep for release source checks
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ripgrep
+          rg --version
 
       - name: Confirm the source handoff before publication
         shell: bash

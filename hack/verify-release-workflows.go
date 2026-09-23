@@ -91,6 +91,23 @@ func exactRunLineCount(job object, command string) int {
 	return count
 }
 
+const ripgrepSetup = "sudo apt-get update\nsudo apt-get install -y --no-install-recommends ripgrep\nrg --version"
+
+func requireRipgrepSetup(job object, installName, beforeName string) {
+	installIndex, targetIndex, installCount := -1, -1, 0
+	for index, step := range steps(job) {
+		if str(step["name"]) == installName {
+			installCount++
+			check(strings.TrimSpace(str(step["run"])) == ripgrepSetup, installName+" must install and confirm ripgrep")
+			installIndex = index
+		}
+		if str(step["name"]) == beforeName {
+			targetIndex = index
+		}
+	}
+	check(installCount == 1 && targetIndex >= 0 && installIndex < targetIndex, installName+" must precede "+beforeName)
+}
+
 func permissions(value interface{}) map[string]string {
 	result := map[string]string{}
 	for key, value := range obj(value) {
@@ -216,8 +233,9 @@ func main() {
 	check(len(ciJobs) == 1, "CI must have only its validation job")
 	ciJob := obj(ciJobs["validate"])
 	check(hasPermissions(ciJob["permissions"], map[string]string{"contents": "read"}), "CI job token must be read-only")
+	requireRipgrepSetup(ciJob, "Install ripgrep for repository verification", "Verify generated files, package rules, and repository boundaries")
 	ciRuns := runs(ciJob)
-	check(runCount(ciJob) == 3, "CI must have exactly three validation commands")
+	check(runCount(ciJob) == 4, "CI must have one ripgrep setup and exactly three validation commands")
 	for _, command := range []string{"make verify", "make test", "make test-release-distribution SCENARIO=policy"} {
 		check(exactRunLineCount(ciJob, command) == 1, "CI must invoke exactly once: "+command)
 	}
@@ -244,6 +262,7 @@ func main() {
 	fmt.Println("PASS release-distribution/permissions-are-job-scoped")
 
 	gateRuns := runs(gates)
+	requireRipgrepSetup(gates, "Install ripgrep for repository verification", "Verify generated files and package contracts")
 	for _, command := range []string{
 		"./hack/release-distribution.sh validate --tag \"$GITHUB_REF_NAME\" --source-sha \"$source_sha\"",
 		"./hack/local-environment.sh check",
@@ -256,7 +275,7 @@ func main() {
 	} {
 		check(exactRunLineCount(gates, command) == 1, "release gates must run exactly once: "+command)
 	}
-	check(runCount(gates) == 8, "release gate job must contain exactly the approved eight commands")
+	check(runCount(gates) == 9, "release gate job must contain one ripgrep setup and the approved eight commands")
 	for _, duplicate := range []string{"make build", "make verify-package", "make test-integration"} {
 		check(!strings.Contains(gateRuns, duplicate), "release workflow duplicates an existing verification contract: "+duplicate)
 	}
@@ -265,6 +284,8 @@ func main() {
 	fmt.Println("PASS release-distribution/mandatory-release-gates")
 
 	publishRuns := runs(publish)
+	requireRipgrepSetup(publish, "Install ripgrep for release source checks", "Publish and verify the immutable release artifacts")
+	check(runCount(publish) == 3, "release publisher must contain ripgrep setup and the two approved source and publish commands")
 	check(strings.Contains(publishRuns, "release-distribution.sh publish "), "publisher must invoke the canonical release orchestrator")
 	check(strings.Contains(publishRuns, "RELEASE_GATE_SOURCE_SHA") && strings.Contains(publishRuns, "GITHUB_SHA"), "publisher must compare the gated SHA with the event SHA")
 	check(strings.Contains(publishRuns, "git rev-parse HEAD"), "publisher must independently confirm its checked-out source revision")
