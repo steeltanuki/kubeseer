@@ -21,6 +21,7 @@ readonly COMMAND="$1"
 readonly REQUESTED="${2:-}"
 readonly STATE_DIR="${KUBESEER_LOCAL_STATE_DIR:-${XDG_STATE_HOME:-${HOME:?HOME is required}/.local/state}/kubeseer/local}"
 readonly KUBECONFIG_PATH="$STATE_DIR/kubeconfig"
+readonly CLUSTER_NAME="${LOCAL_CLUSTER_NAME:-kubeseer-local}"
 readonly KUBE_CONTEXT="${LOCAL_KUBE_CONTEXT:-kind-kubeseer-local}"
 readonly FIELD_MANAGER="kubeseer-local-examples"
 readonly NAMESPACE_LABEL="kubeseer.io/example"
@@ -158,7 +159,7 @@ verify_one() {
 		# AuthorizationDenied path required by this example.
 		local verify_status
 		narrow_authorization_denial_policy
-		if "${command[@]}" verify --state-dir "$STATE_DIR" --metadata "$STATE_DIR/metadata.v1" --kubeconfig "$KUBECONFIG_PATH" --context "$KUBE_CONTEXT" --timeout "${KUBESEER_LOCAL_TIMEOUT:-2m}" --example "$name" --namespace "$namespace"; then
+		if "${command[@]}" verify --state-dir "$STATE_DIR" --metadata "$STATE_DIR/metadata.v1" --kubeconfig "$KUBECONFIG_PATH" --cluster-name "$CLUSTER_NAME" --context "$KUBE_CONTEXT" --timeout "${KUBESEER_LOCAL_TIMEOUT:-2m}" --example "$name" --namespace "$namespace"; then
 			verify_status=0
 		else
 			verify_status=$?
@@ -169,7 +170,7 @@ verify_one() {
 		fi
 		((verify_status == 0)) || return "$verify_status"
 	else
-		"${command[@]}" verify --state-dir "$STATE_DIR" --metadata "$STATE_DIR/metadata.v1" --kubeconfig "$KUBECONFIG_PATH" --context "$KUBE_CONTEXT" --timeout "${KUBESEER_LOCAL_TIMEOUT:-2m}" --example "$name" --namespace "$namespace"
+		"${command[@]}" verify --state-dir "$STATE_DIR" --metadata "$STATE_DIR/metadata.v1" --kubeconfig "$KUBECONFIG_PATH" --cluster-name "$CLUSTER_NAME" --context "$KUBE_CONTEXT" --timeout "${KUBESEER_LOCAL_TIMEOUT:-2m}" --example "$name" --namespace "$namespace"
 	fi
 	printf 'EXAMPLE=%s STATUS=passed\n' "$name"
 }

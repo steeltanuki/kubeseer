@@ -16,7 +16,7 @@ include hack/toolchain.mk
 GO_TEST_FLAGS ?=
 KUBEBUILDER_ASSETS ?=
 
-.PHONY: generate manifests package-sync-crds package-crd-check package-apply-crds build build-purge verify verify-package test test-integration test-api test-compatibility test-package-compatibility e2e local-check local-up local-status local-examples local-verify local-diagnostics local-examples-down local-down local-example verify-local-environment test-local-environment
+.PHONY: generate manifests package-sync-crds package-crd-check package-apply-crds build build-purge verify verify-package test test-integration test-api test-compatibility test-package-compatibility e2e local-check local-up local-status local-examples local-verify local-diagnostics local-examples-down local-down local-example verify-local-environment test-local-environment test-local-cluster-resume
 
 generate:
 	$(CONTROLLER_GEN) object:headerFile=$(DEEP_COPY_HEADER) paths=$(API_PACKAGE)
@@ -133,3 +133,6 @@ verify-local-environment:
 
 test-local-environment:
 	./hack/test-local-environment.sh
+
+test-local-cluster-resume:
+	./hack/test-local-cluster-resume.sh

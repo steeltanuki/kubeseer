@@ -205,6 +205,33 @@ The supported profile is Linux/amd64, rootless Podman, and kind. Docker,
 minikube, k3d, Podman machine, WSL, and non-amd64 hosts are rejected rather
 than treated as certified.
 
+After a host shutdown, an owned kind control-plane may be stopped in Podman.
+An explicit `make local-up` checks ownership and endpoint identity, resumes
+that same stopped node, and waits for the API before applying the normal local
+convergence. If the API wait expires, the node remains available for diagnosis
+and the metadata and kubeconfig are retained. The default wait is 120 seconds;
+you can increase it for a slow host:
+
+```sh
+KUBESEER_LOCAL_RESUME_TIMEOUT_SECONDS=240 make local-up
+```
+
+For an ownership conflict or a running node whose API is still unavailable,
+check the saved local state and the named container without changing them:
+
+```sh
+STATE="${KUBESEER_LOCAL_STATE_DIR:-$HOME/.local/state/kubeseer/local}"
+podman container inspect --format '{{.Name}} {{.State.Status}}' \
+  kubeseer-local-control-plane
+kubectl --kubeconfig "$STATE/kubeconfig" --context kind-kubeseer-local get nodes
+```
+
+`make local-check` and `make local-status` do not start stopped nodes. Do not
+delete or recreate the cluster to clear an identity conflict; inspect the
+reported node, saved context, and API endpoint, then retry `make local-up` once
+the mismatch is understood. A running but unreachable node is never restarted
+automatically.
+
 State lives outside the repository under the path reported by `local-status`.
 On failure, run `make local-diagnostics`; it writes a private, bounded bundle
 and prints its location. Retry `make local-down` only for the fixed owned

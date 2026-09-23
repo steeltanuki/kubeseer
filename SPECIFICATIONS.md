@@ -1076,3 +1076,17 @@ test expectation of no status publication on budget failure. The corrective
 Designs and Tasks identify the affected baseline design/proof reconciliation
 and review gates required before execution. The two runtime corrections share
 one non-waiting route-promotion helper, which is implemented or reused once.
+
+# 12. Local cluster resume follow-up
+
+A September 23, 2026 local-development incident showed that an owned kind
+control-plane container can remain exited after host shutdown. The next
+`make local-up` then stops at API identity validation before it can converge
+the existing cluster.
+
+| Corrective feature | Observable outcome | Baseline dependency |
+| --- | --- | --- |
+| [local-cluster-resume](.walden/specs/local-cluster-resume/requirements.md) | An explicit `make local-up` resumes only the exited, owned kind node, waits for the API, and continues normal convergence without replacing the cluster. | local-development-environment |
+
+This follow-up has its own Requirements, Design, Tasks, and execution gates.
+Host-level Podman restart policy and systemd changes remain outside its scope.

@@ -51,6 +51,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -95,6 +96,7 @@ type Config struct {
 	StateDir    string
 	Metadata    string
 	Kubeconfig  string
+	ClusterName string
 	Context     string
 	Timeout     time.Duration
 	Catalog     string
@@ -120,10 +122,13 @@ type IdentityReport struct {
 }
 
 // LoadMetadata parses metadata as data, not executable shell input.
-func LoadMetadata(path string) (Metadata, error) {
+func LoadMetadata(path, expectedClusterName, expectedContext string) (Metadata, error) {
 	var metadata Metadata
 	if path == "" || !filepath.IsAbs(path) {
 		return metadata, errors.New("metadata path must be absolute")
+	}
+	if len(validation.IsDNS1123Label(expectedClusterName)) != 0 || expectedContext != "kind-"+expectedClusterName {
+		return metadata, errors.New("configured cluster/context identity is invalid")
 	}
 	contents, err := os.ReadFile(path)
 	if err != nil {
@@ -164,8 +169,8 @@ func LoadMetadata(path string) (Metadata, error) {
 	if metadata.SchemaVersion != "1" || (metadata.State != "creating" && metadata.State != "owned") {
 		return Metadata{}, errors.New("unsupported ownership metadata schema or state")
 	}
-	if metadata.ClusterName != ClusterName || metadata.Context != ContextName || metadata.Namespace != Namespace || metadata.Release != Release {
-		return Metadata{}, errors.New("ownership metadata identity does not match kubeseer-local")
+	if metadata.ClusterName != expectedClusterName || metadata.Context != expectedContext || metadata.Namespace != Namespace || metadata.Release != Release {
+		return Metadata{}, errors.New("ownership metadata identity does not match expected cluster/context")
 	}
 	if !filepath.IsAbs(metadata.Kubeconfig) {
 		return Metadata{}, errors.New("metadata kubeconfig must be absolute")
@@ -280,7 +285,7 @@ func (o *EndpointSliceObserver) ReadyEndpointCount(ctx context.Context) (int, er
 }
 
 func newClients(ctx context.Context, cfg Config) (*clients, error) {
-	metadata, err := LoadMetadata(cfg.Metadata)
+	metadata, err := LoadMetadata(cfg.Metadata, cfg.ClusterName, cfg.Context)
 	if err != nil {
 		return nil, err
 	}
@@ -1012,7 +1017,7 @@ func Diagnostics(ctx context.Context, cfg Config) (string, error) {
 		completed = append(completed, name)
 		return nil
 	}
-	metadata, metadataErr := LoadMetadata(cfg.Metadata)
+	metadata, metadataErr := LoadMetadata(cfg.Metadata, cfg.ClusterName, cfg.Context)
 	if metadataErr != nil {
 		return "", metadataErr
 	}

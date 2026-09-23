@@ -259,3 +259,28 @@ Review this file before non-trivial work when the current request matches past m
 - Lesson: Non cancellare il contesto di trasporto quando la risposta WATCH ha vinto la gara del timer: il contesto figlio deve restare supervisor-owned per tutta la vita dello stream.
 - Guardrail: Separare il timer di establishment dalla cancellazione del trasporto; annullare il trasporto solo su timeout, rimozione dell'ultimo owner o shutdown e mantenere una prova envtest con uno stream attivo.
 
+### 2026-09-23T07:02:25Z | local-cluster-resume | requirements
+- Trigger: EARS validation warned about two state conditions placed after SHALL
+- Lesson: State-limited recovery invariants were phrased as ubiquitous criteria with DURING or WHILE in the response
+- Guardrail: Put WHILE preconditions before SHALL and inspect per-criterion EARS warnings before opening review
+
+### 2026-09-23T07:32:39Z | local-cluster-resume | tasks
+- Trigger: walden validate reported missing R3 task coverage despite R3 acceptance IDs in wrapped Requirements lists
+- Lesson: Task coverage parsing depends on IDs on the same physical Requirements line; wrapped continuation lines can hide valid references.
+- Guardrail: Keep each leaf task Requirements field on one physical line and validate task coverage before review.
+
+### 2026-09-23T08:13:39Z | local-cluster-resume | tasks
+- Trigger: genuine Podman proof showed kind provider diagnostics on stderr were included in the kind node inventory during API identity comparison
+- Lesson: Combining provider stderr with machine-readable node output can fabricate inventory entries and cause false identity conflicts.
+- Guardrail: Capture kind node inventory from stdout only and preserve stderr as diagnostics; exercise identity comparison on a real provider.
+
+### 2026-09-23T08:25:09Z | local-cluster-resume | design
+- Trigger: The approved run-unique genuine resume proof was blocked because cmd/kubeseer-local also hard-coded kubeseer-local and kind-kubeseer-local in its read-only ownership metadata validator
+- Lesson: A private probe can duplicate a fixed project identity constraint and invalidate a run-unique integration contract even when its kubeconfig and context inputs are explicit
+- Guardrail: When an approved genuine harness uses configurable resource identity, include the probe's independently expected identity interface and default, unique, and mismatch assertions in Design before implementation
+
+### 2026-09-23T08:42:46Z | local-cluster-resume | execute
+- Trigger: The genuine Podman run stopped in the harness ownership proof because the inspect template requested HostIp, while Podman reports its host port field as HostIP
+- Lesson: Podman inspect template fields are case-sensitive Go struct fields; Docker-style HostIp is not interchangeable with Podman's HostIP
+- Guardrail: Before using Podman inspect fields in ownership proofs, compare the template with real formatted output from the supported Podman provider and cover that proof with the genuine harness
+

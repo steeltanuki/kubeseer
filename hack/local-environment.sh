@@ -74,6 +74,8 @@ image_id=''
 cluster_created=0
 ownership_promoted=0
 lock_held=0
+owned_container_id=''
+owned_container_state=''
 
 fail() {
 	printf 'LOCAL_ENVIRONMENT=%s STATUS=failed: %s\n' "$ACTION" "$1" >&2
@@ -282,6 +284,118 @@ cluster_nodes() {
 	kp_kind_nodes "$LOCAL_PROVIDER" "$LOCAL_CLUSTER_NAME"
 }
 
+loopback_ip() {
+	local address="$1" octet
+	local -a octets=()
+	if [[ "$address" == ::1 ]]; then return 0; fi
+	[[ "$address" =~ ^127\.([0-9]{1,3}\.){2}[0-9]{1,3}$ ]] || return 1
+	IFS=. read -r -a octets <<<"$address"
+	for octet in "${octets[@]}"; do
+		((10#$octet <= 255)) || return 1
+	done
+}
+
+inspect_owned_control_plane() {
+	local inspect_target="${1:-}" expected_container_id=''
+	local nodes expected_node api_server api_host api_port inspect_output
+	local container_id container_name container_state cluster_label role_label published_api extra
+	local binding binding_host binding_port binding_count=0 matched_binding=0
+	local -a bindings=()
+
+	expected_node="${LOCAL_CLUSTER_NAME}-control-plane"
+	if [[ -z "$inspect_target" ]]; then inspect_target="$expected_node"; else expected_container_id="$inspect_target"; fi
+	nodes="$(cluster_nodes)" || {
+		printf 'ownership conflict: kind node inventory is unavailable for %s\n' "$LOCAL_CLUSTER_NAME" >&2
+		return 1
+	}
+	if ! printf '%s\n' "$nodes" | rg -F -x -q -- "$expected_node"; then
+		printf 'ownership conflict: expected kind node %s is absent from cluster %s\n' "$expected_node" "$LOCAL_CLUSTER_NAME" >&2
+		return 1
+	fi
+	[[ -s "$kubeconfig_path" ]] || {
+		printf 'ownership conflict: saved kubeconfig is missing for %s\n' "$LOCAL_CLUSTER_NAME" >&2
+		return 1
+	}
+	api_server="$(kp_run_kubectl "$kubeconfig_path" "$LOCAL_KUBE_CONTEXT" config view --minify -o 'jsonpath={.clusters[0].cluster.server}' 2>&1)" || {
+		printf 'ownership conflict: cannot read the API endpoint from the owned kubeconfig for context %s\n' "$LOCAL_KUBE_CONTEXT" >&2
+		return 1
+	}
+	if [[ "$api_server" =~ ^https://(\[[^]]+\]|[^/:]+):([0-9]+)$ ]]; then
+		api_host="${BASH_REMATCH[1]}"
+		api_port="${BASH_REMATCH[2]}"
+	else
+		printf 'ownership conflict: saved API endpoint is not an explicit HTTPS loopback address\n' >&2
+		return 1
+	fi
+	api_host="${api_host#[}"
+	api_host="${api_host%]}"
+	if [[ "$api_host" != localhost ]] && ! loopback_ip "$api_host"; then
+		printf 'ownership conflict: saved API endpoint is not a loopback address\n' >&2
+		return 1
+	fi
+	[[ "$api_port" =~ ^[0-9]{1,5}$ ]] && ((10#$api_port >= 1 && 10#$api_port <= 65535)) || {
+		printf 'ownership conflict: saved API endpoint has an invalid port\n' >&2
+		return 1
+	}
+
+	if ! inspect_output="$(kp_run_podman container inspect --format '{{.Id}}|{{.Name}}|{{.State.Status}}|{{index .Config.Labels "io.x-k8s.kind.cluster"}}|{{index .Config.Labels "io.x-k8s.kind.role"}}|{{range $binding := (index .HostConfig.PortBindings "6443/tcp")}}{{.HostIP}},{{.HostPort}};{{end}}' "$inspect_target" 2>&1)"; then
+		printf 'ownership conflict: cannot inspect the expected control-plane container %s: %s\n' "$expected_node" "${inspect_output:-Podman inspect failed}" >&2
+		return 1
+	fi
+	[[ "$inspect_output" != *$'\n'* ]] || {
+		printf 'ownership conflict: Podman returned ambiguous control-plane inspection for %s\n' "$expected_node" >&2
+		return 1
+	}
+	IFS='|' read -r container_id container_name container_state cluster_label role_label published_api extra <<<"$inspect_output"
+	container_name="${container_name#/}"
+	if [[ -n "$extra" || ! "$container_id" =~ ^[0-9a-f]{12,64}$ || "$container_name" != "$expected_node" ||
+		"$cluster_label" != "$LOCAL_CLUSTER_NAME" || "$role_label" != control-plane ]]; then
+		printf 'ownership conflict: Podman identity does not match control-plane node %s in cluster %s\n' "$expected_node" "$LOCAL_CLUSTER_NAME" >&2
+		return 1
+	fi
+	if [[ -n "$expected_container_id" && "$container_id" != "$expected_container_id" ]]; then
+		printf 'ownership conflict: inspected control-plane container ID changed for %s\n' "$expected_node" >&2
+		return 1
+	fi
+	case "$container_state" in
+	running|exited) ;;
+	*) printf 'ownership conflict: control-plane container %s has unsupported state %s\n' "$expected_node" "${container_state:-unknown}" >&2; return 1 ;;
+	esac
+
+	IFS=';' read -r -a bindings <<<"$published_api"
+	for binding in "${bindings[@]}"; do
+		[[ -n "$binding" ]] || continue
+		((binding_count += 1))
+		if [[ "$binding" =~ ^([^,]+),([0-9]+)$ ]]; then
+			binding_host="${BASH_REMATCH[1]}"
+			binding_port="${BASH_REMATCH[2]}"
+			binding_host="${binding_host#[}"
+			binding_host="${binding_host%]}"
+			if [[ "$binding_host" != localhost ]] && ! loopback_ip "$binding_host"; then
+				printf 'ownership conflict: published Kubernetes API binding is not loopback-only for %s\n' "$expected_node" >&2
+				return 1
+			fi
+			if ((10#$binding_port < 1 || 10#$binding_port > 65535)); then
+				printf 'ownership conflict: published Kubernetes API binding has an invalid port for %s\n' "$expected_node" >&2
+				return 1
+			fi
+			if [[ "${binding_host,,}" == "${api_host,,}" ]] && ((10#$binding_port == 10#$api_port)); then
+				matched_binding=1
+			fi
+		else
+			printf 'ownership conflict: Podman returned a malformed Kubernetes API binding for %s\n' "$expected_node" >&2
+			return 1
+		fi
+	done
+	if ((binding_count != 1 || matched_binding != 1)); then
+		printf 'ownership conflict: saved API endpoint does not uniquely match the published Kubernetes API port for %s\n' "$expected_node" >&2
+		return 1
+	fi
+
+	owned_container_id="$container_id"
+	owned_container_state="$container_state"
+}
+
 acquire_lock() {
 	if ! mkdir -- "$lock_dir" 2>/dev/null; then
 		printf 'local action lock is held at %s; retry after the owner exits\n' "$lock_dir" >&2
@@ -310,16 +424,103 @@ cleanup_partial_cluster() {
 }
 
 validate_identity() {
-	local server_output nodes
+	local deadline="${1:-}" server_output kind_nodes api_nodes request_timeout
 	[[ -s "$kubeconfig_path" ]] || { printf 'owned kubeconfig is missing: %s\n' "$kubeconfig_path" >&2; return 1; }
-	server_output="$(kp_run_kubectl "$kubeconfig_path" "$LOCAL_KUBE_CONTEXT" version --output=json 2>&1)" || {
-		printf 'Kubernetes API identity is unreachable for context %s\n' "$LOCAL_KUBE_CONTEXT" >&2; return 1;
-	}
-	if [[ "$server_output" == *serverVersion* ]]; then
-		printf '%s' "$server_output" | rg -q 'serverVersion|gitVersion' || return 1
+	if [[ -n "$deadline" ]]; then
+		request_timeout="$(request_timeout_for_deadline "$deadline")" || {
+			printf 'Kubernetes API readiness wait expired for context %s\n' "$LOCAL_KUBE_CONTEXT" >&2
+			return 1
+		}
+	else
+		request_timeout=5s
 	fi
-	nodes="$(cluster_nodes 2>&1)" || { printf 'kind node identity is unavailable for %s\n' "$LOCAL_CLUSTER_NAME" >&2; return 1; }
-	[[ -n "$nodes" ]] || { printf 'kind returned no nodes for %s\n' "$LOCAL_CLUSTER_NAME" >&2; return 1; }
+	server_output="$(kp_run_kubectl "$kubeconfig_path" "$LOCAL_KUBE_CONTEXT" version --request-timeout="$request_timeout" --output=json 2>&1)" || {
+		printf 'Kubernetes API identity is unreachable for context %s: %s\n' "$LOCAL_KUBE_CONTEXT" "$server_output" >&2
+		return 1
+	}
+	if [[ "$server_output" != *'"serverVersion"'* || "$server_output" != *'"gitVersion"'* ]]; then
+		printf 'Kubernetes API identity conflicts with saved context %s\n' "$LOCAL_KUBE_CONTEXT" >&2
+		return 2
+	fi
+	kind_nodes="$(cluster_nodes)" || { printf 'kind node identity is unavailable for %s\n' "$LOCAL_CLUSTER_NAME" >&2; return 2; }
+	[[ -n "$kind_nodes" ]] || { printf 'kind returned no nodes for %s\n' "$LOCAL_CLUSTER_NAME" >&2; return 2; }
+	if [[ -n "$deadline" ]]; then
+		request_timeout="$(request_timeout_for_deadline "$deadline")" || {
+			printf 'Kubernetes API readiness wait expired for context %s\n' "$LOCAL_KUBE_CONTEXT" >&2
+			return 1
+		}
+	fi
+	api_nodes="$(kp_run_kubectl "$kubeconfig_path" "$LOCAL_KUBE_CONTEXT" get nodes --request-timeout="$request_timeout" -o 'jsonpath={range .items[*]}{.metadata.name}{"\n"}{end}' 2>&1)" || {
+		printf 'Kubernetes API node identity is unavailable for context %s: %s\n' "$LOCAL_KUBE_CONTEXT" "$api_nodes" >&2
+		return 1
+	}
+	kind_nodes="$(printf '%s\n' "$kind_nodes" | LC_ALL=C sort -u)"
+	api_nodes="$(printf '%s\n' "$api_nodes" | LC_ALL=C sort -u)"
+	if [[ -z "$api_nodes" || "$api_nodes" != "$kind_nodes" ]]; then
+		printf 'Kubernetes API node identity conflicts with kind cluster %s (kind=%s api=%s)\n' \
+			"$LOCAL_CLUSTER_NAME" "${kind_nodes//$'\n'/,}" "${api_nodes//$'\n'/,}" >&2
+		return 2
+	fi
+}
+
+request_timeout_for_deadline() {
+	local deadline="$1" remaining
+	remaining=$((deadline - SECONDS))
+	((remaining > 0)) || return 1
+	((remaining <= 5)) || remaining=5
+	printf '%ss\n' "$remaining"
+}
+
+resume_owned_control_plane() {
+	local resume_timeout="${KUBESEER_LOCAL_RESUME_TIMEOUT_SECONDS:-120}"
+	local timeout_number deadline remaining start_output last_error='' validation_output validation_status
+	local node_name="${LOCAL_CLUSTER_NAME}-control-plane"
+	local resume_container_id="$owned_container_id"
+
+	if [[ "$owned_container_state" == running ]]; then
+		validate_identity
+		return
+	fi
+	if [[ ! "$resume_timeout" =~ ^[0-9]{1,3}$ ]]; then
+		printf 'KUBESEER_LOCAL_RESUME_TIMEOUT_SECONDS must be an integer from 1 through 600\n' >&2
+		return 1
+	fi
+	timeout_number=$((10#$resume_timeout))
+	if ((timeout_number < 1 || timeout_number > 600)); then
+		printf 'KUBESEER_LOCAL_RESUME_TIMEOUT_SECONDS must be an integer from 1 through 600\n' >&2
+		return 1
+	fi
+	if ! start_output="$(kp_run_podman container start "$resume_container_id" 2>&1)"; then
+		printf 'failed to start owned node %s with Podman: %s\n' "$node_name" "${start_output:-Podman container start failed}" >&2
+		return 1
+	fi
+	inspect_owned_control_plane "$resume_container_id" || return 1
+	if [[ "$owned_container_id" != "$resume_container_id" || "$owned_container_state" != running ]]; then
+		printf 'ownership conflict: resumed node %s did not return as the same running container\n' "$node_name" >&2
+		return 1
+	fi
+	deadline=$((SECONDS + timeout_number))
+	while :; do
+		remaining=$((deadline - SECONDS))
+		if ((remaining <= 0)); then
+			printf 'Kubernetes API readiness wait expired after %s seconds for node %s (context %s)\n' \
+				"$timeout_number" "$node_name" "$LOCAL_KUBE_CONTEXT" >&2
+			[[ -z "$last_error" ]] || printf 'last API check: %s\n' "$last_error" >&2
+			return 1
+		fi
+		if validation_output="$(validate_identity "$deadline" 2>&1)"; then
+			return 0
+		else
+			validation_status=$?
+		fi
+		if ((validation_status == 2)); then
+			printf 'resumed API identity conflicts for node %s: %s\n' "$node_name" "$validation_output" >&2
+			return 1
+		fi
+		last_error="$validation_output"
+		remaining=$((deadline - SECONDS))
+		if ((remaining > 1)); then sleep 1; elif ((remaining > 0)); then sleep "$remaining"; fi
+	done
 }
 
 compute_source_identity() {
@@ -430,7 +631,7 @@ wait_for_local_http() {
 probe() {
 	local command=(go run ./cmd/kubeseer-local)
 	if [[ -n "${KUBESEER_LOCAL_PROBE_BIN:-}" ]]; then command=("$KUBESEER_LOCAL_PROBE_BIN"); fi
-	"${command[@]}" "$1" --state-dir "$state_dir" --metadata "$metadata_path" --kubeconfig "$kubeconfig_path" --context "$LOCAL_KUBE_CONTEXT" --timeout "${KUBESEER_LOCAL_TIMEOUT:-2m}" "${@:2}"
+	"${command[@]}" "$1" --state-dir "$state_dir" --metadata "$metadata_path" --kubeconfig "$kubeconfig_path" --cluster-name "$LOCAL_CLUSTER_NAME" --context "$LOCAL_KUBE_CONTEXT" --timeout "${KUBESEER_LOCAL_TIMEOUT:-2m}" "${@:2}"
 }
 
 create_or_validate_cluster() {
@@ -459,7 +660,8 @@ create_or_validate_cluster() {
 	fi
 	if ((existing)); then
 		[[ -f "$metadata_path" ]] || { printf 'cluster %s exists without matching ownership metadata\n' "$LOCAL_CLUSTER_NAME" >&2; return 1; }
-		validate_identity || return 1
+		inspect_owned_control_plane || return 1
+		resume_owned_control_plane || return 1
 		return 0
 	fi
 	write_metadata creating

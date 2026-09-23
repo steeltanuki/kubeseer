@@ -31,6 +31,7 @@ func main() {
 	stateDir := flags.String("state-dir", "", "absolute local state directory")
 	metadata := flags.String("metadata", "", "absolute metadata.v1 path")
 	kubeconfig := flags.String("kubeconfig", "", "absolute owned kubeconfig")
+	clusterName := flags.String("cluster-name", localprobe.ClusterName, "expected owned kind cluster name")
 	contextName := flags.String("context", localprobe.ContextName, "owned kubeconfig context")
 	timeout := flags.Duration("timeout", 2*time.Minute, "bounded observation timeout")
 	catalog := flags.String("catalog", "examples/catalog.txt", "ordered example catalog")
@@ -49,7 +50,7 @@ func main() {
 	if *metadata == "" || *kubeconfig == "" {
 		fail(errors.New("--metadata and --kubeconfig (or --state-dir) are required"))
 	}
-	cfg := localprobe.Config{StateDir: *stateDir, Metadata: *metadata, Kubeconfig: *kubeconfig, Context: *contextName, Timeout: *timeout, Catalog: *catalog, Example: *example, Namespace: *namespace, Destination: *destination}
+	cfg := localprobe.Config{StateDir: *stateDir, Metadata: *metadata, Kubeconfig: *kubeconfig, ClusterName: *clusterName, Context: *contextName, Timeout: *timeout, Catalog: *catalog, Example: *example, Namespace: *namespace, Destination: *destination}
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 	switch command {
