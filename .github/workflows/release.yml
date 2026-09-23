@@ -1,0 +1,100 @@
+name: Official release distribution
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions: {}
+
+concurrency:
+  group: kubeseer-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  gates:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - name: Check out the exact tag commit and history
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up the Go version declared by go.mod
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Validate stable tag identity and protected source lineage
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha="$(git rev-parse --verify "${GITHUB_REF}^{commit}")"
+          [[ "$source_sha" == "$GITHUB_SHA" ]]
+          ./hack/release-distribution.sh validate --tag "$GITHUB_REF_NAME" --source-sha "$source_sha"
+          printf 'sha=%s\n' "$source_sha" >>"$GITHUB_OUTPUT"
+
+      - name: Fail if the certified local test toolchain is unavailable
+        run: ./hack/local-environment.sh check
+
+      - name: Verify generated files and package contracts
+        run: make verify
+
+      - name: Run the default integration test layer
+        run: make test
+
+      - name: Run the Kubernetes API compatibility matrix
+        run: make test-compatibility
+
+      - name: Run installation and removal compatibility profiles
+        run: make test-package-compatibility
+
+      - name: Verify the owned E2E harness
+        run: ./hack/e2e-harness-acceptance.sh
+
+      - name: Certify product behavior on the supported Kubernetes matrix
+        run: make e2e
+
+  publish:
+    needs:
+      - gates
+    if: ${{ needs.gates.result == 'success' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: write
+    env:
+      RELEASE_GATE_SOURCE_SHA: ${{ needs.gates.outputs.source_sha }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_ACTOR: ${{ github.actor }}
+    steps:
+      - name: Check out the exact gated source commit
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ needs.gates.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: Confirm the source handoff before publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$RELEASE_GATE_SOURCE_SHA" ]]
+          [[ "$(git rev-parse HEAD)" == "$RELEASE_GATE_SOURCE_SHA" ]]
+          [[ "$GITHUB_SHA" == "$RELEASE_GATE_SOURCE_SHA" ]]
+
+      - name: Publish and verify the immutable release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./hack/release-distribution.sh publish \
+            --tag "$GITHUB_REF_NAME" \
+            --source-sha "$RELEASE_GATE_SOURCE_SHA" \
+            --output-dir "$RUNNER_TEMP/kubeseer-release-candidate"

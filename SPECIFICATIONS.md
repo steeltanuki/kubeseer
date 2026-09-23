@@ -85,6 +85,7 @@ The constitution should include at least:
     packaging-and-installation/
     end-to-end-scenarios/
     local-development-environment/
+    release-distribution/
 ```
 
 ---
@@ -932,6 +933,39 @@ A user on a supported host can follow one documented workflow to:
 
 ---
 
+## 6.19 `release-distribution`
+
+### Objective
+
+Publish official stable Kubeseer releases from an explicit immutable Git tag so
+users can install the released controller and canonical Helm chart from public
+GitHub-hosted artifacts without cloning or building the source repository.
+
+### Includes
+
+- GitHub Actions validation that never publishes from pull requests or branch pushes;
+- a separate protected release-tag workflow with mandatory repository and E2E gates;
+- one canonical version and source revision across the image, Helm chart, executable, and GitHub Release;
+- the production controller image under `ghcr.io/steeltanuki/kubeseer:<version>`;
+- the canonical chart as `oci://ghcr.io/steeltanuki/charts/kubeseer` at the same version;
+- public artifact verification, immutable digests, safe same-tag reruns, and partial-release recovery;
+- a GitHub Release with compatibility, installation, notes, upgrade, and source information;
+- user documentation that prefers the published Helm OCI installation path.
+
+The initial release platform is `linux/amd64`: the current production
+Dockerfile hardcodes that architecture. Publishing `linux/arm64` or a single
+multi-platform manifest requires a separately approved production-image
+correction before it is claimed. `packaging-and-installation` retains ownership
+of image structure, chart content, Kubernetes manifests, and install/upgrade/
+rollback/uninstall/purge behavior.
+
+### Dependencies
+
+- `packaging-and-installation` for the approved production image, canonical chart, and package verification;
+- `end-to-end-scenarios` for official release-scope product certification.
+
+---
+
 # 7. Recommended implementation order
 
 ## Phase 1 — Minimum vertical slice
@@ -973,6 +1007,19 @@ Expected result: Kubeseer can filter, group, and aggregate typed values across m
 
 Expected result: Kubeseer is deployable, measurable, bounded, certifiable, and easy to explore locally without an existing Kubernetes cluster.
 
+## Phase 4 — Official release distribution
+
+```text
+19. release-distribution
+```
+
+Expected result: an explicitly tagged stable release is available as a public
+GHCR controller image, public Helm OCI chart, and matching GitHub Release.
+Normal development and CI publish no official artifacts.
+This follow-up may begin once `end-to-end-scenarios` and
+`packaging-and-installation` are approved and complete; its sequence number
+does not make `local-development-environment` a prerequisite.
+
 ---
 
 # 8. Dependency overview
@@ -1008,6 +1055,10 @@ local-development-environment
 ├── packaging-and-installation
 ├── end-to-end-scenarios
 └── depends on the capabilities demonstrated by its examples
+
+release-distribution
+├── packaging-and-installation
+└── end-to-end-scenarios
 ```
 
 # 9. Feature granularity rule
