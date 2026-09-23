@@ -140,7 +140,7 @@ make local-example EXAMPLE=<catalog-name> ACTION=down
 The seven entries are:
 
 - `builtin-resource`: Deployment selection and provenance.
-- `typed-extraction`: native scalar value preserved as an integer.
+- `typed-extraction`: Deployment `creationTimestamp` parsed and published as a typed timestamp.
 - `value-operator`: supported `gte` predicate over a typed value.
 - `cross-namespace-aggregation`: deterministic contributors from two namespaces.
 - `custom-resource`: structural `Widget` CRD before Widget objects, and reverse cleanup.

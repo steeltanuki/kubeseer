@@ -748,7 +748,7 @@ func publicExampleOutcome(name string, object unstructured.Unstructured) bool {
 					return false
 				}
 			}
-			if name == "typed-extraction" && !resourceHasIntegerField(resources[0], "replicas", 2) {
+			if name == "typed-extraction" && !resourceHasTimestampField(resources[0], "createdAt") {
 				return false
 			}
 			if name == "builtin-resource" && !resourceHasIntegerField(resources[0], "replicas", 1) {
@@ -804,6 +804,42 @@ func resourceHasIntegerField(raw any, wantedName string, wantedValue int64) bool
 		value, valueOK, _ := unstructured.NestedInt64(match, "integerValue")
 		state, stateOK, _ := unstructured.NestedString(match, "state")
 		if valueOK && stateOK && state == "value" && value == wantedValue {
+			return true
+		}
+	}
+	return false
+}
+
+func resourceHasTimestampField(raw any, wantedName string) bool {
+	resource, ok := raw.(map[string]any)
+	if !ok {
+		return false
+	}
+	fields, ok, _ := unstructured.NestedSlice(resource, "fields")
+	if !ok {
+		return false
+	}
+	for _, rawField := range fields {
+		field, ok := rawField.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, nameOK, _ := unstructured.NestedString(field, "name")
+		typeName, typeOK, _ := unstructured.NestedString(field, "type")
+		matches, matchesOK, _ := unstructured.NestedSlice(field, "matches")
+		if !nameOK || !typeOK || name != wantedName || typeName != "timestamp" || !matchesOK || len(matches) == 0 {
+			continue
+		}
+		match, matchOK := matches[0].(map[string]any)
+		if !matchOK {
+			continue
+		}
+		value, valueOK, _ := unstructured.NestedString(match, "timestampValue")
+		state, stateOK, _ := unstructured.NestedString(match, "state")
+		if !valueOK || !stateOK || state != "value" {
+			continue
+		}
+		if _, err := time.Parse(time.RFC3339Nano, value); err == nil {
 			return true
 		}
 	}
