@@ -43,7 +43,7 @@ accessPolicy:
     - apiGroups: [""]
       kinds: ["Service"]
     - apiGroups: ["fixtures.kubeseer.io"]
-      kinds: ["Widget"]
+      kinds: ["Widget", "DegradedWidget"]
   allowClusterScoped: false
 
 # Kubernetes RBAC is a separate, narrow implementation permission. Logical
@@ -89,7 +89,7 @@ rbac:
         verbs: ["get", "list", "watch"]
       - namespace: kubeseer-example-degraded
         apiGroups: ["fixtures.kubeseer.io"]
-        resources: ["widgets"]
+        resources: ["degradedwidgets"]
         verbs: ["get", "list", "watch"]
     clusterScoped: []
   authors:

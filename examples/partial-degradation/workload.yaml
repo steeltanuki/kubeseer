@@ -14,7 +14,7 @@ spec:
     spec: {containers: [{name: fixture, image: registry.k8s.io/pause:3.10, imagePullPolicy: IfNotPresent}]}
 ---
 apiVersion: fixtures.kubeseer.io/v1alpha1
-kind: Widget
+kind: DegradedWidget
 metadata:
   name: degraded-widget
   namespace: kubeseer-example-degraded

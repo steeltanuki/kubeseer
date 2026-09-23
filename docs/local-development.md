@@ -145,7 +145,11 @@ The seven entries are:
 - `cross-namespace-aggregation`: deterministic contributors from two namespaces.
 - `custom-resource`: structural `Widget` CRD before Widget objects, and reverse cleanup.
 - `authorization-denial`: exact logical `AuthorizationDenied` outside the active policy.
-- `partial-degradation`: successful Deployment sibling plus an unavailable Widget source and `Degraded=True`.
+- `partial-degradation`: successful Deployment sibling plus an unavailable DegradedWidget source and `Degraded=True`.
+
+The custom and degradation examples use separate fixture CRDs. Verifying the
+degradation example removes only `DegradedWidget`, so the custom `Widget` source
+remains available.
 
 `make local-examples` applies all seven in catalog order and is idempotent.
 `make local-examples-down` removes only catalog-labeled namespaces/resources,
