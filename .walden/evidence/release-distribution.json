@@ -10,13 +10,13 @@
         "policy": "verify-purity/v1",
         "assertion_result": "passed",
         "integrity": "pure",
-        "before_code_identity": "sha256:6e4f2672078806bd5b860e25fd59ec1ad47e504e47fb610d95cbb762fa212c00",
-        "after_code_identity": "sha256:6e4f2672078806bd5b860e25fd59ec1ad47e504e47fb610d95cbb762fa212c00"
+        "before_code_identity": "sha256:795f13069195993a1082741f9f38beb88b7ee575d0fa232e5fffd712b41035cc",
+        "after_code_identity": "sha256:795f13069195993a1082741f9f38beb88b7ee575d0fa232e5fffd712b41035cc"
       },
       "requirements_fingerprint": "sha256:98dd56fb343fa525c14155622f1452f9a66f0adb99bcf88a4caff9ef88ef3a63",
       "design_fingerprint": "sha256:0e6e67e3414bff2a080eb4bf848d679fda81911f798bcaf2a1d07bde295aac20",
       "tasks_fingerprint": "sha256:99c79d4fe52e0bbef51eaab939a2d04453684027f0c6929cdc7d0d6c9b9ab0fa",
-      "code_identity": "sha256:6e4f2672078806bd5b860e25fd59ec1ad47e504e47fb610d95cbb762fa212c00",
+      "code_identity": "sha256:795f13069195993a1082741f9f38beb88b7ee575d0fa232e5fffd712b41035cc",
       "profile": {
         "go": "go version go1.26.8-X:nodwarf5 linux/amd64",
         "kind": "kind v0.27.0 go1.23.6 linux/amd64",
@@ -38,7 +38,7 @@
         }
       ],
       "result": "passed",
-      "verified_at": "2026-09-23T15:10:27Z"
+      "verified_at": "2026-09-23T15:26:19Z"
     },
     "2.1": {
       "task_fingerprint": "sha256:51640c486eaec3e3fc1bd0065f51b6dadb27725c7c0635b445a8135b8296e497",
@@ -48,13 +48,13 @@
         "policy": "verify-purity/v1",
         "assertion_result": "passed",
         "integrity": "pure",
-        "before_code_identity": "sha256:6e4f2672078806bd5b860e25fd59ec1ad47e504e47fb610d95cbb762fa212c00",
-        "after_code_identity": "sha256:6e4f2672078806bd5b860e25fd59ec1ad47e504e47fb610d95cbb762fa212c00"
+        "before_code_identity": "sha256:795f13069195993a1082741f9f38beb88b7ee575d0fa232e5fffd712b41035cc",
+        "after_code_identity": "sha256:795f13069195993a1082741f9f38beb88b7ee575d0fa232e5fffd712b41035cc"
       },
       "requirements_fingerprint": "sha256:98dd56fb343fa525c14155622f1452f9a66f0adb99bcf88a4caff9ef88ef3a63",
       "design_fingerprint": "sha256:0e6e67e3414bff2a080eb4bf848d679fda81911f798bcaf2a1d07bde295aac20",
       "tasks_fingerprint": "sha256:99c79d4fe52e0bbef51eaab939a2d04453684027f0c6929cdc7d0d6c9b9ab0fa",
-      "code_identity": "sha256:6e4f2672078806bd5b860e25fd59ec1ad47e504e47fb610d95cbb762fa212c00",
+      "code_identity": "sha256:795f13069195993a1082741f9f38beb88b7ee575d0fa232e5fffd712b41035cc",
       "profile": {
         "go": "go version go1.26.8-X:nodwarf5 linux/amd64",
         "kind": "kind v0.27.0 go1.23.6 linux/amd64",
@@ -76,7 +76,7 @@
         }
       ],
       "result": "passed",
-      "verified_at": "2026-09-23T15:10:27Z"
+      "verified_at": "2026-09-23T15:26:19Z"
     },
     "3.1": {
       "task_fingerprint": "sha256:aa4560831d14d798e606227a5fa2816a0ac2ec6a31854bcce1a3f6c342890dd3",
@@ -86,13 +86,13 @@
         "policy": "verify-purity/v1",
         "assertion_result": "passed",
         "integrity": "pure",
-        "before_code_identity": "sha256:6e4f2672078806bd5b860e25fd59ec1ad47e504e47fb610d95cbb762fa212c00",
-        "after_code_identity": "sha256:6e4f2672078806bd5b860e25fd59ec1ad47e504e47fb610d95cbb762fa212c00"
+        "before_code_identity": "sha256:795f13069195993a1082741f9f38beb88b7ee575d0fa232e5fffd712b41035cc",
+        "after_code_identity": "sha256:795f13069195993a1082741f9f38beb88b7ee575d0fa232e5fffd712b41035cc"
       },
       "requirements_fingerprint": "sha256:98dd56fb343fa525c14155622f1452f9a66f0adb99bcf88a4caff9ef88ef3a63",
       "design_fingerprint": "sha256:0e6e67e3414bff2a080eb4bf848d679fda81911f798bcaf2a1d07bde295aac20",
       "tasks_fingerprint": "sha256:99c79d4fe52e0bbef51eaab939a2d04453684027f0c6929cdc7d0d6c9b9ab0fa",
-      "code_identity": "sha256:6e4f2672078806bd5b860e25fd59ec1ad47e504e47fb610d95cbb762fa212c00",
+      "code_identity": "sha256:795f13069195993a1082741f9f38beb88b7ee575d0fa232e5fffd712b41035cc",
       "profile": {
         "go": "go version go1.26.8-X:nodwarf5 linux/amd64",
         "kind": "kind v0.27.0 go1.23.6 linux/amd64",
@@ -114,7 +114,7 @@
         }
       ],
       "result": "passed",
-      "verified_at": "2026-09-23T15:10:27Z"
+      "verified_at": "2026-09-23T15:26:19Z"
     },
     "4.1": {
       "task_fingerprint": "sha256:c3b3c578fc7eb830958a3b95520a8f399373ad47acc46c1b049b41616b2ae8f8",
@@ -124,13 +124,13 @@
         "policy": "verify-purity/v1",
         "assertion_result": "passed",
         "integrity": "pure",
-        "before_code_identity": "sha256:6e4f2672078806bd5b860e25fd59ec1ad47e504e47fb610d95cbb762fa212c00",
-        "after_code_identity": "sha256:6e4f2672078806bd5b860e25fd59ec1ad47e504e47fb610d95cbb762fa212c00"
+        "before_code_identity": "sha256:795f13069195993a1082741f9f38beb88b7ee575d0fa232e5fffd712b41035cc",
+        "after_code_identity": "sha256:795f13069195993a1082741f9f38beb88b7ee575d0fa232e5fffd712b41035cc"
       },
       "requirements_fingerprint": "sha256:98dd56fb343fa525c14155622f1452f9a66f0adb99bcf88a4caff9ef88ef3a63",
       "design_fingerprint": "sha256:0e6e67e3414bff2a080eb4bf848d679fda81911f798bcaf2a1d07bde295aac20",
       "tasks_fingerprint": "sha256:99c79d4fe52e0bbef51eaab939a2d04453684027f0c6929cdc7d0d6c9b9ab0fa",
-      "code_identity": "sha256:6e4f2672078806bd5b860e25fd59ec1ad47e504e47fb610d95cbb762fa212c00",
+      "code_identity": "sha256:795f13069195993a1082741f9f38beb88b7ee575d0fa232e5fffd712b41035cc",
       "profile": {
         "go": "go version go1.26.8-X:nodwarf5 linux/amd64",
         "kind": "kind v0.27.0 go1.23.6 linux/amd64",
@@ -152,7 +152,7 @@
         }
       ],
       "result": "passed",
-      "verified_at": "2026-09-23T15:10:27Z"
+      "verified_at": "2026-09-23T15:26:19Z"
     },
     "5.1": {
       "task_fingerprint": "sha256:43914ea7d6b40f42fc12b2f43948d13cc1cbe4fcb6efdcb9e6c46d9136e08830",
@@ -162,13 +162,13 @@
         "policy": "verify-purity/v1",
         "assertion_result": "passed",
         "integrity": "pure",
-        "before_code_identity": "sha256:6e4f2672078806bd5b860e25fd59ec1ad47e504e47fb610d95cbb762fa212c00",
-        "after_code_identity": "sha256:6e4f2672078806bd5b860e25fd59ec1ad47e504e47fb610d95cbb762fa212c00"
+        "before_code_identity": "sha256:795f13069195993a1082741f9f38beb88b7ee575d0fa232e5fffd712b41035cc",
+        "after_code_identity": "sha256:795f13069195993a1082741f9f38beb88b7ee575d0fa232e5fffd712b41035cc"
       },
       "requirements_fingerprint": "sha256:98dd56fb343fa525c14155622f1452f9a66f0adb99bcf88a4caff9ef88ef3a63",
       "design_fingerprint": "sha256:0e6e67e3414bff2a080eb4bf848d679fda81911f798bcaf2a1d07bde295aac20",
       "tasks_fingerprint": "sha256:99c79d4fe52e0bbef51eaab939a2d04453684027f0c6929cdc7d0d6c9b9ab0fa",
-      "code_identity": "sha256:6e4f2672078806bd5b860e25fd59ec1ad47e504e47fb610d95cbb762fa212c00",
+      "code_identity": "sha256:795f13069195993a1082741f9f38beb88b7ee575d0fa232e5fffd712b41035cc",
       "profile": {
         "go": "go version go1.26.8-X:nodwarf5 linux/amd64",
         "kind": "kind v0.27.0 go1.23.6 linux/amd64",
@@ -190,7 +190,7 @@
         }
       ],
       "result": "passed",
-      "verified_at": "2026-09-23T15:10:27Z"
+      "verified_at": "2026-09-23T15:26:19Z"
     }
   }
 }

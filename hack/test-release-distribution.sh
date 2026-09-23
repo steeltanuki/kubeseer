@@ -229,7 +229,7 @@ output="$(
 	PATH="$fake_bin:$PATH" RELEASE_PUBLIC_WRITE_LOG="$public_write_log" \
 	GITHUB_EVENT_NAME=push GITHUB_REPOSITORY=steeltanuki/kubeseer \
 	GITHUB_REF=refs/tags/v0.1.0 GITHUB_JOB=publish \
-	"$SCRIPT" publish-image --tag v0.1.0 --source-sha "$FIXTURE_SHA" 2>&1
+	env -u GITHUB_ACTIONS "$SCRIPT" publish-image --tag v0.1.0 --source-sha "$FIXTURE_SHA" 2>&1
 )" && fail "local command unexpectedly entered publication"
 [[ "$output" == *"official GitHub Actions tag workflow"* ]] || fail "local command was denied for an unexpected reason: $output"
 [[ ! -s "$public_write_log" ]] || fail "local command invoked a public registry or release client"
