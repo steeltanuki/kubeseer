@@ -188,6 +188,11 @@ Before treating a commit as release-ready, run the repository verification
 appropriate to the change and the isolated `make e2e` certification described
 in [development and verification](docs/development.md).
 
+## Acknowledgments
+
+Kubeseer began with a conversation. We are grateful to Prof. Fulvio Risso for
+the exchange that first sparked the idea for this project.
+
 ## License
 
 Kubeseer is licensed under the Apache License 2.0. See [LICENSE](LICENSE).
