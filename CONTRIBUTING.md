@@ -91,6 +91,25 @@ documentation. Address review feedback in the same pull request.
 The maintainer decides whether and when to merge after reviewing the change
 and its applicable checks. Release tags and publication are maintainer tasks.
 
+## Release promotion
+
+`develop` is the integration branch. Protected `main` is the latest promoted
+release-source branch; it contains the newest source selected for release.
+Contributor pull requests target `develop`. To publish a release, the
+maintainer:
+
+1. Promotes the selected release commit from `develop` to `main` in a reviewed
+   pull request.
+2. Confirms that the required CI checks for the promotion have passed.
+3. Confirms that the `main` branch ruleset and `v*` tag ruleset are active.
+4. Creates and pushes an annotated `vMAJOR.MINOR.PATCH` tag from that reviewed
+   `main` commit.
+
+The tagged commit must be reachable from fetched `origin/main`. Only versioned
+`vMAJOR.MINOR.PATCH` tags publish versioned artifacts. Branch pushes, including
+to `develop` or `main`, and floating `stable` or `latest` Git tags or
+image/chart aliases do not publish artifacts.
+
 ## Conduct and licensing
 
 Be respectful and constructive in issues, reviews, and pull requests. Discuss

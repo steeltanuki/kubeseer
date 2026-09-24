@@ -57,7 +57,7 @@ upgrades, rollback, and recovery.
 Contributors can clone the source to change Kubeseer, run its verification
 gates, or inspect and package the canonical chart locally. Those locally built
 images and charts are development artifacts; official versions are published
-only by the maintainer-controlled stable-tag release workflow. See the
+only by the maintainer-controlled version-tag release workflow. See the
 [contribution guide](CONTRIBUTING.md) for issues and pull requests, and
 [development and verification](docs/development.md) for build and test
 commands.

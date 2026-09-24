@@ -117,17 +117,40 @@ temporary local image and does not publish an image or chart.
 
 ## Release publication and recovery
 
+`develop` is the integration branch. Protected `main` is the latest promoted
+release-source branch: it holds the newest release source selected by the
+maintainer, rather than a floating `stable` tag or artifact alias. Contributor
+pull requests continue to target `develop`; a release reaches `main` through
+the maintainer's reviewed promotion.
+
 Official releases use stable Semantic Versioning tags of the form
 `vMAJOR.MINOR.PATCH`, such as `v0.1.0`. Prerelease tags are not supported by
-the initial release-distribution workflow. A maintainer prepares the chart's
-`version` and `appVersion` in `charts/kubeseer/Chart.yaml` and commits
-substantive release notes at `docs/releases/v<version>.md`, including
-`Highlights` and `Upgrade considerations`. The maintainer then pushes the
-protected tag to the already-reviewed source commit. The workflow rejects
-version mismatches and does not rewrite source files or create tags. Pull
-requests, branch pushes, and CI validation never publish public artifacts.
-The tagged commit must already be reachable from the protected `develop`
-branch.
+the initial release-distribution workflow. For a release, the maintainer
+prepares the chart's `version` and `appVersion` in
+`charts/kubeseer/Chart.yaml` and substantive notes at
+`docs/releases/v<version>.md`, including `Highlights` and
+`Upgrade considerations`, then promotes that commit from `develop` to
+protected `main` in a reviewed pull request. Before creating the tag, confirm
+that the required CI checks for the promotion have passed and that the GitHub
+rulesets for the `main` branch and `v*` tags are active. Check out the exact
+reviewed promotion commit from `origin/main`, verify its SHA, then create and
+push the annotated version tag. For example:
+
+```sh
+TAG=v0.1.0
+git fetch origin main
+git switch --detach origin/main
+git rev-parse HEAD  # Confirm this is the reviewed promotion commit.
+git tag -a "$TAG" -m "Kubeseer $TAG"
+git push origin "$TAG"
+```
+
+The tagged commit must be reachable from fetched `origin/main`; the validator
+also checks the exact tag SHA, chart versions, and release notes. An earlier
+version tag remains valid after `main` advances. The workflow does not rewrite
+source files or create tags. Branch pushes, including pushes to `develop` or
+`main`, and floating `stable` or `latest` Git tags or image/chart aliases do
+not publish artifacts; publication is triggered only by a versioned tag.
 
 The tagged source currently certifies controller images for `linux/amd64`,
 Kubernetes `1.35.6` and `1.36.2`, and Helm 3.12 or newer. The production image

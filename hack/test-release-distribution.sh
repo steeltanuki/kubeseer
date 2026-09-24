@@ -71,7 +71,8 @@ EOF
 	git init -q --bare "$FIXTURE_REMOTE"
 	git -C "$FIXTURE_REPO" remote add origin "$FIXTURE_REMOTE"
 	git -C "$FIXTURE_REPO" push -q -u origin develop
-	git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/develop:refs/remotes/origin/develop'
+	git -C "$FIXTURE_REPO" push -q origin HEAD:refs/heads/main
+	git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/develop:refs/remotes/origin/develop' '+refs/heads/main:refs/remotes/origin/main'
 	git -C "$FIXTURE_REPO" tag -a v0.1.0 -m "Kubeseer v0.1.0"
 	FIXTURE_SHA="$(git -C "$FIXTURE_REPO" rev-parse 'refs/tags/v0.1.0^{commit}')"
 }
@@ -98,11 +99,41 @@ validate_fixture() {
 }
 
 run_policy() {
-	expected_cases=15
+	expected_cases=20
 new_fixture valid-tag
 valid_output="$(validate_fixture v0.1.0 "$FIXTURE_SHA")"
 [[ "$valid_output" == *"RELEASE_DISTRIBUTION=source STATUS=passed VERSION=0.1.0 SOURCE_SHA=$FIXTURE_SHA"* ]] || fail "valid annotated tag did not return its canonical identity"
-pass_case valid-annotated-tag-and-canonical-version
+pass_case promoted-main-tag-and-canonical-version
+
+expect_rejected unsupported-stable-alias "stable vMAJOR.MINOR.PATCH SemVer" validate_fixture stable "$FIXTURE_SHA"
+
+new_fixture develop-only-tag
+printf 'develop-only release change\n' >"$FIXTURE_REPO/develop-only.txt"
+git -C "$FIXTURE_REPO" add develop-only.txt
+git -C "$FIXTURE_REPO" commit -qm "fixture: develop-only release commit"
+develop_only_sha="$(git -C "$FIXTURE_REPO" rev-parse HEAD)"
+git -C "$FIXTURE_REPO" push -q origin HEAD:refs/heads/develop
+git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/develop:refs/remotes/origin/develop'
+git -C "$FIXTURE_REPO" tag -fa v0.1.0 -m "develop-only release tag" >/dev/null
+expect_rejected develop-only-tag "not reachable from origin/main" validate_fixture v0.1.0 "$develop_only_sha"
+
+new_fixture missing-main
+git -C "$FIXTURE_REPO" update-ref -d refs/remotes/origin/main
+expect_rejected missing-origin-main "origin/main is required" validate_fixture v0.1.0 "$FIXTURE_SHA"
+
+new_fixture previous-tag-after-main-advances
+git -C "$FIXTURE_REPO" checkout -q -b main-advance "$FIXTURE_BASE_SHA"
+printf 'promote a later main commit\n' >"$FIXTURE_REPO/main-advance.txt"
+git -C "$FIXTURE_REPO" add main-advance.txt
+git -C "$FIXTURE_REPO" commit -qm "fixture: advance main"
+git -C "$FIXTURE_REPO" push -q origin HEAD:refs/heads/main
+git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/main:refs/remotes/origin/main'
+[[ "$(git -C "$FIXTURE_REPO" rev-parse refs/remotes/origin/main)" != "$FIXTURE_SHA" ]] || fail "main did not advance past the earlier release tag"
+git -C "$FIXTURE_REPO" checkout -q --detach "$FIXTURE_SHA"
+valid_output="$(validate_fixture v0.1.0 "$FIXTURE_SHA")"
+[[ "$valid_output" == *"RELEASE_DISTRIBUTION=source STATUS=passed VERSION=0.1.0 SOURCE_SHA=$FIXTURE_SHA"* ]] || fail "earlier release tag became invalid after main advanced"
+pass_case earlier-tag-remains-valid-after-main-advances
+pass_case main-lineage-policy
 
 tags_before="$(git -C "$FIXTURE_REPO" for-each-ref --format='%(refname):%(objectname)' refs/tags)"
 expect_rejected prerelease-tag "stable vMAJOR.MINOR.PATCH SemVer" validate_fixture v0.2.0-rc.1 "$FIXTURE_SHA"
@@ -121,7 +152,7 @@ moved_sha="$(git -C "$FIXTURE_REPO" rev-parse HEAD)"
 git -C "$FIXTURE_REPO" tag -fa v0.1.0 -m "moved fixture tag" HEAD >/dev/null
 expect_rejected moved-tag-identity "does not match resolved tag commit" validate_fixture v0.1.0 "$FIXTURE_BASE_SHA"
 git -C "$FIXTURE_REPO" checkout -q --detach "$moved_sha"
-expect_rejected moved-tag-lineage "not reachable from origin/develop" validate_fixture v0.1.0 "$moved_sha"
+expect_rejected moved-tag-lineage "not reachable from origin/main" validate_fixture v0.1.0 "$moved_sha"
 
 new_fixture untrusted-lineage
 git -C "$FIXTURE_REPO" checkout -q --orphan untrusted
@@ -140,14 +171,15 @@ git -C "$FIXTURE_REPO" add .
 git -C "$FIXTURE_REPO" commit -qm "fixture: untrusted root"
 untrusted_sha="$(git -C "$FIXTURE_REPO" rev-parse HEAD)"
 git -C "$FIXTURE_REPO" tag -a -f v0.1.0 -m "untrusted fixture tag" >/dev/null
-expect_rejected untrusted-release-lineage "not reachable from origin/develop" validate_fixture v0.1.0 "$untrusted_sha"
+expect_rejected untrusted-release-lineage "not reachable from origin/main" validate_fixture v0.1.0 "$untrusted_sha"
 
 new_fixture chart-version-mismatch
 sed -i 's/^version: 0.1.0$/version: 0.1.1/' "$FIXTURE_REPO/charts/kubeseer/Chart.yaml"
 git -C "$FIXTURE_REPO" add charts/kubeseer/Chart.yaml
 git -C "$FIXTURE_REPO" commit -qm "fixture: mismatched chart version"
 git -C "$FIXTURE_REPO" push -q origin develop
-git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/develop:refs/remotes/origin/develop'
+git -C "$FIXTURE_REPO" push -q origin HEAD:refs/heads/main
+git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/develop:refs/remotes/origin/develop' '+refs/heads/main:refs/remotes/origin/main'
 git -C "$FIXTURE_REPO" tag -fa v0.1.0 -m "mismatched chart version" >/dev/null
 FIXTURE_SHA="$(git -C "$FIXTURE_REPO" rev-parse HEAD)"
 expect_rejected chart-version-mismatch "Chart.yaml version does not match" validate_fixture v0.1.0 "$FIXTURE_SHA"
@@ -157,7 +189,8 @@ sed -i 's/^appVersion: "0.1.0"$/appVersion: "0.1.1"/' "$FIXTURE_REPO/charts/kube
 git -C "$FIXTURE_REPO" add charts/kubeseer/Chart.yaml
 git -C "$FIXTURE_REPO" commit -qm "fixture: mismatched appVersion"
 git -C "$FIXTURE_REPO" push -q origin develop
-git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/develop:refs/remotes/origin/develop'
+git -C "$FIXTURE_REPO" push -q origin HEAD:refs/heads/main
+git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/develop:refs/remotes/origin/develop' '+refs/heads/main:refs/remotes/origin/main'
 git -C "$FIXTURE_REPO" tag -fa v0.1.0 -m "mismatched appVersion" >/dev/null
 FIXTURE_SHA="$(git -C "$FIXTURE_REPO" rev-parse HEAD)"
 expect_rejected app-version-mismatch "Chart.yaml appVersion does not match" validate_fixture v0.1.0 "$FIXTURE_SHA"
@@ -167,7 +200,8 @@ rm "$FIXTURE_REPO/docs/releases/v0.1.0.md"
 git -C "$FIXTURE_REPO" add -u
 git -C "$FIXTURE_REPO" commit -qm "fixture: missing release notes"
 git -C "$FIXTURE_REPO" push -q origin develop
-git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/develop:refs/remotes/origin/develop'
+git -C "$FIXTURE_REPO" push -q origin HEAD:refs/heads/main
+git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/develop:refs/remotes/origin/develop' '+refs/heads/main:refs/remotes/origin/main'
 git -C "$FIXTURE_REPO" tag -fa v0.1.0 -m "missing release notes" >/dev/null
 FIXTURE_SHA="$(git -C "$FIXTURE_REPO" rev-parse HEAD)"
 expect_rejected missing-tagged-release-notes "missing maintainer release notes" validate_fixture v0.1.0 "$FIXTURE_SHA"
@@ -177,7 +211,8 @@ sed -i 's/The fixture release publishes a verified Kubeseer controller and canon
 git -C "$FIXTURE_REPO" add docs/releases/v0.1.0.md
 git -C "$FIXTURE_REPO" commit -qm "fixture: placeholder release notes"
 git -C "$FIXTURE_REPO" push -q origin develop
-git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/develop:refs/remotes/origin/develop'
+git -C "$FIXTURE_REPO" push -q origin HEAD:refs/heads/main
+git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/develop:refs/remotes/origin/develop' '+refs/heads/main:refs/remotes/origin/main'
 git -C "$FIXTURE_REPO" tag -fa v0.1.0 -m "placeholder release notes" >/dev/null
 FIXTURE_SHA="$(git -C "$FIXTURE_REPO" rev-parse HEAD)"
 expect_rejected placeholder-release-notes "unfinished placeholder text" validate_fixture v0.1.0 "$FIXTURE_SHA"
@@ -270,7 +305,8 @@ EOF
 	git init -q --bare "$FIXTURE_REMOTE"
 	git -C "$FIXTURE_REPO" remote add origin "$FIXTURE_REMOTE"
 	git -C "$FIXTURE_REPO" push -q -u origin develop
-	git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/develop:refs/remotes/origin/develop'
+	git -C "$FIXTURE_REPO" push -q origin HEAD:refs/heads/main
+	git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/develop:refs/remotes/origin/develop' '+refs/heads/main:refs/remotes/origin/main'
 	git -C "$FIXTURE_REPO" tag -a v0.1.0 -m "Kubeseer v0.1.0"
 	FIXTURE_SHA="$(git -C "$FIXTURE_REPO" rev-parse 'refs/tags/v0.1.0^{commit}')"
 }
@@ -281,7 +317,8 @@ commit_tagged_change() {
 	git -C "$FIXTURE_REPO" add "$@"
 	git -C "$FIXTURE_REPO" commit -qm "fixture: $message"
 	git -C "$FIXTURE_REPO" push -q origin develop
-	git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/develop:refs/remotes/origin/develop'
+	git -C "$FIXTURE_REPO" push -q origin HEAD:refs/heads/main
+	git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/develop:refs/remotes/origin/develop' '+refs/heads/main:refs/remotes/origin/main'
 	git -C "$FIXTURE_REPO" tag -fa v0.1.0 -m "$message" >/dev/null
 	FIXTURE_SHA="$(git -C "$FIXTURE_REPO" rev-parse HEAD)"
 }
@@ -830,11 +867,12 @@ PY
 }
 
 run_docs() {
-	expected_cases=2
-	python3 - "$ROOT_DIR/README.md" "$ROOT_DIR/docs/installation.md" <<'PY'
+	expected_cases=3
+	python3 - "$ROOT_DIR/README.md" "$ROOT_DIR/docs/installation.md" "$ROOT_DIR/CONTRIBUTING.md" <<'PY'
 import pathlib, sys
 readme = " ".join(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").split())
 install = " ".join(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8").split())
+contributing = " ".join(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8").split())
 chart = "oci://ghcr.io/steeltanuki/charts/kubeseer"
 image = "ghcr.io/steeltanuki/kubeseer"
 required_readme = [
@@ -852,7 +890,11 @@ required_install = [
     image, "## Working from a source checkout", "helm package charts/kubeseer",
     "local development guide", "not publish an image or chart",
     "vMAJOR.MINOR.PATCH", "Prerelease tags are not supported",
-    "docs/releases/v<version>.md", "Upgrade considerations", "protected `develop`",
+    "docs/releases/v<version>.md", "Upgrade considerations",
+    "`develop` is the integration branch", "Protected `main` is the latest promoted release-source branch",
+    "required CI checks for the promotion have passed", "rulesets for the `main` branch and `v*` tags are active",
+    "exact reviewed promotion commit from `origin/main`", "git tag -a", "git push origin",
+    "reachable from fetched `origin/main`", "floating `stable` or `latest` Git tags or image/chart aliases do not publish artifacts",
     "linux/amd64", "Kubernetes `1.35.6` and `1.36.2`", "Helm 3.12 or newer",
     "--version 0.1.0", "## Policy, RBAC, and upgrades", "CRD-bearing upgrade",
     "inventory --tag", "audit --tag", "same protected tag", "do not move the",
@@ -862,9 +904,31 @@ required_install = [
 missing = [item for item in required_install if item not in install]
 assert not missing, "installation docs omit release path, metadata, upgrade, or recovery guidance: " + repr(missing)
 assert install.index("## Installing an official release") < install.index("## Working from a source checkout"), "official OCI installation is not preferred over source packaging"
+assert "version-tag release workflow" in readme and "stable-tag release workflow" not in readme, "README wording must distinguish version tags from a floating stable tag"
+required_contributing = [
+    "## Release promotion", "`develop` is the integration branch",
+    "Protected `main` is the latest promoted release-source branch",
+    "Promotes the selected release commit from `develop` to `main` in a reviewed pull request",
+    "Confirms that the required CI checks for the promotion have passed",
+    "Confirms that the `main` branch ruleset and `v*` tag ruleset are active",
+    "Creates and pushes an annotated `vMAJOR.MINOR.PATCH` tag from that reviewed `main` commit",
+    "reachable from fetched `origin/main`",
+    "floating `stable` or `latest` Git tags or image/chart aliases do not publish artifacts",
+]
+missing = [item for item in required_contributing if item not in contributing]
+assert not missing, "contribution guide omits release promotion policy: " + repr(missing)
+promotion_steps = [
+    "Promotes the selected release commit from `develop` to `main` in a reviewed pull request",
+    "Confirms that the required CI checks for the promotion have passed",
+    "Confirms that the `main` branch ruleset and `v*` tag ruleset are active",
+    "Creates and pushes an annotated `vMAJOR.MINOR.PATCH` tag from that reviewed `main` commit",
+]
+positions = [contributing.index(step) for step in promotion_steps]
+assert positions == sorted(positions), "release promotion, CI, ruleset, and tag steps are out of order"
 assert "releases/download/" not in install and "releases/download/" not in readme, "documentation exposes an attached release archive path"
 print("PASS release-distribution/docs-release-source-local-contract")
 PY
+	pass_case docs-main-promotion-contract
 	pass_case official-source-local-and-upgrade-documentation
 
 	copy_repository_fixture docs-audit
@@ -947,8 +1011,8 @@ run_workflows() {
 	local output fixture_count
 	output="$(cd "$ROOT_DIR" && go run ./hack/verify-release-workflows.go "$ROOT_DIR" 2>&1)" || fail "workflow policy fixture failed: $output"
 	fixture_count="$(printf '%s\n' "$output" | awk '/^PASS release-distribution\// { count++ } END { print count + 0 }')"
-	[[ "$fixture_count" == 15 ]] || fail "workflow fixtures ran $fixture_count cases instead of 15: $output"
-	[[ "$output" == *"RELEASE_WORKFLOW_POLICY=passed CASES=15"* ]] || fail "workflow verifier omitted its complete fixture marker: $output"
+	[[ "$fixture_count" == 17 ]] || fail "workflow fixtures ran $fixture_count cases instead of 17: $output"
+	[[ "$output" == *"RELEASE_WORKFLOW_POLICY=passed CASES=17"* ]] || fail "workflow verifier omitted its complete fixture marker: $output"
 	printf '%s\n' "$output"
 	pass_case parsed-workflows-and-event-policy-fixtures
 	[[ "$passed_cases" == "$expected_cases" ]] || fail "only $passed_cases of $expected_cases workflow harness cases ran"

@@ -347,7 +347,9 @@ func main() {
 	fixtures := []event{
 		{name: "pull-request", kind: "pull_request", ref: "refs/pull/14/merge", ciExpected: true},
 		{name: "develop-push", kind: "push", ref: "refs/heads/develop", ciExpected: true},
+		{name: "main-push", kind: "push", ref: "refs/heads/main", ciExpected: true},
 		{name: "ordinary-branch-push", kind: "push", ref: "refs/heads/feature/release-docs", ciExpected: true},
+		{name: "floating-stable-tag", kind: "push", ref: "refs/tags/stable"},
 		{name: "malformed-prerelease-tag", kind: "push", ref: "refs/tags/v0.2.0-rc.1", gates: true, nonVacuous: true, sameSHA: true},
 		{name: "failed-gate", kind: "push", ref: "refs/tags/v0.1.0", nonVacuous: true, sameSHA: true},
 		{name: "zero-match-gate", kind: "push", ref: "refs/tags/v0.1.0", gates: true, sameSHA: true},
