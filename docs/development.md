@@ -61,14 +61,15 @@ make manifests
 CRDs from API markers. Generated artifacts are committed and must remain
 reproducible with the pinned controller-tools version.
 
-After changing public API types:
+Contributors can propose public API changes with or without Walden drafts.
+Before merging an API change, the maintainer ensures the relevant specification
+is approved and its verification is current. For the code change:
 
-1. update the approved specification before implementation;
-2. change types and validation markers;
-3. run `make generate` and `make manifests`;
-4. inspect the generated item schemas, defaults, validations, scope, and
+1. change types and validation markers;
+2. run `make generate` and `make manifests`;
+3. inspect the generated item schemas, defaults, validations, scope, and
    storage version rather than trusting generator success alone;
-5. run API, compatibility, package, and E2E checks appropriate to the change.
+4. run API, compatibility, package, and E2E checks appropriate to the change.
 
 Do not hand-edit generated CRDs or deep-copy files.
 
@@ -165,7 +166,22 @@ global Podman cleanup as a project recovery step. See the
 [local development guide](local-development.md) for state paths and supported
 hosts.
 
-## Walden workflow
+## Walden workflow for the maintainer
+
+Walden is the project's internal specification and evidence workflow.
+Contributors may include draft Walden material with an issue or pull request,
+but they can also submit either without using Walden. The maintainer decides
+whether the change needs a new or revised specification and, when needed,
+handles the records, approvals, and evidence before integration. A
+documentation change or a fix that preserves an approved contract does not by
+itself need a new feature specification.
+
+An incoming pull request may already contain code. Treat it as a proposal: it
+can inform a specification drafted afterward, and the maintainer may request
+changes to match the approved contract. Approval and verification are recorded
+when they happen; they are not backdated to when the contributor wrote the code.
+`walden adopt` works with existing Walden records; it does not create a
+specification from a pull request.
 
 The project constitution is `.walden/constitution.md`. Each feature under
 `.walden/specs/<feature>/` passes separately reviewed gates:
@@ -175,12 +191,13 @@ The project constitution is `.walden/constitution.md`. Each feature under
 3. leaf implementation tasks with requirement/design traceability and proof;
 4. execution and verification evidence.
 
-Approval of one phase does not authorize the next. Implement only approved
-tasks, preserve task boundaries, and update checkbox state through Walden's
-task workflow. If an approved upstream document changes, reconcile and
-reapprove dependent artifacts before execution.
+Approval of one phase does not authorize the next. For maintainer-initiated
+work, implementation starts only from approved tasks. The maintainer preserves
+task boundaries and updates checkbox state through Walden's task workflow. If
+an approved upstream document changes, the maintainer reconciles and reapproves
+dependent artifacts before integrating the change.
 
-Useful read-only checks are:
+Useful read-only checks for the maintainer are:
 
 ```sh
 walden validate --all --json
@@ -193,8 +210,9 @@ only that matching source text exists. Evidence is identity-bound: changes to
 proof targets can make an otherwise passing feature stale and require an
 explicitly reviewed proof update and re-verification.
 
-Do not edit approved requirements, design, or tasks merely to make an
-implementation fit. Stop at the relevant gate and reconcile the specification.
+The maintainer does not edit approved requirements, design, or tasks merely to
+make an implementation fit. Contract changes go through the relevant gate and
+specification reconciliation.
 
 ## Change checklist
 
@@ -206,11 +224,13 @@ Before handing off a change:
 4. run the narrowest relevant higher-layer suite, then broader checks in
    proportion to risk;
 5. run `make verify` for repository-boundary changes;
-6. run `walden validate --all --json` and current task proofs for Walden work;
-7. run `git diff --check` and inspect the final diff;
-8. document any environment limitation without representing an unrun check as
+6. run `git diff --check` and inspect the final diff;
+7. document any environment limitation without representing an unrun check as
    passing;
-9. use Apache-2.0 notices where source or generated-file headers are customary.
+8. use Apache-2.0 notices where source or generated-file headers are customary.
+
+For work governed by Walden, the maintainer runs validation and current task
+proofs before integration.
 
 Release publication additionally requires package compatibility and isolated
 E2E certification for the intended commit.

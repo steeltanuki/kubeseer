@@ -57,7 +57,8 @@ upgrades, rollback, and recovery.
 Contributors can clone the source to change Kubeseer, run its verification
 gates, or inspect and package the canonical chart locally. Those locally built
 images and charts are development artifacts; official versions are published
-only by the maintainer-controlled stable-tag release workflow. See
+only by the maintainer-controlled stable-tag release workflow. See the
+[contribution guide](CONTRIBUTING.md) for issues and pull requests, and
 [development and verification](docs/development.md) for build and test
 commands.
 
@@ -139,6 +140,7 @@ for the complete status contract.
 
 | Guide | Use it for |
 | --- | --- |
+| [Contributing](CONTRIBUTING.md) | Issue reports, proposals, pull requests, review, and maintainer responsibilities |
 | [Concepts and architecture](docs/concepts-and-architecture.md) | Mental model, evaluation pipeline, reconciliation, and package boundaries |
 | [API reference](docs/api-reference.md) | `Kubeseer` and `KubeseerAccessPolicy` fields, JSONPath, types, operators, aggregations, and status |
 | [Configuration](docs/configuration.md) | Helm policy, RBAC, certificates, limits, and deployment settings |
@@ -183,6 +185,10 @@ progress through reviewed requirements, design, task planning, implementation,
 and durable verification evidence. AI agents may assist at each stage;
 architectural approval and responsibility for the result remain with the human
 maintainer.
+
+Contributors may use Walden, but it is optional. For an ordinary issue or pull
+request, the maintainer decides whether a specification is needed and manages
+any required approval and evidence before integration.
 
 Before treating a commit as release-ready, run the repository verification
 appropriate to the change and the isolated `make e2e` certification described
