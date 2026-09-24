@@ -662,7 +662,7 @@ prepare_registry_credentials() {
 
 push_candidate_image() {
 	local directory="$1" destination="$2"
-	local -a flags=(--format oci --authfile "$directory/podman-auth.json" --digestfile "$directory/pushed-image-digest.txt" --retry 1)
+	local -a flags=(--format oci --authfile "$directory/podman-auth.json" --digestfile "$directory/pushed-image-digest.txt")
 	if is_plain_http_registry; then flags+=(--tls-verify=false); fi
 	staged_image_ref="$(candidate_value "$directory" image_candidate)"
 	podman load --input "$directory/kubeseer-controller.oci.tar" >/dev/null || fail "cannot restore the staged production OCI image into Podman storage"
