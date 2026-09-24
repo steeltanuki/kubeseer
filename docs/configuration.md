@@ -13,7 +13,7 @@ Keep environment-specific settings outside the canonical chart:
 ```yaml
 image:
   repository: ghcr.io/steeltanuki/kubeseer
-  tag: 0.1.1
+  tag: 0.1.3
 
 accessPolicy:
   mode: managed
