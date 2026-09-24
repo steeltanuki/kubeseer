@@ -284,6 +284,9 @@ copy_repository_fixture() {
 		mkdir -p "$FIXTURE_REPO/$(dirname -- "$path")"
 		cp -a "$ROOT_DIR/$path" "$FIXTURE_REPO/$path"
 	done < <(git -C "$ROOT_DIR" ls-files --cached --others --exclude-standard -z)
+	# Candidate and transaction fixtures use a synthetic v0.1.3 tag regardless
+	# of the next version prepared in the source checkout.
+	sed -i 's/^version: 0\.1\.4$/version: 0.1.3/; s/^appVersion: "0\.1\.4"$/appVersion: "0.1.3"/' "$FIXTURE_REPO/charts/kubeseer/Chart.yaml"
 	mkdir -p "$FIXTURE_REPO/.github/workflows" "$FIXTURE_REPO/docs/releases"
 	if [[ ! -f "$FIXTURE_REPO/.github/workflows/release.yml" ]]; then
 		printf '%s\n' 'name: Official release distribution' 'on:' '  push:' '    tags: ["v*"]' >"$FIXTURE_REPO/.github/workflows/release.yml"
