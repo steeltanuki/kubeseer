@@ -80,8 +80,8 @@ def registry_get(base: str, repository: str, path: str, accept: str, *, authenti
     headers = {"Accept": accept}
     status, response_headers, body = http_request(url, headers=headers)
     if status != 401:
-        if authenticated and urllib.parse.urlsplit(base).hostname == "ghcr.io":
-            fail(f"GHCR inventory returned HTTP {status} without an authenticated bearer challenge")
+        if authenticated and status == 404 and urllib.parse.urlsplit(base).hostname == "ghcr.io":
+            fail("GHCR inventory returned HTTP 404 without an authenticated bearer challenge")
         return status, response_headers, body
 
     challenge = response_headers.get("WWW-Authenticate", "")
