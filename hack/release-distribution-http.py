@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -43,14 +44,23 @@ def fail(message: str) -> "NoReturn":
     raise SystemExit(message)
 
 
-def http_request(url: str, *, headers: dict[str, str] | None = None, data: bytes | None = None):
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+        return None
+
+
+def http_request(
+    url: str, *, headers: dict[str, str] | None = None, data: bytes | None = None,
+    follow_redirects: bool = True,
+):
     request_headers = {"User-Agent": "kubeseer-release-distribution/1"}
     if headers:
         request_headers.update(headers)
     method = "POST" if data is not None else "GET"
     request = urllib.request.Request(url, data=data, headers=request_headers, method=method)
     try:
-        response = urllib.request.urlopen(request, timeout=25)
+        opener = urllib.request.urlopen if follow_redirects else urllib.request.build_opener(NoRedirect()).open
+        response = opener(request, timeout=25)
         return response.status, response.headers, response.read()
     except urllib.error.HTTPError as error:
         return error.code, error.headers, error.read()
@@ -65,11 +75,13 @@ def bearer_parameters(value: str) -> dict[str, str]:
     return parameters
 
 
-def registry_get(base: str, repository: str, path: str, accept: str):
+def registry_get(base: str, repository: str, path: str, accept: str, *, authenticated: bool = False):
     url = f"{base.rstrip('/')}/v2/{repository}/{path.lstrip('/')}"
     headers = {"Accept": accept}
     status, response_headers, body = http_request(url, headers=headers)
     if status != 401:
+        if authenticated and status == 404 and urllib.parse.urlsplit(base).hostname == "ghcr.io":
+            fail("GHCR inventory returned HTTP 404 without an authenticated bearer challenge")
         return status, response_headers, body
 
     challenge = response_headers.get("WWW-Authenticate", "")
@@ -79,20 +91,35 @@ def registry_get(base: str, repository: str, path: str, accept: str):
     realm = parameters.get("realm")
     if not realm:
         fail("registry bearer challenge has no token realm")
+    registry_origin = urllib.parse.urlsplit(base)
+    token_origin = urllib.parse.urlsplit(realm)
+    if (token_origin.scheme, token_origin.netloc) != (registry_origin.scheme, registry_origin.netloc):
+        fail("registry bearer token realm is outside the configured registry origin")
     query = {key: value for key, value in parameters.items() if key in ("service", "scope")}
+    if authenticated:
+        actor = os.environ.get("GITHUB_ACTOR")
+        secret = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+        if not actor or not secret:
+            fail("GITHUB_ACTOR and GITHUB_TOKEN or GH_TOKEN are required for authenticated registry inventory")
+        query["scope"] = f"repository:{repository}:pull,push"
+        credentials = base64.b64encode(f"{actor}:{secret}".encode("utf-8")).decode("ascii")
+        token_headers = {"Authorization": f"Basic {credentials}"}
+    else:
+        token_headers = {}
     if "scope" not in query:
         query["scope"] = f"repository:{repository}:pull"
     token_url = realm + ("&" if "?" in realm else "?") + urllib.parse.urlencode(query)
-    token_status, _, token_body = http_request(token_url)
+    token_status, _, token_body = http_request(token_url, headers=token_headers, follow_redirects=False)
     if token_status != 200:
-        fail(f"registry anonymous pull-token request failed (HTTP {token_status})")
+        access = "authenticated inventory" if authenticated else "anonymous pull"
+        fail(f"registry {access} token request failed (HTTP {token_status})")
     try:
         token_payload = json.loads(token_body)
         token = token_payload.get("token") or token_payload.get("access_token")
     except (ValueError, AttributeError):
-        fail("registry returned malformed anonymous pull-token data")
+        fail("registry returned malformed pull-token data")
     if not isinstance(token, str) or not token:
-        fail("registry returned an empty anonymous pull token")
+        fail("registry returned an empty pull token")
     return http_request(url, headers={**headers, "Authorization": f"Bearer {token}"})
 
 
@@ -105,7 +132,10 @@ def expected_sha256(data: bytes, reported: str, what: str) -> str:
 
 def registry_manifest(args: argparse.Namespace) -> None:
     accept = IMAGE_ACCEPT if args.kind == "image" else CHART_ACCEPT
-    status, headers, body = registry_get(args.base, args.repository, f"manifests/{args.reference}", accept)
+    status, headers, body = registry_get(
+        args.base, args.repository, f"manifests/{args.reference}", accept,
+        authenticated=args.authenticated,
+    )
     if status == 404:
         print(json.dumps({"state": "absent"}, sort_keys=True))
         return
@@ -128,10 +158,11 @@ def registry_manifest(args: argparse.Namespace) -> None:
         if not isinstance(descriptor, str) or not descriptor.startswith("sha256:"):
             fail("published image manifest has no SHA-256 config descriptor")
         blob_status, blob_headers, config_body = registry_get(
-            args.base, args.repository, f"blobs/{descriptor}", "application/octet-stream"
+            args.base, args.repository, f"blobs/{descriptor}", "application/octet-stream",
+            authenticated=args.authenticated,
         )
         if blob_status != 200:
-            fail(f"published image config blob is not publicly retrievable (HTTP {blob_status})")
+            fail(f"published image config blob is not retrievable (HTTP {blob_status})")
         expected_sha256(config_body, descriptor, "image config blob")
         try:
             config = json.loads(config_body)
@@ -225,6 +256,7 @@ def main() -> None:
     registry.add_argument("--repository", required=True)
     registry.add_argument("--reference", required=True)
     registry.add_argument("--kind", choices=("image", "chart"), required=True)
+    registry.add_argument("--authenticated", action="store_true")
     registry.set_defaults(run=registry_manifest)
     tag = commands.add_parser("github-tag")
     tag.add_argument("--base", required=True)

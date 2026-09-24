@@ -284,6 +284,9 @@ copy_repository_fixture() {
 		mkdir -p "$FIXTURE_REPO/$(dirname -- "$path")"
 		cp -a "$ROOT_DIR/$path" "$FIXTURE_REPO/$path"
 	done < <(git -C "$ROOT_DIR" ls-files --cached --others --exclude-standard -z)
+	# Candidate and transaction fixtures use a synthetic v0.1.3 tag regardless
+	# of the next version prepared in the source checkout.
+	sed -i 's/^version: 0\.1\.4$/version: 0.1.3/; s/^appVersion: "0\.1\.4"$/appVersion: "0.1.3"/' "$FIXTURE_REPO/charts/kubeseer/Chart.yaml"
 	mkdir -p "$FIXTURE_REPO/.github/workflows" "$FIXTURE_REPO/docs/releases"
 	if [[ ! -f "$FIXTURE_REPO/.github/workflows/release.yml" ]]; then
 		printf '%s\n' 'name: Official release distribution' 'on:' '  push:' '    tags: ["v*"]' >"$FIXTURE_REPO/.github/workflows/release.yml"
@@ -876,7 +879,7 @@ contributing = " ".join(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8").sp
 chart = "oci://ghcr.io/steeltanuki/charts/kubeseer"
 image = "ghcr.io/steeltanuki/kubeseer"
 required_readme = [
-    "## Install an official release", chart, "--version 0.1.3",
+    "## Install an official release", chart, "--version 0.1.4",
     "## Install or build from source", "## Local development quick start",
     "without publishing them", "docs/local-development.md", "GitHub Releases page",
     "Kubernetes 1.35.6 and 1.36.2", "Helm 3.12 or newer",
@@ -885,7 +888,7 @@ missing = [item for item in required_readme if item not in readme]
 assert not missing, "README release/source/local paths omit: " + repr(missing)
 assert readme.index("## Install an official release") < readme.index("## Install or build from source") < readme.index("## Local development quick start"), "README install paths are not ordered release, source, local"
 required_install = [
-    "## Installing an official release", chart, "--version 0.1.3",
+    "## Installing an official release", chart, "--version 0.1.4",
     "helm show chart", "helm template kubeseer", "Chart.yaml` `version` and `appVersion`",
     image, "## Working from a source checkout", "helm package charts/kubeseer",
     "local development guide", "not publish an image or chart",
@@ -896,7 +899,7 @@ required_install = [
     "exact reviewed promotion commit from `origin/main`", "git tag -a", "git push origin",
     "reachable from fetched `origin/main`", "floating `stable` or `latest` Git tags or image/chart aliases do not publish artifacts",
     "linux/amd64", "Kubernetes `1.35.6` and `1.36.2`", "Helm 3.12 or newer",
-    "--version 0.1.3", "## Policy, RBAC, and upgrades", "CRD-bearing upgrade",
+    "--version 0.1.4", "## Policy, RBAC, and upgrades", "CRD-bearing upgrade",
     "inventory --tag", "audit --tag", "same protected tag", "do not move the",
     "not attached to the GitHub Release", "not attached as a second download format",
     "GitHub Releases page",
