@@ -55,9 +55,9 @@ on:
   push:
     tags: ["v*"]
 EOF
-	printf '%s\n' 'apiVersion: v2' 'name: kubeseer' 'type: application' 'version: 0.1.1' 'appVersion: "0.1.1"' >"$FIXTURE_REPO/charts/kubeseer/Chart.yaml"
-	cat >"$FIXTURE_REPO/docs/releases/v0.1.1.md" <<'EOF'
-# Kubeseer v0.1.1
+	printf '%s\n' 'apiVersion: v2' 'name: kubeseer' 'type: application' 'version: 0.1.3' 'appVersion: "0.1.3"' >"$FIXTURE_REPO/charts/kubeseer/Chart.yaml"
+	cat >"$FIXTURE_REPO/docs/releases/v0.1.3.md" <<'EOF'
+# Kubeseer v0.1.3
 
 ## Highlights
 - The fixture release publishes a verified Kubeseer controller and canonical chart.
@@ -73,8 +73,8 @@ EOF
 	git -C "$FIXTURE_REPO" push -q -u origin develop
 	git -C "$FIXTURE_REPO" push -q origin HEAD:refs/heads/main
 	git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/develop:refs/remotes/origin/develop' '+refs/heads/main:refs/remotes/origin/main'
-	git -C "$FIXTURE_REPO" tag -a v0.1.1 -m "Kubeseer v0.1.1"
-	FIXTURE_SHA="$(git -C "$FIXTURE_REPO" rev-parse 'refs/tags/v0.1.1^{commit}')"
+	git -C "$FIXTURE_REPO" tag -a v0.1.3 -m "Kubeseer v0.1.3"
+	FIXTURE_SHA="$(git -C "$FIXTURE_REPO" rev-parse 'refs/tags/v0.1.3^{commit}')"
 }
 
 expect_rejected() {
@@ -101,8 +101,8 @@ validate_fixture() {
 run_policy() {
 	expected_cases=20
 new_fixture valid-tag
-valid_output="$(validate_fixture v0.1.1 "$FIXTURE_SHA")"
-[[ "$valid_output" == *"RELEASE_DISTRIBUTION=source STATUS=passed VERSION=0.1.1 SOURCE_SHA=$FIXTURE_SHA"* ]] || fail "valid annotated tag did not return its canonical identity"
+valid_output="$(validate_fixture v0.1.3 "$FIXTURE_SHA")"
+[[ "$valid_output" == *"RELEASE_DISTRIBUTION=source STATUS=passed VERSION=0.1.3 SOURCE_SHA=$FIXTURE_SHA"* ]] || fail "valid annotated tag did not return its canonical identity"
 pass_case promoted-main-tag-and-canonical-version
 
 expect_rejected unsupported-stable-alias "stable vMAJOR.MINOR.PATCH SemVer" validate_fixture stable "$FIXTURE_SHA"
@@ -114,12 +114,12 @@ git -C "$FIXTURE_REPO" commit -qm "fixture: develop-only release commit"
 develop_only_sha="$(git -C "$FIXTURE_REPO" rev-parse HEAD)"
 git -C "$FIXTURE_REPO" push -q origin HEAD:refs/heads/develop
 git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/develop:refs/remotes/origin/develop'
-git -C "$FIXTURE_REPO" tag -fa v0.1.1 -m "develop-only release tag" >/dev/null
-expect_rejected develop-only-tag "not reachable from origin/main" validate_fixture v0.1.1 "$develop_only_sha"
+git -C "$FIXTURE_REPO" tag -fa v0.1.3 -m "develop-only release tag" >/dev/null
+expect_rejected develop-only-tag "not reachable from origin/main" validate_fixture v0.1.3 "$develop_only_sha"
 
 new_fixture missing-main
 git -C "$FIXTURE_REPO" update-ref -d refs/remotes/origin/main
-expect_rejected missing-origin-main "origin/main is required" validate_fixture v0.1.1 "$FIXTURE_SHA"
+expect_rejected missing-origin-main "origin/main is required" validate_fixture v0.1.3 "$FIXTURE_SHA"
 
 new_fixture previous-tag-after-main-advances
 git -C "$FIXTURE_REPO" checkout -q -b main-advance "$FIXTURE_BASE_SHA"
@@ -130,8 +130,8 @@ git -C "$FIXTURE_REPO" push -q origin HEAD:refs/heads/main
 git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/main:refs/remotes/origin/main'
 [[ "$(git -C "$FIXTURE_REPO" rev-parse refs/remotes/origin/main)" != "$FIXTURE_SHA" ]] || fail "main did not advance past the earlier release tag"
 git -C "$FIXTURE_REPO" checkout -q --detach "$FIXTURE_SHA"
-valid_output="$(validate_fixture v0.1.1 "$FIXTURE_SHA")"
-[[ "$valid_output" == *"RELEASE_DISTRIBUTION=source STATUS=passed VERSION=0.1.1 SOURCE_SHA=$FIXTURE_SHA"* ]] || fail "earlier release tag became invalid after main advanced"
+valid_output="$(validate_fixture v0.1.3 "$FIXTURE_SHA")"
+[[ "$valid_output" == *"RELEASE_DISTRIBUTION=source STATUS=passed VERSION=0.1.3 SOURCE_SHA=$FIXTURE_SHA"* ]] || fail "earlier release tag became invalid after main advanced"
 pass_case earlier-tag-remains-valid-after-main-advances
 pass_case main-lineage-policy
 
@@ -141,7 +141,7 @@ tags_after="$(git -C "$FIXTURE_REPO" for-each-ref --format='%(refname):%(objectn
 [[ "$tags_before" == "$tags_after" ]] || fail "validation created or moved a Git tag"
 pass_case validation-does-not-create-tags
 
-expect_rejected mismatched-source-sha "does not match resolved tag commit" validate_fixture v0.1.1 "$(printf '%040d' 7)"
+expect_rejected mismatched-source-sha "does not match resolved tag commit" validate_fixture v0.1.3 "$(printf '%040d' 7)"
 
 new_fixture moved-tag
 git -C "$FIXTURE_REPO" checkout -q -b follow-up
@@ -149,19 +149,19 @@ printf 'fixture follow-up\n' >"$FIXTURE_REPO/follow-up.txt"
 git -C "$FIXTURE_REPO" add follow-up.txt
 git -C "$FIXTURE_REPO" commit -qm "fixture: move version tag"
 moved_sha="$(git -C "$FIXTURE_REPO" rev-parse HEAD)"
-git -C "$FIXTURE_REPO" tag -fa v0.1.1 -m "moved fixture tag" HEAD >/dev/null
-expect_rejected moved-tag-identity "does not match resolved tag commit" validate_fixture v0.1.1 "$FIXTURE_BASE_SHA"
+git -C "$FIXTURE_REPO" tag -fa v0.1.3 -m "moved fixture tag" HEAD >/dev/null
+expect_rejected moved-tag-identity "does not match resolved tag commit" validate_fixture v0.1.3 "$FIXTURE_BASE_SHA"
 git -C "$FIXTURE_REPO" checkout -q --detach "$moved_sha"
-expect_rejected moved-tag-lineage "not reachable from origin/main" validate_fixture v0.1.1 "$moved_sha"
+expect_rejected moved-tag-lineage "not reachable from origin/main" validate_fixture v0.1.3 "$moved_sha"
 
 new_fixture untrusted-lineage
 git -C "$FIXTURE_REPO" checkout -q --orphan untrusted
 git -C "$FIXTURE_REPO" rm -q -rf .
 mkdir -p "$FIXTURE_REPO/.github/workflows" "$FIXTURE_REPO/charts/kubeseer" "$FIXTURE_REPO/docs/releases"
 printf '%s\n' 'name: Official release distribution' >"$FIXTURE_REPO/.github/workflows/release.yml"
-printf '%s\n' 'apiVersion: v2' 'name: kubeseer' 'type: application' 'version: 0.1.1' 'appVersion: "0.1.1"' >"$FIXTURE_REPO/charts/kubeseer/Chart.yaml"
-cat >"$FIXTURE_REPO/docs/releases/v0.1.1.md" <<'EOF'
-# Kubeseer v0.1.1
+printf '%s\n' 'apiVersion: v2' 'name: kubeseer' 'type: application' 'version: 0.1.3' 'appVersion: "0.1.3"' >"$FIXTURE_REPO/charts/kubeseer/Chart.yaml"
+cat >"$FIXTURE_REPO/docs/releases/v0.1.3.md" <<'EOF'
+# Kubeseer v0.1.3
 ## Highlights
 - A substantive release note fixture for the protected tag validator.
 ## Upgrade considerations
@@ -170,56 +170,56 @@ EOF
 git -C "$FIXTURE_REPO" add .
 git -C "$FIXTURE_REPO" commit -qm "fixture: untrusted root"
 untrusted_sha="$(git -C "$FIXTURE_REPO" rev-parse HEAD)"
-git -C "$FIXTURE_REPO" tag -a -f v0.1.1 -m "untrusted fixture tag" >/dev/null
-expect_rejected untrusted-release-lineage "not reachable from origin/main" validate_fixture v0.1.1 "$untrusted_sha"
+git -C "$FIXTURE_REPO" tag -a -f v0.1.3 -m "untrusted fixture tag" >/dev/null
+expect_rejected untrusted-release-lineage "not reachable from origin/main" validate_fixture v0.1.3 "$untrusted_sha"
 
 new_fixture chart-version-mismatch
-sed -i 's/^version: 0.1.1$/version: 0.1.2/' "$FIXTURE_REPO/charts/kubeseer/Chart.yaml"
+sed -i 's/^version: 0.1.3$/version: 0.1.4/' "$FIXTURE_REPO/charts/kubeseer/Chart.yaml"
 git -C "$FIXTURE_REPO" add charts/kubeseer/Chart.yaml
 git -C "$FIXTURE_REPO" commit -qm "fixture: mismatched chart version"
 git -C "$FIXTURE_REPO" push -q origin develop
 git -C "$FIXTURE_REPO" push -q origin HEAD:refs/heads/main
 git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/develop:refs/remotes/origin/develop' '+refs/heads/main:refs/remotes/origin/main'
-git -C "$FIXTURE_REPO" tag -fa v0.1.1 -m "mismatched chart version" >/dev/null
+git -C "$FIXTURE_REPO" tag -fa v0.1.3 -m "mismatched chart version" >/dev/null
 FIXTURE_SHA="$(git -C "$FIXTURE_REPO" rev-parse HEAD)"
-expect_rejected chart-version-mismatch "Chart.yaml version does not match" validate_fixture v0.1.1 "$FIXTURE_SHA"
+expect_rejected chart-version-mismatch "Chart.yaml version does not match" validate_fixture v0.1.3 "$FIXTURE_SHA"
 
 new_fixture app-version-mismatch
-sed -i 's/^appVersion: "0.1.1"$/appVersion: "0.1.2"/' "$FIXTURE_REPO/charts/kubeseer/Chart.yaml"
+sed -i 's/^appVersion: "0.1.3"$/appVersion: "0.1.4"/' "$FIXTURE_REPO/charts/kubeseer/Chart.yaml"
 git -C "$FIXTURE_REPO" add charts/kubeseer/Chart.yaml
 git -C "$FIXTURE_REPO" commit -qm "fixture: mismatched appVersion"
 git -C "$FIXTURE_REPO" push -q origin develop
 git -C "$FIXTURE_REPO" push -q origin HEAD:refs/heads/main
 git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/develop:refs/remotes/origin/develop' '+refs/heads/main:refs/remotes/origin/main'
-git -C "$FIXTURE_REPO" tag -fa v0.1.1 -m "mismatched appVersion" >/dev/null
+git -C "$FIXTURE_REPO" tag -fa v0.1.3 -m "mismatched appVersion" >/dev/null
 FIXTURE_SHA="$(git -C "$FIXTURE_REPO" rev-parse HEAD)"
-expect_rejected app-version-mismatch "Chart.yaml appVersion does not match" validate_fixture v0.1.1 "$FIXTURE_SHA"
+expect_rejected app-version-mismatch "Chart.yaml appVersion does not match" validate_fixture v0.1.3 "$FIXTURE_SHA"
 
 new_fixture missing-notes
-rm "$FIXTURE_REPO/docs/releases/v0.1.1.md"
+rm "$FIXTURE_REPO/docs/releases/v0.1.3.md"
 git -C "$FIXTURE_REPO" add -u
 git -C "$FIXTURE_REPO" commit -qm "fixture: missing release notes"
 git -C "$FIXTURE_REPO" push -q origin develop
 git -C "$FIXTURE_REPO" push -q origin HEAD:refs/heads/main
 git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/develop:refs/remotes/origin/develop' '+refs/heads/main:refs/remotes/origin/main'
-git -C "$FIXTURE_REPO" tag -fa v0.1.1 -m "missing release notes" >/dev/null
+git -C "$FIXTURE_REPO" tag -fa v0.1.3 -m "missing release notes" >/dev/null
 FIXTURE_SHA="$(git -C "$FIXTURE_REPO" rev-parse HEAD)"
-expect_rejected missing-tagged-release-notes "missing maintainer release notes" validate_fixture v0.1.1 "$FIXTURE_SHA"
+expect_rejected missing-tagged-release-notes "missing maintainer release notes" validate_fixture v0.1.3 "$FIXTURE_SHA"
 
 new_fixture placeholder-notes
-sed -i 's/The fixture release publishes a verified Kubeseer controller and canonical chart./TODO: write release notes./' "$FIXTURE_REPO/docs/releases/v0.1.1.md"
-git -C "$FIXTURE_REPO" add docs/releases/v0.1.1.md
+sed -i 's/The fixture release publishes a verified Kubeseer controller and canonical chart./TODO: write release notes./' "$FIXTURE_REPO/docs/releases/v0.1.3.md"
+git -C "$FIXTURE_REPO" add docs/releases/v0.1.3.md
 git -C "$FIXTURE_REPO" commit -qm "fixture: placeholder release notes"
 git -C "$FIXTURE_REPO" push -q origin develop
 git -C "$FIXTURE_REPO" push -q origin HEAD:refs/heads/main
 git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/develop:refs/remotes/origin/develop' '+refs/heads/main:refs/remotes/origin/main'
-git -C "$FIXTURE_REPO" tag -fa v0.1.1 -m "placeholder release notes" >/dev/null
+git -C "$FIXTURE_REPO" tag -fa v0.1.3 -m "placeholder release notes" >/dev/null
 FIXTURE_SHA="$(git -C "$FIXTURE_REPO" rev-parse HEAD)"
-expect_rejected placeholder-release-notes "unfinished placeholder text" validate_fixture v0.1.1 "$FIXTURE_SHA"
+expect_rejected placeholder-release-notes "unfinished placeholder text" validate_fixture v0.1.3 "$FIXTURE_SHA"
 
 new_fixture dirty-source
 printf 'local source change\n' >"$FIXTURE_REPO/untracked.txt"
-expect_rejected dirty-tagged-source "worktree is not clean" validate_fixture v0.1.1 "$FIXTURE_SHA"
+expect_rejected dirty-tagged-source "worktree is not clean" validate_fixture v0.1.3 "$FIXTURE_SHA"
 
 readonly fake_bin="$temp_dir/fake-bin"
 readonly public_write_log="$temp_dir/public-writes.log"
@@ -245,7 +245,7 @@ assert_publication_denied() {
 		GITHUB_WORKFLOW_REF="steeltanuki/kubeseer/.github/workflows/release.yml@$ref" \
 		GITHUB_JOB=publish GITHUB_SHA="$sha" RELEASE_GATE_SOURCE_SHA="$sha" \
 		GITHUB_RUN_ID=123 GITHUB_RUN_ATTEMPT=1 GITHUB_TOKEN=fixture-token \
-		"$SCRIPT" publish-image --tag v0.1.1 --source-sha "$sha" 2>&1
+		"$SCRIPT" publish-image --tag v0.1.3 --source-sha "$sha" 2>&1
 	)"; then
 		fail "$name unexpectedly entered a publication command"
 	fi
@@ -263,8 +263,8 @@ output="$(
 	cd "$FIXTURE_REPO"
 	PATH="$fake_bin:$PATH" RELEASE_PUBLIC_WRITE_LOG="$public_write_log" \
 	GITHUB_EVENT_NAME=push GITHUB_REPOSITORY=steeltanuki/kubeseer \
-	GITHUB_REF=refs/tags/v0.1.1 GITHUB_JOB=publish \
-	env -u GITHUB_ACTIONS "$SCRIPT" publish-image --tag v0.1.1 --source-sha "$FIXTURE_SHA" 2>&1
+	GITHUB_REF=refs/tags/v0.1.3 GITHUB_JOB=publish \
+	env -u GITHUB_ACTIONS "$SCRIPT" publish-image --tag v0.1.3 --source-sha "$FIXTURE_SHA" 2>&1
 )" && fail "local command unexpectedly entered publication"
 [[ "$output" == *"official GitHub Actions tag workflow"* ]] || fail "local command was denied for an unexpected reason: $output"
 [[ ! -s "$public_write_log" ]] || fail "local command invoked a public registry or release client"
@@ -288,8 +288,8 @@ copy_repository_fixture() {
 	if [[ ! -f "$FIXTURE_REPO/.github/workflows/release.yml" ]]; then
 		printf '%s\n' 'name: Official release distribution' 'on:' '  push:' '    tags: ["v*"]' >"$FIXTURE_REPO/.github/workflows/release.yml"
 	fi
-	cat >"$FIXTURE_REPO/docs/releases/v0.1.1.md" <<'EOF'
-# Kubeseer v0.1.1
+	cat >"$FIXTURE_REPO/docs/releases/v0.1.3.md" <<'EOF'
+# Kubeseer v0.1.3
 
 ## Highlights
 - Candidate fixtures build the production controller and canonical chart from this tagged source.
@@ -307,8 +307,8 @@ EOF
 	git -C "$FIXTURE_REPO" push -q -u origin develop
 	git -C "$FIXTURE_REPO" push -q origin HEAD:refs/heads/main
 	git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/develop:refs/remotes/origin/develop' '+refs/heads/main:refs/remotes/origin/main'
-	git -C "$FIXTURE_REPO" tag -a v0.1.1 -m "Kubeseer v0.1.1"
-	FIXTURE_SHA="$(git -C "$FIXTURE_REPO" rev-parse 'refs/tags/v0.1.1^{commit}')"
+	git -C "$FIXTURE_REPO" tag -a v0.1.3 -m "Kubeseer v0.1.3"
+	FIXTURE_SHA="$(git -C "$FIXTURE_REPO" rev-parse 'refs/tags/v0.1.3^{commit}')"
 }
 
 commit_tagged_change() {
@@ -319,7 +319,7 @@ commit_tagged_change() {
 	git -C "$FIXTURE_REPO" push -q origin develop
 	git -C "$FIXTURE_REPO" push -q origin HEAD:refs/heads/main
 	git -C "$FIXTURE_REPO" fetch -q origin '+refs/heads/develop:refs/remotes/origin/develop' '+refs/heads/main:refs/remotes/origin/main'
-	git -C "$FIXTURE_REPO" tag -fa v0.1.1 -m "$message" >/dev/null
+	git -C "$FIXTURE_REPO" tag -fa v0.1.3 -m "$message" >/dev/null
 	FIXTURE_SHA="$(git -C "$FIXTURE_REPO" rev-parse HEAD)"
 }
 
@@ -330,9 +330,9 @@ run_candidate() {
 	mkdir -p "$candidate_output"
 	local before_state after_state valid_output
 	before_state="$(git -C "$FIXTURE_REPO" status --porcelain --untracked-files=all)"
-	valid_output="$(cd "$FIXTURE_REPO" && make --no-print-directory verify-release-source TAG=v0.1.1 OUTPUT_DIR="$candidate_output" 2>&1)" || fail "production candidate staging failed: $valid_output"
-	[[ "$valid_output" == *"RELEASE_DISTRIBUTION=candidate STATUS=passed VERSION=0.1.1 SOURCE_SHA=$FIXTURE_SHA PLATFORM=linux/amd64"* ]] || fail "staged candidate did not report the tagged amd64 release identity"
-	[[ -f "$candidate_output/candidate.json" && -f "$candidate_output/kubeseer-controller.oci.tar" && -f "$candidate_output/kubeseer-0.1.1.tgz" && -s "$candidate_output/rendered-chart.yaml" ]] || fail "staging did not preserve the inspected image/chart candidate evidence"
+	valid_output="$(cd "$FIXTURE_REPO" && make --no-print-directory verify-release-source TAG=v0.1.3 OUTPUT_DIR="$candidate_output" 2>&1)" || fail "production candidate staging failed: $valid_output"
+	[[ "$valid_output" == *"RELEASE_DISTRIBUTION=candidate STATUS=passed VERSION=0.1.3 SOURCE_SHA=$FIXTURE_SHA PLATFORM=linux/amd64"* ]] || fail "staged candidate did not report the tagged amd64 release identity"
+	[[ -f "$candidate_output/candidate.json" && -f "$candidate_output/kubeseer-controller.oci.tar" && -f "$candidate_output/kubeseer-0.1.3.tgz" && -s "$candidate_output/rendered-chart.yaml" ]] || fail "staging did not preserve the inspected image/chart candidate evidence"
 python3 - "$candidate_output/candidate.json" "$FIXTURE_SHA" <<'PY'
 import hashlib
 import json
@@ -340,9 +340,9 @@ import pathlib
 import sys
 
 candidate = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
-archive = pathlib.Path(sys.argv[1]).parent / "kubeseer-0.1.1.tgz"
+archive = pathlib.Path(sys.argv[1]).parent / "kubeseer-0.1.3.tgz"
 assert candidate["source_commit"] == sys.argv[2]
-assert candidate["version"] == "0.1.1"
+assert candidate["version"] == "0.1.3"
 assert candidate["platform"] == "linux/amd64"
 assert candidate["chart_archive"] == archive.name
 assert candidate["chart_archive_sha256"] == hashlib.sha256(archive.read_bytes()).hexdigest()
@@ -350,7 +350,7 @@ assert candidate["chart_content_sha256"]
 assert candidate["image_config_digest"].startswith("sha256:")
 assert candidate["image_manifest_digest"].startswith("sha256:")
 assert candidate["image_archive"] == "kubeseer-controller.oci.tar"
-assert candidate["image_reference"] == "ghcr.io/steeltanuki/kubeseer:0.1.1"
+assert candidate["image_reference"] == "ghcr.io/steeltanuki/kubeseer:0.1.3"
 PY
 	after_state="$(git -C "$FIXTURE_REPO" status --porcelain --untracked-files=all)"
 	[[ "$before_state" == "$after_state" && -z "$after_state" ]] || fail "candidate staging changed the tagged source worktree"
@@ -437,8 +437,8 @@ EOF
 		esac
 		fault_dir="$temp_dir/candidate-fault-$fault_name"
 		mkdir -p "$fault_dir"
-		if fault_output="$(cd "$FIXTURE_REPO" && PATH="$fake_bin:$PATH" RELEASE_TEST_FAULT="$fault_name" RELEASE_TEST_VERSION=0.1.1 RELEASE_TEST_SHA="$FIXTURE_SHA" RELEASE_TEST_DATE="$build_date" \
-			./hack/release-distribution.sh stage --tag v0.1.1 --source-sha "$FIXTURE_SHA" --output-dir "$fault_dir" 2>&1)"; then
+		if fault_output="$(cd "$FIXTURE_REPO" && PATH="$fake_bin:$PATH" RELEASE_TEST_FAULT="$fault_name" RELEASE_TEST_VERSION=0.1.3 RELEASE_TEST_SHA="$FIXTURE_SHA" RELEASE_TEST_DATE="$build_date" \
+			./hack/release-distribution.sh stage --tag v0.1.3 --source-sha "$FIXTURE_SHA" --output-dir "$fault_dir" 2>&1)"; then
 			fail "candidate accepted injected image identity mismatch: $fault_name"
 		fi
 		[[ "$fault_output" == *"$fault_reason"* ]] || fail "candidate rejected $fault_name for the wrong reason: $fault_output"
@@ -447,9 +447,9 @@ EOF
 
 	local chart_version_dir="$temp_dir/candidate-fault-chart-version"
 	mkdir -p "$chart_version_dir"
-	sed -i 's/^version: 0.1.1$/version: 0.1.2/' "$FIXTURE_REPO/charts/kubeseer/Chart.yaml"
+	sed -i 's/^version: 0.1.3$/version: 0.1.4/' "$FIXTURE_REPO/charts/kubeseer/Chart.yaml"
 	commit_tagged_change "chart version mismatch" charts/kubeseer/Chart.yaml
-	if fault_output="$(cd "$FIXTURE_REPO" && ./hack/release-distribution.sh stage --tag v0.1.1 --source-sha "$FIXTURE_SHA" --output-dir "$chart_version_dir" 2>&1)"; then
+	if fault_output="$(cd "$FIXTURE_REPO" && ./hack/release-distribution.sh stage --tag v0.1.3 --source-sha "$FIXTURE_SHA" --output-dir "$chart_version_dir" 2>&1)"; then
 		fail "candidate accepted a mismatched chart version"
 	fi
 	[[ "$fault_output" == *"Chart.yaml version does not match"* ]] || fail "chart version mismatch failed for the wrong reason: $fault_output"
@@ -457,14 +457,14 @@ EOF
 
 	local chart_image_dir="$temp_dir/candidate-fault-chart-image"
 	mkdir -p "$chart_image_dir"
-	sed -i 's/^version: 0.1.2$/version: 0.1.1/' "$FIXTURE_REPO/charts/kubeseer/Chart.yaml"
+	sed -i 's/^version: 0.1.4$/version: 0.1.3/' "$FIXTURE_REPO/charts/kubeseer/Chart.yaml"
 	sed -i 's#repository: ghcr.io/steeltanuki/kubeseer#repository: ghcr.io/example/kubeseer#' "$FIXTURE_REPO/charts/kubeseer/values.yaml"
 	commit_tagged_change "default image mismatch" charts/kubeseer/Chart.yaml charts/kubeseer/values.yaml
 	local fault_sha="$FIXTURE_SHA"
 	commit_epoch="$(git -C "$FIXTURE_REPO" show -s --format=%ct "$fault_sha")"
 	build_date="$(date -u -d "@$commit_epoch" '+%Y-%m-%dT%H:%M:%SZ')"
-	if fault_output="$(cd "$FIXTURE_REPO" && PATH="$fake_bin:$PATH" RELEASE_TEST_FAULT=none RELEASE_TEST_VERSION=0.1.1 RELEASE_TEST_SHA="$fault_sha" RELEASE_TEST_DATE="$build_date" \
-		./hack/release-distribution.sh stage --tag v0.1.1 --source-sha "$fault_sha" --output-dir "$chart_image_dir" 2>&1)"; then
+	if fault_output="$(cd "$FIXTURE_REPO" && PATH="$fake_bin:$PATH" RELEASE_TEST_FAULT=none RELEASE_TEST_VERSION=0.1.3 RELEASE_TEST_SHA="$fault_sha" RELEASE_TEST_DATE="$build_date" \
+		./hack/release-distribution.sh stage --tag v0.1.3 --source-sha "$fault_sha" --output-dir "$chart_image_dir" 2>&1)"; then
 		fail "candidate accepted a chart that renders a non-canonical default image"
 	fi
 	[[ "$fault_output" == *"packaged chart default images must all resolve"* ]] || fail "default image mismatch failed for the wrong reason: $fault_output"
@@ -481,8 +481,8 @@ run_transaction() {
 	copy_repository_fixture transaction
 	local candidate="$temp_dir/transaction-candidate" stage_output write_log real_podman real_helm registry_port api_port api_state api_log fixture_bin
 	mkdir -p "$candidate"
-	stage_output="$(cd "$FIXTURE_REPO" && ./hack/release-distribution.sh stage --tag v0.1.1 --source-sha "$FIXTURE_SHA" --output-dir "$candidate" 2>&1)" || fail "transaction fixture could not stage production release inputs: $stage_output"
-	[[ "$stage_output" == *"RELEASE_DISTRIBUTION=candidate STATUS=passed VERSION=0.1.1 SOURCE_SHA=$FIXTURE_SHA"* ]] || fail "transaction fixture candidate has no release identity"
+	stage_output="$(cd "$FIXTURE_REPO" && ./hack/release-distribution.sh stage --tag v0.1.3 --source-sha "$FIXTURE_SHA" --output-dir "$candidate" 2>&1)" || fail "transaction fixture could not stage production release inputs: $stage_output"
+	[[ "$stage_output" == *"RELEASE_DISTRIBUTION=candidate STATUS=passed VERSION=0.1.3 SOURCE_SHA=$FIXTURE_SHA"* ]] || fail "transaction fixture candidate has no release identity"
 	pass_case stage-candidate-for-transaction-fixtures
 
 	api_state="$temp_dir/github-state.json"
@@ -521,10 +521,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path == "/healthz":
             return self.respond(200, {"ok": True})
-        if path.endswith("/git/ref/tags/v0.1.1"):
-            return self.respond(200, {"ref": "refs/tags/v0.1.1",
+        if path.endswith("/git/ref/tags/v0.1.3"):
+            return self.respond(200, {"ref": "refs/tags/v0.1.3",
                                       "object": {"type": "commit", "sha": state["tag_sha"]}})
-        if path.endswith("/releases/tags/v0.1.1"):
+        if path.endswith("/releases/tags/v0.1.3"):
             if state.get("release") is None:
                 return self.respond(404, {"message": "Not Found"})
             return self.respond(200, state["release"])
@@ -539,11 +539,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if state.get("release") is not None:
             return self.respond(422, {"message": "release already exists"})
         value = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
-        if value.get("tag_name") != "v0.1.1":
+        if value.get("tag_name") != "v0.1.3":
             return self.respond(422, {"message": "unexpected release tag"})
         release = {"id": 1, "tag_name": value["tag_name"], "name": value.get("name", ""),
                    "body": value.get("body", ""), "draft": False, "prerelease": False,
-                   "html_url": "https://github.com/steeltanuki/kubeseer/releases/tag/v0.1.1"}
+                   "html_url": "https://github.com/steeltanuki/kubeseer/releases/tag/v0.1.3"}
         state["release"] = release
         self.write_state(state)
         return self.respond(201, release)
@@ -645,13 +645,13 @@ PY
 		(cd "$FIXTURE_REPO" && env -u GITHUB_WORKSPACE PATH="$fixture_bin:$PATH" REALPODMAN="$real_podman" \
 			RELEASE_REAL_PODMAN="$real_podman" RELEASE_REAL_HELM="$real_helm" RELEASE_TEST_WRITE_LOG="$write_log" \
 			GITHUB_ACTIONS=true GITHUB_EVENT_NAME=push GITHUB_REPOSITORY=steeltanuki/kubeseer \
-			GITHUB_REF=refs/tags/v0.1.1 GITHUB_REF_PROTECTED=true \
-			GITHUB_WORKFLOW_REF=steeltanuki/kubeseer/.github/workflows/release.yml@refs/tags/v0.1.1 \
+			GITHUB_REF=refs/tags/v0.1.3 GITHUB_REF_PROTECTED=true \
+			GITHUB_WORKFLOW_REF=steeltanuki/kubeseer/.github/workflows/release.yml@refs/tags/v0.1.3 \
 			GITHUB_JOB=publish GITHUB_SHA="$FIXTURE_SHA" RELEASE_GATE_SOURCE_SHA="$FIXTURE_SHA" \
 			GITHUB_RUN_ID=78901 GITHUB_RUN_ATTEMPT=1 GITHUB_TOKEN=fixture-token GH_TOKEN=fixture-token GITHUB_ACTOR=fixture \
 			RELEASE_DISTRIBUTION_TEST_ENDPOINTS=true RELEASE_DISTRIBUTION_REGISTRY_BASE="${TRANSACTION_REGISTRY_OVERRIDE:-$RELEASE_DISTRIBUTION_REGISTRY_BASE}" \
 			RELEASE_DISTRIBUTION_GITHUB_API_BASE="http://127.0.0.1:$api_port" \
-			"$SCRIPT" "$mode" --tag v0.1.1 --source-sha "$FIXTURE_SHA" --candidate-dir "$candidate" "$@")
+			"$SCRIPT" "$mode" --tag v0.1.3 --source-sha "$FIXTURE_SHA" --candidate-dir "$candidate" "$@")
 	}
 	registry_state() {
 		local kind="$1" repo="$2" reference="$3"
@@ -689,19 +689,19 @@ PY
 	if publish_output="$(call_release publish-image 2>&1)"; then fail "injected image push failure was accepted"; fi
 	unset RELEASE_TEST_FAIL_IMAGE_PUSH
 	[[ "$publish_output" == *"controller image publication failed"* ]] || fail "image push failure was reported incorrectly: $publish_output"
-	[[ "$(registry_status image steeltanuki/kubeseer 0.1.1)" == absent && "$(registry_status chart steeltanuki/charts/kubeseer 0.1.1)" == absent ]] || fail "failed image push left a public release artifact"
+	[[ "$(registry_status image steeltanuki/kubeseer 0.1.3)" == absent && "$(registry_status chart steeltanuki/charts/kubeseer 0.1.3)" == absent ]] || fail "failed image push left a public release artifact"
 	pass_case failed-image-push-publishes-no-versioned-artifacts
 	publish_output="$(call_release publish-image 2>&1)" || fail "controller image publication failed: $publish_output"
-	[[ "$publish_output" == *"RELEASE_DISTRIBUTION=publish-image STATUS=passed VERSION=0.1.1"* ]] || fail "image publication returned no success identity"
+	[[ "$publish_output" == *"RELEASE_DISTRIBUTION=publish-image STATUS=passed VERSION=0.1.3"* ]] || fail "image publication returned no success identity"
 	pass_case controller-image-published-to-disposable-registry
 	export RELEASE_TEST_FAIL_CHART_PUSH=true
 	if publish_output="$(call_release publish-chart 2>&1)"; then fail "injected Helm push failure was accepted"; fi
 	unset RELEASE_TEST_FAIL_CHART_PUSH
 	[[ "$publish_output" == *"Helm OCI chart publication failed"* ]] || fail "chart push failure was reported incorrectly: $publish_output"
-	[[ "$(registry_status image steeltanuki/kubeseer 0.1.1)" == present && "$(registry_status chart steeltanuki/charts/kubeseer 0.1.1)" == absent ]] || fail "failed chart push did not leave the detectable image-only partial state"
+	[[ "$(registry_status image steeltanuki/kubeseer 0.1.3)" == present && "$(registry_status chart steeltanuki/charts/kubeseer 0.1.3)" == absent ]] || fail "failed chart push did not leave the detectable image-only partial state"
 	pass_case chart-push-failure-leaves-detectable-image-only-state
 	publish_output="$(call_release publish-chart 2>&1)" || fail "Helm chart publication failed: $publish_output"
-	[[ "$publish_output" == *"RELEASE_DISTRIBUTION=publish-chart STATUS=passed VERSION=0.1.1"* ]] || fail "chart publication returned no success identity"
+	[[ "$publish_output" == *"RELEASE_DISTRIBUTION=publish-chart STATUS=passed VERSION=0.1.3"* ]] || fail "chart publication returned no success identity"
 	local release_before
 	release_before="$(python3 - "$api_state" <<'PY'
 import json, pathlib, sys
@@ -719,7 +719,7 @@ path.write_text(json.dumps(state))
 PY
 	if publish_output="$(call_release publish-release 2>&1)"; then fail "injected GitHub Release creation failure was accepted"; fi
 	[[ "$publish_output" == *"GitHub Release creation failed after GHCR publication"* ]] || fail "GitHub Release failure did not identify recoverable artifacts: $publish_output"
-	[[ "$(registry_status image steeltanuki/kubeseer 0.1.1)" == present && "$(registry_status chart steeltanuki/charts/kubeseer 0.1.1)" == present ]] || fail "Release API failure removed an already verified registry artifact"
+	[[ "$(registry_status image steeltanuki/kubeseer 0.1.3)" == present && "$(registry_status chart steeltanuki/charts/kubeseer 0.1.3)" == present ]] || fail "Release API failure removed an already verified registry artifact"
 	[[ "$(python3 -c 'import json,sys;print("present" if json.load(open(sys.argv[1]))["release"] else "absent")' "$api_state")" == absent ]] || fail "failed Release creation left a partial GitHub Release"
 	pass_case github-release-failure-leaves-verifiable-registry-artifacts
 	python3 - "$api_state" <<'PY'
@@ -730,12 +730,12 @@ state["fail_create"] = False
 path.write_text(json.dumps(state))
 PY
 	publish_output="$(call_release publish-release 2>&1)" || fail "GitHub Release creation failed: $publish_output"
-	[[ "$publish_output" == *"RELEASE_DISTRIBUTION=publish STATUS=passed VERSION=0.1.1"* ]] || fail "GitHub Release did not report its canonical identity"
+	[[ "$publish_output" == *"RELEASE_DISTRIBUTION=publish STATUS=passed VERSION=0.1.3"* ]] || fail "GitHub Release did not report its canonical identity"
 	local write_count
 	write_count="$(wc -l <"$write_log" | tr -d ' ')"
 	[[ "$write_count" == 5 ]] || fail "release attempt log omitted image, chart, or GitHub Release writes"
 	mapfile -t write_lines <"$write_log"
-	[[ "${write_lines[0]}" == podman\ push* && "${write_lines[1]}" == podman\ push* && "${write_lines[2]}" == helm\ push* && "${write_lines[3]}" == helm\ push* && "${write_lines[4]}" == "github release create v0.1.1" ]] || fail "public release writes did not follow image, chart, Release order"
+	[[ "${write_lines[0]}" == podman\ push* && "${write_lines[1]}" == podman\ push* && "${write_lines[2]}" == helm\ push* && "${write_lines[3]}" == helm\ push* && "${write_lines[4]}" == "github release create v0.1.3" ]] || fail "public release writes did not follow image, chart, Release order"
 	pass_case github-release-created-last-with-tagged-identity
 	for mode in publish-image publish-chart publish-release; do
 		publish_output="$(call_release "$mode" 2>&1)" || fail "identical rerun failed in $mode: $publish_output"
@@ -751,27 +751,27 @@ PY
 import json, pathlib, sys
 release = json.loads(pathlib.Path(sys.argv[1]).read_text())["release"]
 body = release["body"]
-required = ("# Kubeseer v0.1.1", "Source commit", "Certified Kubernetes versions", "1.35.6, 1.36.2",
-           "Minimum Helm version", "3.12", "ghcr.io/steeltanuki/kubeseer:0.1.1",
+required = ("# Kubeseer v0.1.3", "Source commit", "Certified Kubernetes versions", "1.35.6, 1.36.2",
+           "Minimum Helm version", "3.12", "ghcr.io/steeltanuki/kubeseer:0.1.3",
            "oci://ghcr.io/steeltanuki/charts/kubeseer", "helm upgrade --install kubeseer",
            "## Release notes", "installation.md", "image_digest=sha256:", "chart_digest=sha256:")
 missing = [item for item in required if item not in body]
 assert not missing, "GitHub Release omits required user-facing identity or install details: " + repr(missing)
 PY
 	pass_case github-release-page-identifies-source-artifacts-and-installation
-	delete_artifact chart steeltanuki/charts/kubeseer 0.1.1
+	delete_artifact chart steeltanuki/charts/kubeseer 0.1.3
 	if publish_output="$(call_release audit 2>&1)"; then fail "audit accepted a missing published chart"; fi
 	[[ "$publish_output" == *"release audit found one or more missing official artifacts"* ]] || fail "missing chart audit failed for the wrong reason: $publish_output"
 	publish_output="$(call_release publish-chart 2>&1)" || fail "explicit chart-only recovery failed: $publish_output"
 	publish_output="$(call_release audit 2>&1)" || fail "audit failed after chart recovery: $publish_output"
-	[[ "$publish_output" == *"RELEASE_DISTRIBUTION=audit STATUS=passed VERSION=0.1.1"* ]] || fail "audit did not certify chart-only recovery"
+	[[ "$publish_output" == *"RELEASE_DISTRIBUTION=audit STATUS=passed VERSION=0.1.3"* ]] || fail "audit did not certify chart-only recovery"
 	pass_case missing-chart-is-detected-and-restored-to-recorded-digest
-	delete_artifact image steeltanuki/kubeseer 0.1.1
+	delete_artifact image steeltanuki/kubeseer 0.1.3
 	if publish_output="$(call_release audit 2>&1)"; then fail "audit accepted a missing published image"; fi
 	[[ "$publish_output" == *"release audit found one or more missing official artifacts"* ]] || fail "missing image audit failed for the wrong reason: $publish_output"
 	publish_output="$(call_release publish-image 2>&1)" || fail "explicit image-only recovery failed: $publish_output"
 	publish_output="$(call_release audit 2>&1)" || fail "audit failed after image recovery: $publish_output"
-	[[ "$publish_output" == *"RELEASE_DISTRIBUTION=audit STATUS=passed VERSION=0.1.1"* ]] || fail "audit did not certify image-only recovery"
+	[[ "$publish_output" == *"RELEASE_DISTRIBUTION=audit STATUS=passed VERSION=0.1.3"* ]] || fail "audit did not certify image-only recovery"
 	pass_case missing-image-is-detected-and-restored-to-recorded-digest
 	local stable_release_state="$temp_dir/github-state-stable.json" current_count
 	cp "$api_state" "$stable_release_state"
@@ -789,28 +789,28 @@ PY
 	cp "$stable_release_state" "$api_state"
 	pass_case conflicting-github-release-is-rejected-without-writes
 	local original_chart_digest conflict_chart conflict_archive conflict_state
-	original_chart_digest="$(registry_digest chart steeltanuki/charts/kubeseer 0.1.1)"
+	original_chart_digest="$(registry_digest chart steeltanuki/charts/kubeseer 0.1.3)"
 	conflict_chart="$temp_dir/conflicting-chart/kubeseer"
 	mkdir -p "$temp_dir/conflicting-chart/package"
 	cp -a "$FIXTURE_REPO/charts/kubeseer" "$conflict_chart"
 	printf '# immutable conflict fixture\n' >"$conflict_chart/templates/release-conflict.yaml"
 	"$real_helm" package "$conflict_chart" --destination "$temp_dir/conflicting-chart/package" >/dev/null
-	"$real_helm" push "$temp_dir/conflicting-chart/package/kubeseer-0.1.1.tgz" "oci://$(python3 -c 'from urllib.parse import urlparse;import os;print(urlparse(os.environ["RELEASE_DISTRIBUTION_REGISTRY_BASE"]).netloc)')/steeltanuki/charts" --registry-config "$candidate/helm-anonymous.json" >/dev/null 2>&1 || fail "could not create conflicting local chart fixture"
-	conflict_state="$(registry_digest chart steeltanuki/charts/kubeseer 0.1.1)"
+	"$real_helm" push "$temp_dir/conflicting-chart/package/kubeseer-0.1.3.tgz" "oci://$(python3 -c 'from urllib.parse import urlparse;import os;print(urlparse(os.environ["RELEASE_DISTRIBUTION_REGISTRY_BASE"]).netloc)')/steeltanuki/charts" --registry-config "$candidate/helm-anonymous.json" >/dev/null 2>&1 || fail "could not create conflicting local chart fixture"
+	conflict_state="$(registry_digest chart steeltanuki/charts/kubeseer 0.1.3)"
 	[[ "$conflict_state" != "$original_chart_digest" ]] || fail "chart conflict fixture did not change the immutable artifact digest"
 	current_count="$(wc -l <"$write_log" | tr -d ' ')"
 	if publish_output="$(call_release publish-chart 2>&1)"; then fail "different Helm archive was accepted for an immutable version"; fi
 	[[ "$publish_output" == *"published Helm OCI chart bytes differ from the staged canonical chart"* ]] || fail "chart conflict failed for the wrong reason: $publish_output"
 	[[ "$(wc -l <"$write_log" | tr -d ' ')" == "$current_count" ]] || fail "conflicting Helm chart caused a public replacement write"
-	"$real_helm" push "$candidate/kubeseer-0.1.1.tgz" "oci://$(python3 -c 'from urllib.parse import urlparse;import os;print(urlparse(os.environ["RELEASE_DISTRIBUTION_REGISTRY_BASE"]).netloc)')/steeltanuki/charts" --registry-config "$candidate/helm-anonymous.json" >/dev/null 2>&1 || fail "could not restore the exact verified chart fixture"
-	[[ "$(registry_digest chart steeltanuki/charts/kubeseer 0.1.1)" == "$original_chart_digest" ]] || fail "chart fixture recovery changed the recorded immutable digest"
+	"$real_helm" push "$candidate/kubeseer-0.1.3.tgz" "oci://$(python3 -c 'from urllib.parse import urlparse;import os;print(urlparse(os.environ["RELEASE_DISTRIBUTION_REGISTRY_BASE"]).netloc)')/steeltanuki/charts" --registry-config "$candidate/helm-anonymous.json" >/dev/null 2>&1 || fail "could not restore the exact verified chart fixture"
+	[[ "$(registry_digest chart steeltanuki/charts/kubeseer 0.1.3)" == "$original_chart_digest" ]] || fail "chart fixture recovery changed the recorded immutable digest"
 	pass_case conflicting-chart-content-is-rejected-without-replacement
 	local original_image_digest image_conflict_ref
-	original_image_digest="$(registry_digest image steeltanuki/kubeseer 0.1.1)"
-	image_conflict_ref="localhost:$(python3 -c 'from urllib.parse import urlparse;import os;print(urlparse(os.environ["RELEASE_DISTRIBUTION_REGISTRY_BASE"]).port)')/steeltanuki/kubeseer:0.1.1"
+	original_image_digest="$(registry_digest image steeltanuki/kubeseer 0.1.3)"
+	image_conflict_ref="localhost:$(python3 -c 'from urllib.parse import urlparse;import os;print(urlparse(os.environ["RELEASE_DISTRIBUTION_REGISTRY_BASE"]).port)')/steeltanuki/kubeseer:0.1.3"
 	"$real_podman" tag docker.io/library/alpine:3.20 "$image_conflict_ref" || fail "cannot prepare conflicting controller image fixture"
 	"$real_podman" push --tls-verify=false "$image_conflict_ref" "docker://$image_conflict_ref" >/dev/null 2>&1 || fail "cannot publish conflicting controller image fixture to the disposable registry"
-	[[ "$(registry_digest image steeltanuki/kubeseer 0.1.1)" != "$original_image_digest" ]] || fail "image conflict fixture did not change the immutable artifact digest"
+	[[ "$(registry_digest image steeltanuki/kubeseer 0.1.3)" != "$original_image_digest" ]] || fail "image conflict fixture did not change the immutable artifact digest"
 	current_count="$(wc -l <"$write_log" | tr -d ' ')"
 	if publish_output="$(call_release publish-image 2>&1)"; then fail "different controller image was accepted for an immutable version"; fi
 	[[ "$publish_output" == *"controller image version is already published with a different manifest digest"* ]] || fail "image conflict failed for the wrong reason: $publish_output"
@@ -876,7 +876,7 @@ contributing = " ".join(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8").sp
 chart = "oci://ghcr.io/steeltanuki/charts/kubeseer"
 image = "ghcr.io/steeltanuki/kubeseer"
 required_readme = [
-    "## Install an official release", chart, "--version 0.1.1",
+    "## Install an official release", chart, "--version 0.1.3",
     "## Install or build from source", "## Local development quick start",
     "without publishing them", "docs/local-development.md", "GitHub Releases page",
     "Kubernetes 1.35.6 and 1.36.2", "Helm 3.12 or newer",
@@ -885,7 +885,7 @@ missing = [item for item in required_readme if item not in readme]
 assert not missing, "README release/source/local paths omit: " + repr(missing)
 assert readme.index("## Install an official release") < readme.index("## Install or build from source") < readme.index("## Local development quick start"), "README install paths are not ordered release, source, local"
 required_install = [
-    "## Installing an official release", chart, "--version 0.1.1",
+    "## Installing an official release", chart, "--version 0.1.3",
     "helm show chart", "helm template kubeseer", "Chart.yaml` `version` and `appVersion`",
     image, "## Working from a source checkout", "helm package charts/kubeseer",
     "local development guide", "not publish an image or chart",
@@ -896,7 +896,7 @@ required_install = [
     "exact reviewed promotion commit from `origin/main`", "git tag -a", "git push origin",
     "reachable from fetched `origin/main`", "floating `stable` or `latest` Git tags or image/chart aliases do not publish artifacts",
     "linux/amd64", "Kubernetes `1.35.6` and `1.36.2`", "Helm 3.12 or newer",
-    "--version 0.1.1", "## Policy, RBAC, and upgrades", "CRD-bearing upgrade",
+    "--version 0.1.3", "## Policy, RBAC, and upgrades", "CRD-bearing upgrade",
     "inventory --tag", "audit --tag", "same protected tag", "do not move the",
     "not attached to the GitHub Release", "not attached as a second download format",
     "GitHub Releases page",
@@ -956,9 +956,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         state_path.write_text(json.dumps(state), encoding="utf-8")
         if self.path.startswith("/v2/"):
             return self.respond(404, {"errors": [{"code": "MANIFEST_UNKNOWN"}]})
-        if self.path.endswith("/git/ref/tags/v0.1.1"):
-            return self.respond(200, {"ref": "refs/tags/v0.1.1", "object": {"type": "commit", "sha": tag_sha}})
-        if self.path.endswith("/releases/tags/v0.1.1"):
+        if self.path.endswith("/git/ref/tags/v0.1.3"):
+            return self.respond(200, {"ref": "refs/tags/v0.1.3", "object": {"type": "commit", "sha": tag_sha}})
+        if self.path.endswith("/releases/tags/v0.1.3"):
             return self.respond(404, {"message": "Not Found"})
         return self.respond(404, {"message": "Not Found"})
     def do_POST(self):
@@ -987,7 +987,7 @@ PY
 		RELEASE_DISTRIBUTION_REGISTRY_BASE="http://localhost:$api_port" \
 		RELEASE_DISTRIBUTION_GITHUB_API_BASE="http://127.0.0.1:$api_port" \
 		no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost" \
-		./hack/release-distribution.sh audit --tag v0.1.1 --source-sha "$fixture_sha" 2>&1)"; then
+		./hack/release-distribution.sh audit --tag v0.1.3 --source-sha "$fixture_sha" 2>&1)"; then
 		fail "audit accepted a fixture with no published artifacts"
 	fi
 	[[ "$audit_output" == *"release audit found one or more missing official artifacts"* ]] || fail "read-only audit fixture failed for the wrong reason: $audit_output"
@@ -997,9 +997,9 @@ requests = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))["re
 assert requests, "audit made no public inventory requests"
 assert all(request["method"] == "GET" for request in requests), "audit attempted a public write"
 paths = [request["path"] for request in requests]
-assert any("/v2/steeltanuki/kubeseer/manifests/0.1.1" in path for path in paths), "audit omitted controller image inventory"
-assert any("/v2/steeltanuki/charts/kubeseer/manifests/0.1.1" in path for path in paths), "audit omitted Helm OCI chart inventory"
-assert any(path.endswith("/releases/tags/v0.1.1") for path in paths), "audit omitted GitHub Release inventory"
+assert any("/v2/steeltanuki/kubeseer/manifests/0.1.3" in path for path in paths), "audit omitted controller image inventory"
+assert any("/v2/steeltanuki/charts/kubeseer/manifests/0.1.3" in path for path in paths), "audit omitted Helm OCI chart inventory"
+assert any(path.endswith("/releases/tags/v0.1.3") for path in paths), "audit omitted GitHub Release inventory"
 PY
 	pass_case release-audit-detects-absent-artifacts-with-read-only-requests
 	[[ "$passed_cases" == "$expected_cases" ]] || fail "only $passed_cases of $expected_cases documentation cases ran"

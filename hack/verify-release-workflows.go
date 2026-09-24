@@ -316,6 +316,7 @@ func main() {
 		if strings.HasPrefix(str(step["uses"]), "actions/checkout@") {
 			publishCheckouts++
 			check(strings.Contains(str(obj(step["with"])["ref"]), "needs.gates.outputs.source_sha"), "publisher checkout must use the gates SHA")
+			check(obj(step["with"])["fetch-depth"] == 0, "publisher checkout must fetch tag and main history for source validation")
 			check(obj(step["with"])["persist-credentials"] == false, "privileged checkout credentials must not persist")
 		}
 	}
