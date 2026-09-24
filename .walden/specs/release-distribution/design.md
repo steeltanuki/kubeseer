@@ -1,11 +1,11 @@
 ---
 walden_schema_version: v1alpha1
 status: approved
-approved_at: 2026-09-23T11:32:02Z
-last_modified: 2026-09-23T11:32:02Z
-approved_fingerprint: sha256:0e6e67e3414bff2a080eb4bf848d679fda81911f798bcaf2a1d07bde295aac20
-source_requirements_approved_at: 2026-09-23T11:29:59Z
-source_requirements_fingerprint: sha256:98dd56fb343fa525c14155622f1452f9a66f0adb99bcf88a4caff9ef88ef3a63
+approved_at: 2026-09-24T16:55:25Z
+last_modified: 2026-09-24T16:55:25Z
+approved_fingerprint: sha256:7ad6e28084b632df0352236871bea6dbd26d6d5f75334700c21f6001ff80a37f
+source_requirements_approved_at: 2026-09-24T16:52:24Z
+source_requirements_fingerprint: sha256:2c2ce54e55bb8387bf09071baf112aae52fb8699841e5884715a0c1b5e93b191
 ---
 
 # Feature Design
@@ -21,9 +21,12 @@ pull_request / branch push -> ci.yml (read-only token)
                          -> make verify, make test, release-policy fixtures
                          -> no public write
 
+maintainer promotes reviewed changes from develop to protected main
+  -> main push runs ci.yml; no public write
+
 maintainer pushes protected vX.Y.Z tag
   -> release.yml / gates (contents: read)
-       -> peel tag to full commit; check protected develop ancestry
+       -> peel tag to full commit; check protected main ancestry
        -> validate source versions and maintainer release notes
        -> make verify; make test; make test-compatibility
        -> make test-package-compatibility
@@ -43,7 +46,10 @@ an exact stable-version parser accepting only
 `release`, `workflow_run`, or PR publication trigger. `concurrency` uses the tag
 name with `cancel-in-progress: false`. A maintainer creates the tag; neither
 workflow calculates or pushes a tag. The tagged commit must be an ancestor of
-the protected `develop` branch. A `v*` tag ruleset restricts creation to
+the protected `main` branch. `develop` remains the integration branch;
+reviewed changes are promoted to `main` before a release tag is created. A
+branch push, including a promotion to `main`, runs ordinary CI and never
+publishes. A `v*` tag ruleset restricts creation to
 maintainers and blocks update/deletion; the workflow checks ancestry and
 resolves annotated or lightweight tags to one full commit. The workflow file
 and release script are read from that trusted tagged commit. No privileged job
@@ -51,6 +57,22 @@ checks out forked PR code. GitHub [tag push triggers](https://docs.github.com/en
 [tag rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/creating-rulesets-for-a-repository),
 and [Actions security guidance](https://docs.github.com/en/actions/reference/security/secure-use)
 inform these boundaries.
+
+`main` remains the repository's default, latest promoted release-source branch.
+Repository administrators protect it with a branch ruleset requiring the
+ordinary `validate` CI check and a pull request for promotion, with zero
+mandatory second-person approvals while there is one maintainer. The ruleset
+blocks force pushes and deletion. `develop` retains its integration-branch
+protection. The tag rulesets restrict version-tag creation to the maintainer
+and block updates and deletions. The creation rule grants the repository admin
+bypass, while a separate update/deletion rule grants no bypass, so the
+maintainer cannot move or remove a published version tag. These GitHub
+settings are prerequisites, not
+changes performed by a release run. The source validator checks the peeled
+tag commit against `refs/remotes/origin/main` fetched with full history;
+commits reachable only from `develop` fail before any public write. An older
+tag remains valid after `main` advances, so an exact same-tag recovery can
+still run. No `stable`, `latest`, or branch-named image/chart tag is published.
 
 `hack/release-distribution.sh` is the sole release-specific implementation
 entrypoint. It provides read-only `validate`, `stage`, `inventory`, and `audit`
@@ -169,6 +191,9 @@ helm upgrade --install kubeseer oci://ghcr.io/steeltanuki/charts/kubeseer \
 The normal package certificate prerequisite and any chart values required
 for that environment remain documented alongside this command. A clean
 client must be able to pull the chart and controller image anonymously.
+Maintainer documentation describes the `develop` to `main` promotion, the
+ordinary CI result on the promoted commit, and the subsequent version-tag
+push from `main`. It states that neither branch push publishes artifacts.
 
 ### Publication transaction and retry rules
 
@@ -239,8 +264,10 @@ Any failure produces an incomplete audit, never a success marker.
 
 | Option | Decision |
 | --- | --- |
-| Protected stable tag push, GHCR image/chart, GitHub Release | Selected: explicit maintainer intent, one GitHub identity, and direct Helm OCI install. |
-| Branch pushes or PR merges publish `develop`/snapshot images | Rejected: normal development would create public executable artifacts and mutable channels. |
+| Protected versioned tag push, GHCR image/chart, GitHub Release | Selected: explicit maintainer intent, one GitHub identity, and direct Helm OCI install. |
+| Protected `main` as the tag-source branch | Selected: a reviewed promotion identifies the latest release source before the maintainer creates a version tag. |
+| Keep `develop` as the required tag lineage and merge `main` back before each tag | Rejected: it makes the integration branch the release authority and adds a reverse promotion solely to satisfy ancestry. |
+| Branch pushes or PR merges publish `develop`/`main`/snapshot images | Rejected: ordinary branch updates would create public executable artifacts and mutable channels. |
 | GitHub Release event triggers artifact builds | Rejected: it can expose a release page before mandatory gates and registry publication complete. |
 | A separate chart repository, ChartMuseum, or second chart tree | Rejected: duplicate package ownership and external infrastructure without a release need. |
 | Attach an additional `.tgz` to GitHub Releases | Deferred: Helm OCI is sufficient; an extra asset adds another consistency and recovery state. |
@@ -255,13 +282,18 @@ not render alternative Kubernetes manifests, change chart metadata in place,
 or maintain a second Helm package. The Release `.tgz` attachment is omitted.
 The smallest trusted release unit is one protected tag commit; separate
 version-generation or promotion services would add state without satisfying
-an initial requirement.
+an initial requirement. Promotion is an ordinary reviewed pull request from
+`develop` to `main`; the release script changes one ancestry reference and
+keeps the existing tagged-source and artifact checks.
 
 ## Failure Modes And Tradeoffs
 
 | Failure | Containment and recovery |
 | --- | --- |
 | Malformed tag, version mismatch, untrusted lineage, missing notes | Stop before gates or public writes, with exact failing identity. |
+| Tag commit exists only on `develop`, or `origin/main` is unavailable | Reject the tag before public writes; promote the reviewed source to protected `main` and create a new version tag there. |
+| `main` advances after an earlier release tag | Keep the earlier tag eligible by ancestry so an exact same-tag audit or missing-only rerun remains possible. |
+| Required `main` or `v*` ruleset is not active | Treat repository protection as an unmet administration prerequisite; do not create the release tag. |
 | Verification gate fails or skips | Stop before candidate publication; no partial public state. |
 | Runner cannot execute Podman/kind gate | Stop as an environment failure; use a compatible GitHub-hosted runner setup rather than weakening certification. |
 | Existing registry version conflicts | Preserve remote bytes; report digest and revision conflict for maintainer investigation. |
@@ -275,8 +307,10 @@ an initial requirement.
 ## Verification Plan
 
 - `make test-release-distribution` uses fixture registries/GitHub responses and
-  event contexts to assert PR/branch no-public-write behavior, strict tag
-  parsing, source ancestry, version mismatch rejection before writes,
+  event contexts to assert PR/`develop`/`main` no-public-write behavior, strict tag
+  parsing, protected `main` ancestry, rejection of a commit reachable only
+  from `develop`, same-tag validity after `main` advances, version mismatch
+  rejection before writes,
   candidate metadata, remote `404`/auth distinctions, conflict/no-op/partial
   reruns, existing Release handling, and `latest` preservation. Every case
   asserts the exact write log and prints a stable, non-vacuous result marker.
@@ -298,21 +332,22 @@ an initial requirement.
   success marker only after all reads pass. A published-artifact audit is
   read-only and can be rerun independently of publication.
 - Documentation checks assert the OCI installation command, public reference,
-  Kubernetes/Helm prerequisites, and distinct source/local-development paths.
+  Kubernetes/Helm prerequisites, distinct source/local-development paths,
+  and the `develop` to protected `main` promotion before version-tag creation.
 
 ## Requirement Coverage
 
 | Requirement | Covered By |
 | --- | --- |
-| `R1` | CI event/permission isolation; exact tag trigger; no-public-write fixtures |
+| `R1` | CI event/permission isolation for `develop` and `main`; exact tag trigger; no-public-write and no-floating-tag fixtures |
 | `R2` | Tag parser, peeled commit, source preflight, candidate identity and archive inspection |
 | `R3` | Read-only gates job and approved command matrix with non-vacuous markers |
 | `R4` | Existing Dockerfile build, amd64/platform inspection, GHCR image digest and pull audit |
 | `R5` | Canonical chart package, GHCR Helm OCI push/pull/render, default image inspection |
-| `R6` | Tagged release notes, composed Release body, published OCI install documentation |
+| `R6` | Tagged release notes, composed Release body, published OCI install and branch-promotion documentation |
 | `R7` | Remote inventory, ordered writes, digest comparison, concurrency, partial-run audit and rerun cases |
 | `R8` | Anonymous digest-based image/chart reads, Helm render, latest baseline, fresh Release read |
-| `R9` | Per-job permissions, tag ruleset/ancestry, pinned actions, GITHUB_TOKEN, public visibility gate |
+| `R9` | Per-job permissions, protected `main` ancestry and tag ruleset, pinned actions, GITHUB_TOKEN, public visibility gate |
 | `NFR1` | Full commit, version, and digest binding in staged and public audits |
 | `NFR2` | Prepublication aborts, conflict preservation, no false success marker |
 | `NFR3` | Tagged inputs, fixed build date, pinned/declared tools, existing package checks |
@@ -324,7 +359,7 @@ an initial requirement.
 | `C3` | Initial amd64 release; separate corrective prerequisite for arm64 |
 | `C4` | GitHub Actions, GHCR, and GitHub Releases only |
 | `C5` | Strict stable SemVer tag parser and maintainer-created tag |
-| `C6` | Protected `develop` ancestry and `v*` tag ruleset |
+| `C6` | Protected `main` ancestry after reviewed promotion and `v*` tag ruleset |
 | `C7` | Chart `kubeVersion`, central toolchain, and declared compatibility matrix |
 | `C8` | One chart directory, parent Helm OCI push target, no duplicate package |
 | `C9` | GHCR public visibility and anonymous pull audit |
