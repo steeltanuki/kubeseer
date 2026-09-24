@@ -176,17 +176,18 @@ can compare the public artifacts and their recorded digests:
 TAG=v0.1.4
 git checkout --detach "$TAG"
 SOURCE_SHA="$(git rev-parse "refs/tags/${TAG}^{commit}")"
-GITHUB_ACTOR="$(gh api user --jq .login)" GH_TOKEN="$(gh auth token)" \
+GITHUB_ACTOR=steeltanuki GH_TOKEN="$PACKAGE_TOKEN" \
   ./hack/release-distribution.sh inventory --tag "$TAG" --source-sha "$SOURCE_SHA"
-GITHUB_ACTOR="$(gh api user --jq .login)" GH_TOKEN="$(gh auth token)" \
+GITHUB_ACTOR=steeltanuki GH_TOKEN="$PACKAGE_TOKEN" \
   ./hack/release-distribution.sh audit --tag "$TAG" --source-sha "$SOURCE_SHA"
 ```
 
 `inventory` shows which image, chart, and GitHub Release references are
 present; `audit` succeeds only when all public artifacts match the tagged
-version, source commit, and recorded digests. The token used for local inventory
-needs package write permission so GHCR can distinguish a missing package from
-one that the maintainer cannot access; these commands perform no writes.
+version, source commit, and recorded digests. Set `PACKAGE_TOKEN` to a classic
+personal access token with `write:packages` and access to the maintainer's
+packages. GHCR uses that permission to distinguish a missing package from one
+the maintainer cannot access; these commands perform no writes.
 After checking a missing-only partial release and confirming package
 visibility, a maintainer may explicitly
 rerun the failed workflow for the same protected tag. The workflow reuses
