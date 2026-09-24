@@ -35,12 +35,12 @@ bounded by both Kubernetes RBAC and the administrator-owned
 After a maintainer publishes an official stable release, install its versioned
 Helm OCI artifact and matching public controller image directly from GHCR. This
 path needs Helm and cluster access; it does not need a repository checkout or a
-local image/chart build. Replace `0.1.0` with a version listed on the
+local image/chart build. Replace `0.1.1` with a version listed on the
 [GitHub Releases page](https://github.com/steeltanuki/kubeseer/releases):
 
 ```sh
 helm upgrade --install kubeseer oci://ghcr.io/steeltanuki/charts/kubeseer \
-  --version 0.1.0 --namespace kubeseer-system --create-namespace \
+  --version 0.1.1 --namespace kubeseer-system --create-namespace \
   --wait --timeout 10m
 ```
 

@@ -150,8 +150,11 @@ for required_text in image replicaCount resources manager metrics tracing certif
 done
 rg -q 'app.kubernetes.io/name:' "$temp_dir/render-a.yaml" || fail "standard identity labels are missing"
 rg -q 'meta.helm.sh/release-name:' "$temp_dir/render-a.yaml" || fail "release ownership is missing"
-rg -q 'appVersion: "0\.1\.0"' "$chart_dir/Chart.yaml" || fail "appVersion is not immutable"
-rg -q 'version: 0\.1\.0' "$chart_dir/Chart.yaml" || fail "chart version is not SemVer"
+chart_version="$(sed -n 's/^version: \([^[:space:]]*\)$/\1/p' "$chart_dir/Chart.yaml")"
+chart_app_version="$(sed -n 's/^appVersion: "\([^"]*\)"$/\1/p' "$chart_dir/Chart.yaml")"
+stable_version_pattern='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+[[ "$chart_version" =~ $stable_version_pattern ]] || fail "chart version is not stable SemVer"
+[[ "$chart_app_version" == "$chart_version" ]] || fail "appVersion does not match the immutable chart version"
 rg -q 'kubeVersion:' "$chart_dir/Chart.yaml" || fail "Kubernetes compatibility range is missing"
 
 printf 'PACKAGE_VERIFY=chart-core STATUS=passed\n'

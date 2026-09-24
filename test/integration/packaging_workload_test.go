@@ -39,7 +39,7 @@ func assertPackagingWorkloadScenarios(t *testing.T) {
 	for _, fragment := range []string{
 		"kind: Deployment",
 		"namespace: team-a",
-		"image: \"ghcr.io/steeltanuki/kubeseer:0.1.0\"",
+		"image: \"ghcr.io/steeltanuki/kubeseer:0.1.1\"",
 		"maxUnavailable: 0",
 		"maxSurge: 1",
 		"readOnlyRootFilesystem: true",
