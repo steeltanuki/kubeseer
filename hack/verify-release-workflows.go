@@ -323,8 +323,17 @@ func main() {
 	fmt.Println("PASS release-distribution/publisher-uses-the-verified-sha")
 
 	check(obj(actionSteps(ci, "actions/checkout")[0]["with"])["persist-credentials"] == false, "CI checkout credentials must not persist")
-	gatesCheckout := obj(actionSteps(release, "actions/checkout")[0]["with"])
-	check(strings.Contains(str(gatesCheckout["ref"]), "github.sha") && gatesCheckout["fetch-depth"] == 0, "gates must check out the tag SHA and fetch lineage history")
+	var gatesCheckouts []object
+	for _, step := range steps(gates) {
+		if strings.HasPrefix(str(step["uses"]), "actions/checkout@") {
+			gatesCheckouts = append(gatesCheckouts, step)
+		}
+	}
+	check(len(gatesCheckouts) == 1, "release gates must check out exactly one source revision")
+	if len(gatesCheckouts) == 1 {
+		gatesCheckout := obj(gatesCheckouts[0]["with"])
+		check(strings.Contains(str(gatesCheckout["ref"]), "github.sha") && gatesCheckout["fetch-depth"] == 0, "gates must check out the tag SHA and fetch lineage history")
+	}
 	for _, content := range []string{ciRuns, gateRuns, publishRuns} {
 		check(!strings.Contains(content, "git tag -a") && !strings.Contains(content, "git push"), "workflow must not create or push release tags")
 	}
