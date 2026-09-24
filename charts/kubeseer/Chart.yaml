@@ -2,8 +2,8 @@ apiVersion: v2
 name: kubeseer
 description: Kubeseer Kubernetes observation controller
 type: application
-version: 0.1.1
-appVersion: "0.1.1"
+version: 0.1.3
+appVersion: "0.1.3"
 kubeVersion: ">=1.35.0-0 <1.37.0-0"
 home: https://github.com/steeltanuki/kubeseer
 sources:
