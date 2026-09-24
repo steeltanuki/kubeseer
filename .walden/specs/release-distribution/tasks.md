@@ -1,11 +1,11 @@
 ---
 walden_schema_version: v1alpha1
 status: approved
-approved_at: 2026-09-23T11:34:43Z
-last_modified: 2026-09-23T13:25:39Z
-approved_fingerprint: sha256:99c79d4fe52e0bbef51eaab939a2d04453684027f0c6929cdc7d0d6c9b9ab0fa
-source_design_approved_at: 2026-09-23T11:32:02Z
-source_design_fingerprint: sha256:0e6e67e3414bff2a080eb4bf848d679fda81911f798bcaf2a1d07bde295aac20
+approved_at: 2026-09-24T17:01:10Z
+last_modified: 2026-09-24T17:17:42Z
+approved_fingerprint: sha256:b8d115e3b3fdab528a72cd5ef01a63b121480d94552ab5a085388c3632627ef3
+source_design_approved_at: 2026-09-24T16:55:25Z
+source_design_fingerprint: sha256:7ad6e28084b632df0352236871bea6dbd26d6d5f75334700c21f6001ff80a37f
 ---
 
 # Implementation Plan
@@ -13,6 +13,10 @@ source_design_fingerprint: sha256:0e6e67e3414bff2a080eb4bf848d679fda81911f798bca
 The leaves implement release automation and its fixture evidence. Actual GHCR
 and GitHub Release publication remains an explicit maintainer tag action;
 fixture proofs do not claim that a public release already exists.
+Tasks 1–5 record the completed initial `develop`-lineage implementation.
+Task 6 corrects the release lineage to protected `main`; its new assertions
+must pass before the changed contract has current evidence. GitHub branch and
+tag rulesets, promotion, and the actual release tag remain maintainer actions.
 
 - [x] 1. Establish release intent and source identity
   - [x] 1.1 Add the strict tag/source/notes validator and no-public-write policy fixtures
@@ -124,3 +128,62 @@ fixture proofs do not claim that a public release already exists.
         expect_output: "RELEASE_DISTRIBUTION=docs STATUS=passed"
         timeout: 15m
         covers: ["R6.AC7","R6.AC8","NFR5","C1","C7","C8"]
+
+- [x] 6. Make protected `main` the release source
+  - [x] 6.1 Rebind source validation and release fixtures to `main`
+    - Change `hack/release-distribution.sh validate_source` to require the
+      peeled tag commit in fetched `origin/main`, while retaining exact SHA,
+      clean checkout, protected-tag, and version checks. An older tag remains
+      valid after `main` advances; a commit present only on `develop` fails.
+    - Update the synthetic repositories used by policy, candidate, and
+      transaction fixtures to provide `origin/main`. Add policy cases for a
+      promoted `main` tag, a `develop`-only tag, missing `origin/main`, an
+      earlier tag after `main` advances, and the unsupported `stable` alias.
+      Emit `PASS release-distribution/main-lineage-policy` only after those
+      new assertions have all run.
+    - Requirements: `R1.AC5`, `R2.AC2`, `R9.AC6`, `NFR1`, `NFR2`, `C6`
+    - Design: Architecture; Architecture / Release identity and staged candidates; Failure Modes And Tradeoffs; Verification Plan
+    - Verification:
+      - command: ["make", "test-release-distribution", "SCENARIO=policy"]
+        expect_output: "PASS release-distribution/main-lineage-policy"
+        timeout: 20m
+        covers: ["R1.AC5","R2.AC2","R9.AC6","NFR1","NFR2","C6"]
+      - command: ["make", "test-release-distribution", "SCENARIO=candidate"]
+        expect_output: "RELEASE_DISTRIBUTION=candidate STATUS=passed"
+        timeout: 45m
+        covers: ["R2.AC2","C6"]
+      - command: ["make", "test-release-distribution", "SCENARIO=transaction"]
+        expect_output: "RELEASE_DISTRIBUTION=transaction STATUS=passed"
+        timeout: 50m
+        covers: ["R9.AC6","C6"]
+  - [x] 6.2 Prove `main` branch and floating tags cannot publish
+    - Add `main` push and non-versioned `stable` tag events to
+      `hack/verify-release-workflows.go`. Assert ordinary CI runs for the
+      branch, neither event enters publication, and the versioned-tag gates
+      and publish-job permissions remain unchanged. Update the harness's
+      exact event-case count so the new cases cannot be skipped silently.
+    - Requirements: `R1.AC2`, `R1.AC5`, `R1.AC7`, `C10`
+    - Design: Architecture; Architecture / Permissions and public verification; Verification Plan
+    - Verification:
+      - command: ["make", "test-release-distribution", "SCENARIO=workflows"]
+        expect_output: "RELEASE_WORKFLOW_POLICY=passed CASES=17"
+        timeout: 25m
+        covers: ["R1.AC2","R1.AC5","R1.AC7","C10"]
+  - [x] 6.3 Document promotion and version-tag creation from `main`
+    - Update `docs/installation.md` and `CONTRIBUTING.md` to identify
+      `develop` as integration, protected `main` as the latest promoted
+      release-source branch, and the maintainer's reviewed promotion, CI
+      result, confirmation of active `main` and `v*` rulesets, then version-tag
+      push from `main`. Preserve the rule that branch pushes and floating
+      `stable`/`latest` aliases publish nothing.
+    - Extend the documentation fixture to assert the branch roles, promotion
+      order, main ancestry, ruleset prerequisite, and no-floating-alias guidance. Emit
+      `PASS release-distribution/docs-main-promotion-contract` only after
+      those assertions pass.
+    - Requirements: `R1.AC2`, `R1.AC5`, `R6.AC9`, `C6`
+    - Design: Architecture / Registry, Release, and user interfaces; Verification Plan
+    - Verification:
+      - command: ["make", "test-release-distribution", "SCENARIO=docs"]
+        expect_output: "PASS release-distribution/docs-main-promotion-contract"
+        timeout: 15m
+        covers: ["R1.AC2","R1.AC5","R6.AC9","C6"]

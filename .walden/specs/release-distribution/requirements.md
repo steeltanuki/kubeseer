@@ -1,9 +1,9 @@
 ---
 walden_schema_version: v1alpha1
 status: approved
-approved_at: 2026-09-23T11:29:59Z
-last_modified: 2026-09-23T11:29:59Z
-approved_fingerprint: sha256:98dd56fb343fa525c14155622f1452f9a66f0adb99bcf88a4caff9ef88ef3a63
+approved_at: 2026-09-24T16:52:24Z
+last_modified: 2026-09-24T16:52:24Z
+approved_fingerprint: sha256:2c2ce54e55bb8387bf09071baf112aae52fb8699841e5884715a0c1b5e93b191
 ---
 
 # Requirements Document
@@ -24,8 +24,12 @@ The initial release platform is `linux/amd64`. The current production
 production-image correction and certification before it can be advertised or
 published. This feature must not infer platform support from the release runner.
 
+`develop` is the integration branch. The protected `main` branch holds the
+latest promoted release source. A maintainer promotes reviewed changes to
+`main` and creates each versioned release tag from that branch. The branch name
+does not create an image tag or publish an artifact.
+
 <!-- assumed: stable vMAJOR.MINOR.PATCH tags only, with no prerelease or build suffix, because no approved release contract requires prereleases -->
-<!-- assumed: a tag is eligible only when its commit is reachable from protected develop, the canonical integration branch in this repository -->
 <!-- assumed: the initial official release carries no separate GitHub Release chart archive; the chart archive is a temporary input to the canonical Helm OCI publication -->
 
 ## Requirements
@@ -40,17 +44,17 @@ artifact.
 
 1. `R1.AC1` WHEN a pull request is opened or updated, the system SHALL run applicable repository validation without publishing an official artifact.
    - Acceptance check: a PR run reports its validation result and creates no public image, chart, GitHub Release, or version tag.
-2. `R1.AC2` WHEN a commit is pushed to `develop` or another ordinary branch, the system SHALL run applicable validation without publishing an official artifact.
+2. `R1.AC2` WHEN a commit is pushed to `develop`, `main`, or another ordinary branch, the system SHALL run applicable validation without publishing an official artifact.
    - Acceptance check: a branch run leaves the public release registries, GitHub Releases, and official tags unchanged.
 3. `R1.AC3` The system SHALL reserve public controller-image, Helm OCI, and GitHub Release publication for an explicit official release action.
    - Acceptance check: only a qualifying release action can reach publication operations.
 4. `R1.AC4` WHEN validation needs a container image or chart archive, the system SHALL keep that temporary artifact outside the public release repositories.
    - Acceptance check: integration and E2E validation can build locally while public release references remain absent.
-5. `R1.AC5` The system SHALL never publish `latest`, `develop`, `main`, `edge`, `snapshot`, PR-number, or equivalent development image tags under this feature.
-   - Acceptance check: the publication plan contains only the canonical stable version tag.
+5. `R1.AC5` The system SHALL never publish `latest`, `stable`, `develop`, `main`, `edge`, `snapshot`, PR-number, or equivalent development or floating image tags under this feature.
+   - Acceptance check: the publication plan contains only the canonical immutable version tag.
 6. `R1.AC6` The system SHALL never create official version tags as a side effect of CI or release automation.
    - Acceptance check: tag creation remains an explicit maintainer action.
-7. `R1.AC7` IF the requested release action is not a qualifying stable version tag, THEN the system SHALL stop before publishing any artifact.
+7. `R1.AC7` IF the requested release action is not a qualifying `vMAJOR.MINOR.PATCH` tag, THEN the system SHALL stop before publishing any artifact.
    - Acceptance check: a branch event, malformed tag, or unsupported prerelease leaves all official endpoints unchanged.
 
 ### R2 Canonical Version And Source Revision
@@ -170,6 +174,8 @@ compatibility information, so that I can select and deploy an official version.
    - Acceptance check: user-facing documentation presents the OCI install path first and labels the two source/local paths distinctly.
 8. `R6.AC8` The system SHALL keep the Helm OCI artifact as the canonical chart distribution and omit a second GitHub Release chart archive in the initial feature.
    - Acceptance check: the Release points to the OCI chart and has no separately maintained chart `.tgz` asset.
+9. `R6.AC9` The system SHALL document `develop` as the integration branch and protected `main` as the branch from which maintainers create versioned release tags after promotion.
+   - Acceptance check: the maintainer guide describes promotion to `main` before tag creation and confirms that branch updates alone do not publish artifacts.
 
 ### R7 Immutability, Ordering, And Recovery
 
@@ -244,8 +250,8 @@ publish executable artifacts.
    - Acceptance check: tracked files and generated artifacts contain no publication secret.
 5. `R9.AC5` The system SHALL restrict official release execution to repository-controlled workflow definitions and authorized release tags.
    - Acceptance check: an untrusted PR commit or unprotected branch ref cannot enter a privileged publication job.
-6. `R9.AC6` IF the release tag is malformed or its commit is outside the protected release lineage, THEN the system SHALL stop before publication.
-   - Acceptance check: invalid tag or untrusted commit fixtures fail without public writes.
+6. `R9.AC6` IF the release tag is malformed or its commit is not reachable from protected `main`, THEN the system SHALL stop before publication.
+   - Acceptance check: invalid tags and commits reachable only from `develop` fail without public writes, while a tag on promoted `main` passes lineage validation.
 7. `R9.AC7` The system SHALL make public image and chart pull access a prerequisite for declaring release success.
    - Acceptance check: anonymous registry pulls succeed, including when a newly created GHCR package initially defaults to private.
 
@@ -266,7 +272,7 @@ publish executable artifacts.
 - `C3` The initial published platform is `linux/amd64` because the current production Dockerfile explicitly builds `GOARCH=amd64`. `linux/arm64` and a single multi-platform manifest require an approved production-image correction under a separate feature before release-distribution may claim them.
 - `C4` GitHub hosts the source repository, GitHub Actions is the automation mechanism, GHCR hosts image and Helm OCI artifacts, and GitHub Releases hosts the release page. No additional persistent distribution infrastructure is required.
 - `C5` Official tags use stable `vMAJOR.MINOR.PATCH` Semantic Versioning with no leading zeroes in numeric components and no prerelease or build suffix. Maintainers choose and create tags explicitly; the automation does not calculate or create them.
-- `C6` The tagged commit must be reachable from the protected `develop` branch and carry the reviewed release workflow definition. Protected release-tag creation and update/deletion restrictions are repository prerequisites.
+- `C6` The tagged commit must be reachable from the protected `main` branch and carry the reviewed release workflow definition. Maintainers promote reviewed changes from `develop` to `main` before tagging. Protected release-tag creation and update/deletion restrictions are repository prerequisites.
 - `C7` The centrally declared Kubernetes matrix remains `1.35.6` and `1.36.2`, the chart's `kubeVersion` remains authoritative for its supported range, and the pinned Helm CLI in the packaging toolchain remains authoritative for the required Helm version.
 - `C8` The canonical Helm OCI repository is `oci://ghcr.io/steeltanuki/charts/kubeseer`; the parent upload target is `oci://ghcr.io/steeltanuki/charts`. No second chart tree, template set, or packaging path is introduced.
 - `C9` GHCR package visibility and workflow access must permit anonymous pulls for the release image and chart. Initial package visibility may require one-time GitHub package administration; no long-lived registry secret is introduced by this feature.
@@ -276,6 +282,6 @@ publish executable artifacts.
 
 - Changing the production image layout, manager entrypoint, chart templates or values, Kubernetes manifests, CRD/RBAC/certificate behavior, or installation and lifecycle semantics owned by `packaging-and-installation`.
 - `linux/arm64` certification and multi-platform image construction until a separate approved production-image correction removes the current amd64-only build contract.
-- Prerelease and build-metadata versions, automatic version calculation, automatic tag creation, nightly/development/PR images, branch image tags, and `latest`.
+- Prerelease and build-metadata versions, automatic version calculation, automatic tag creation, nightly/development/PR images, branch image tags, and floating `latest` or `stable` tags.
 - Image or chart signing, key management, SLSA attestations, SBOM publication, vulnerability-scanning policy, Artifact Hub registration, Docker Hub mirroring, or additional registries.
-- A separately attached GitHub Release Helm archive, autogenerated changelog, environment promotion, and a second chart packaging implementation.
+- A separately attached GitHub Release Helm archive, autogenerated changelog, deployment-environment promotion, and a second chart packaging implementation.

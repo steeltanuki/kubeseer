@@ -368,8 +368,8 @@ validate_source() {
 	head_sha="$(git -C "$root" rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" || fail "HEAD does not resolve to a commit"
 	[[ "$head_sha" == "$resolved_sha" ]] || fail "checkout HEAD is not the exact tagged source commit"
 	[[ -z "$(git -C "$root" status --porcelain --untracked-files=all)" ]] || fail "tagged source worktree is not clean"
-	git -C "$root" show-ref --verify --quiet refs/remotes/origin/develop || fail "origin/develop is required to validate protected release lineage"
-	git -C "$root" merge-base --is-ancestor "$resolved_sha" refs/remotes/origin/develop || fail "tagged commit is not reachable from origin/develop"
+	git -C "$root" show-ref --verify --quiet refs/remotes/origin/main || fail "origin/main is required to validate protected release lineage"
+	git -C "$root" merge-base --is-ancestor "$resolved_sha" refs/remotes/origin/main || fail "tagged commit is not reachable from origin/main"
 	git -C "$root" cat-file -e "$resolved_sha:$workflow_path" 2>/dev/null || fail "tagged source does not contain the official release workflow"
 
 	local chart="$root/charts/kubeseer/Chart.yaml"
