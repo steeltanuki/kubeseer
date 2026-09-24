@@ -25,28 +25,29 @@ import (
 )
 
 const (
-	ConditionAccepted               = "Accepted"
-	ConditionAuthorized             = "Authorized"
-	ConditionSourcesResolved        = "SourcesResolved"
-	ConditionReady                  = "Ready"
-	ConditionDegraded               = "Degraded"
-	ReasonConfigurationAccepted     = "ConfigurationAccepted"
-	ReasonInvalidConfiguration      = "InvalidConfiguration"
-	ReasonAuthorizationSucceeded    = "AuthorizationSucceeded"
-	ReasonAuthorizationDenied       = "AuthorizationDenied"
-	ReasonAuthorizationNotEvaluated = "AuthorizationNotEvaluated"
-	ReasonPolicyMissing             = "PolicyMissing"
-	ReasonPolicyInvalid             = "PolicyInvalid"
-	ReasonReadForbidden             = "ReadForbidden"
-	ReasonAuthorizationUnavailable  = "AuthorizationUnavailable"
-	ReasonResolutionSucceeded       = "ResolutionSucceeded"
-	ReasonResolutionFailed          = "ResolutionFailed"
-	ReasonResolutionNotEvaluated    = "ResolutionNotEvaluated"
-	ReasonResolutionUnavailable     = "ResolutionUnavailable"
-	ReasonEvaluationSucceeded       = "EvaluationSucceeded"
-	ReasonEvaluationDegraded        = "EvaluationDegraded"
-	ReasonEvaluationUnavailable     = "EvaluationUnavailable"
-	ReasonResultLimitExceeded       = "ResultLimitExceeded"
+	ConditionAccepted                 = "Accepted"
+	ConditionAuthorized               = "Authorized"
+	ConditionSourcesResolved          = "SourcesResolved"
+	ConditionReady                    = "Ready"
+	ConditionDegraded                 = "Degraded"
+	ReasonConfigurationAccepted       = "ConfigurationAccepted"
+	ReasonInvalidConfiguration        = "InvalidConfiguration"
+	ReasonAuthorizationSucceeded      = "AuthorizationSucceeded"
+	ReasonAuthorizationDenied         = "AuthorizationDenied"
+	ReasonAuthorizationNotEvaluated   = "AuthorizationNotEvaluated"
+	ReasonPolicyMissing               = "PolicyMissing"
+	ReasonPolicyInvalid               = "PolicyInvalid"
+	ReasonReadForbidden               = "ReadForbidden"
+	ReasonAuthorizationUnavailable    = "AuthorizationUnavailable"
+	ReasonResolutionSucceeded         = "ResolutionSucceeded"
+	ReasonResolutionFailed            = "ResolutionFailed"
+	ReasonResolutionNotEvaluated      = "ResolutionNotEvaluated"
+	ReasonResolutionUnavailable       = "ResolutionUnavailable"
+	ReasonEvaluationSucceeded         = "EvaluationSucceeded"
+	ReasonEvaluationDegraded          = "EvaluationDegraded"
+	ReasonEvaluationUnavailable       = "EvaluationUnavailable"
+	ReasonResultLimitExceeded         = "ResultLimitExceeded"
+	ReasonConfigurationBudgetExceeded = "ConfigurationBudgetExceeded"
 )
 
 // ConfigurationOutcome is the internal configuration assessment for one
@@ -96,11 +97,12 @@ type SourceAssessment struct {
 // Evaluation is the status-relevant terminal result of one reconciliation.
 // A non-nil Result and ResultUnavailable are mutually exclusive.
 type Evaluation struct {
-	Result              *v1alpha1.KubeseerResult
-	Sources             []SourceAssessment
-	GlobalAuthorization *AuthorizationOutcome
-	ResultUnavailable   bool
-	ResultLimitExceeded bool
+	Result                      *v1alpha1.KubeseerResult
+	Sources                     []SourceAssessment
+	GlobalAuthorization         *AuthorizationOutcome
+	ResultUnavailable           bool
+	ResultLimitExceeded         bool
+	ConfigurationBudgetExceeded bool
 }
 
 // Compose builds a complete status candidate for one generation. Persisted
@@ -112,6 +114,12 @@ func Compose(generation int64, persisted []metav1.Condition, evaluation Evaluati
 	}
 	if err := validateEvaluation(evaluation); err != nil {
 		return v1alpha1.KubeseerStatus{}, err
+	}
+
+	if evaluation.ConfigurationBudgetExceeded {
+		candidate := v1alpha1.KubeseerStatus{ObservedGeneration: generation}
+		candidate.Conditions = mergeConditions(persisted, configurationBudgetConditions(generation))
+		return candidate, nil
 	}
 
 	if evaluation.ResultLimitExceeded {
@@ -136,7 +144,14 @@ func Compose(generation int64, persisted []metav1.Condition, evaluation Evaluati
 }
 
 func validateEvaluation(evaluation Evaluation) error {
-	if evaluation.ResultLimitExceeded {
+	if evaluation.ConfigurationBudgetExceeded {
+		if evaluation.Result != nil || evaluation.ResultUnavailable || evaluation.ResultLimitExceeded {
+			return errors.New("configuration budget evaluation cannot contain a result or alternate terminal state")
+		}
+		if len(evaluation.Sources) != 0 || evaluation.GlobalAuthorization != nil {
+			return errors.New("configuration budget evaluation cannot contain source or authorization assessments")
+		}
+	} else if evaluation.ResultLimitExceeded {
 		if evaluation.Result != nil || evaluation.ResultUnavailable {
 			return errors.New("status limit evaluation cannot contain a result or unavailable state")
 		}
@@ -216,6 +231,21 @@ func compactLimitConditions(generation int64, evaluation Evaluation) []metav1.Co
 	}
 }
 
+func configurationBudgetConditions(generation int64) []metav1.Condition {
+	return []metav1.Condition{
+		condition(ConditionAccepted, metav1.ConditionFalse, ReasonConfigurationBudgetExceeded,
+			"configuration exceeds the effective budget", generation),
+		condition(ConditionAuthorized, metav1.ConditionUnknown, ReasonAuthorizationNotEvaluated,
+			"authorization was not evaluated", generation),
+		condition(ConditionSourcesResolved, metav1.ConditionUnknown, ReasonResolutionNotEvaluated,
+			"resolution was not evaluated", generation),
+		condition(ConditionReady, metav1.ConditionFalse, ReasonConfigurationBudgetExceeded,
+			"configuration exceeds the effective budget", generation),
+		condition(ConditionDegraded, metav1.ConditionTrue, ReasonEvaluationUnavailable,
+			"evaluation is unavailable", generation),
+	}
+}
+
 func compactAcceptedCondition(generation int64, sources []SourceAssessment) metav1.Condition {
 	for _, source := range sources {
 		if source.Configuration == ConfigurationInvalidOutcome {
@@ -272,6 +302,12 @@ func ComposeResultLimitExceeded(generation int64, persisted []metav1.Condition, 
 	evaluation.ResultUnavailable = false
 	evaluation.ResultLimitExceeded = true
 	return Compose(generation, persisted, evaluation)
+}
+
+// ComposeConfigurationBudgetExceeded composes the compact terminal status used
+// when a persisted configuration exceeds the effective runtime budget.
+func ComposeConfigurationBudgetExceeded(generation int64, persisted []metav1.Condition) (v1alpha1.KubeseerStatus, error) {
+	return Compose(generation, persisted, Evaluation{ConfigurationBudgetExceeded: true})
 }
 
 // CompactStatusSize returns the canonical JSON size of the largest fixed-shape

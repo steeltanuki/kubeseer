@@ -13,4 +13,4 @@ spec:
       namespaces: {names: [kubeseer-example-typed]}
       selector: {name: typed}
       fields:
-        - {name: replicas, path: "{.spec.replicas}", type: integer}
+        - {name: createdAt, path: "{.metadata.creationTimestamp}", type: timestamp}

@@ -351,7 +351,22 @@ package_readiness() {
 		fi
 	done <<<"$ca_bundles"
 
-	run_kubectl get endpoints "${E2E_RELEASE}-webhook" -n "$E2E_NAMESPACE" -o wide >/dev/null || return 1
+	local endpoint_records ready_endpoint_count=0 ready_state endpoint_marker
+	endpoint_records="$(run_kubectl get endpointslice --namespace "$E2E_NAMESPACE" \
+		--selector "kubernetes.io/service-name=${E2E_RELEASE}-webhook" \
+		-o jsonpath='{range .items[*].endpoints[*]}{.conditions.ready}{"|endpoint"}{"\n"}{end}')" || {
+		printf '%s\n' 'webhook Service EndpointSlice observation failed' >&2
+		return 1
+	}
+	while IFS='|' read -r ready_state endpoint_marker; do
+		if [[ "$endpoint_marker" == endpoint ]] && [[ "$ready_state" == true || -z "$ready_state" ]]; then
+			((ready_endpoint_count += 1))
+		fi
+	done <<<"$endpoint_records"
+	if ((ready_endpoint_count == 0)); then
+		printf '%s\n' 'webhook Service has no ready EndpointSlice endpoints' >&2
+		return 1
+	fi
 	run_kubectl get kubeseeraccesspolicy installation-access-ceiling -o name >/dev/null || return 1
 	write_admission_fixtures
 	run_kubectl apply --dry-run=server -f "$owned_dir/admission-valid.yaml" >/dev/null || return 1

@@ -68,6 +68,24 @@ non-zero with the earliest stable reason. Re-running `local-up` or
 `local-examples` converges the same owned objects; it does not create a second
 cluster, release, or policy.
 
+### Recovering after host shutdown
+
+Rootless Podman may leave the owned control-plane container exited after a host
+shutdown. The next explicit `make local-up` checks its saved ownership metadata,
+kind node, container labels, and kubeconfig API port. If the control-plane node
+is stopped, `local-up` starts it and waits for the API before continuing the usual
+image, package, and readiness checks. The API wait defaults to 120 seconds;
+override it with `KUBESEER_LOCAL_RESUME_TIMEOUT_SECONDS` using an integer from 1
+through 600, for example `KUBESEER_LOCAL_RESUME_TIMEOUT_SECONDS=240 make local-up`.
+
+If Podman cannot start the node, the API wait expires, or identity checks
+conflict, the command reports the failure and retains the owned metadata and
+kubeconfig for diagnosis and retry. An already-running node with an unavailable
+API is left running for investigation. `make local-check` and `make
+local-status` remain read-only and never start an exited node. Recovery occurs
+only when a contributor explicitly runs `make local-up`; host boot and Podman
+restart settings are unchanged.
+
 `local-status` is read-only and reports the exact state path, kubeconfig,
 context, cluster, Kubernetes version, source identity, package, manager,
 policy, and example readiness. For direct public inspection, always pass the
@@ -80,8 +98,14 @@ kubectl --kubeconfig "$STATE/kubeconfig" --context kind-kubeseer-local \
 kubectl --kubeconfig "$STATE/kubeconfig" --context kind-kubeseer-local \
   -n kubeseer-system get events
 kubectl --kubeconfig "$STATE/kubeconfig" --context kind-kubeseer-local \
+  -n kubeseer-system get endpointslice \
+  --selector kubernetes.io/service-name=kubeseer-webhook
+kubectl --kubeconfig "$STATE/kubeconfig" --context kind-kubeseer-local \
   -n kubeseer-system logs deployment/kubeseer --all-containers --tail=200
 ```
+
+The EndpointSlice command lists all ready and non-ready backends associated
+with the webhook Service without relying on deprecated core `v1 Endpoints`.
 
 The manager readiness endpoint is `/readyz`; the metrics endpoint is
 `/metrics`. Conditions, Events, and status summaries are public observations.
@@ -116,12 +140,16 @@ make local-example EXAMPLE=<catalog-name> ACTION=down
 The seven entries are:
 
 - `builtin-resource`: Deployment selection and provenance.
-- `typed-extraction`: native scalar value preserved as an integer.
+- `typed-extraction`: Deployment `creationTimestamp` parsed and published as a typed timestamp.
 - `value-operator`: supported `gte` predicate over a typed value.
 - `cross-namespace-aggregation`: deterministic contributors from two namespaces.
 - `custom-resource`: structural `Widget` CRD before Widget objects, and reverse cleanup.
 - `authorization-denial`: exact logical `AuthorizationDenied` outside the active policy.
-- `partial-degradation`: successful Deployment sibling plus an unavailable Widget source and `Degraded=True`.
+- `partial-degradation`: successful Deployment sibling plus an unavailable DegradedWidget source and `Degraded=True`.
+
+The custom and degradation examples use separate fixture CRDs. Verifying the
+degradation example removes only `DegradedWidget`, so the custom `Widget` source
+remains available.
 
 `make local-examples` applies all seven in catalog order and is idempotent.
 `make local-examples-down` removes only catalog-labeled namespaces/resources,
@@ -137,3 +165,9 @@ cleanup boundary. Local verification is not a replacement, alias, or shortcut
 for E2E certification. Unsupported hosts, external clusters/providers,
 external registries, `externalSecret` local mode, and global cleanup are out of
 scope for this feature.
+
+`make test-local-cluster-resume` runs a separate genuine recovery proof on
+Linux/amd64 with working rootless Podman and kind. It creates a run-unique
+cluster and workload, stops only that proof's verified control-plane container,
+checks that the same container and workload return, then removes that exact
+cluster. It does not use a fake-tool fallback as genuine evidence.

@@ -85,6 +85,7 @@ The constitution should include at least:
     packaging-and-installation/
     end-to-end-scenarios/
     local-development-environment/
+    release-distribution/
 ```
 
 ---
@@ -932,6 +933,39 @@ A user on a supported host can follow one documented workflow to:
 
 ---
 
+## 6.19 `release-distribution`
+
+### Objective
+
+Publish official stable Kubeseer releases from an explicit immutable Git tag so
+users can install the released controller and canonical Helm chart from public
+GitHub-hosted artifacts without cloning or building the source repository.
+
+### Includes
+
+- GitHub Actions validation that never publishes from pull requests or branch pushes;
+- a separate protected release-tag workflow with mandatory repository and E2E gates;
+- one canonical version and source revision across the image, Helm chart, executable, and GitHub Release;
+- the production controller image under `ghcr.io/steeltanuki/kubeseer:<version>`;
+- the canonical chart as `oci://ghcr.io/steeltanuki/charts/kubeseer` at the same version;
+- public artifact verification, immutable digests, safe same-tag reruns, and partial-release recovery;
+- a GitHub Release with compatibility, installation, notes, upgrade, and source information;
+- user documentation that prefers the published Helm OCI installation path.
+
+The initial release platform is `linux/amd64`: the current production
+Dockerfile hardcodes that architecture. Publishing `linux/arm64` or a single
+multi-platform manifest requires a separately approved production-image
+correction before it is claimed. `packaging-and-installation` retains ownership
+of image structure, chart content, Kubernetes manifests, and install/upgrade/
+rollback/uninstall/purge behavior.
+
+### Dependencies
+
+- `packaging-and-installation` for the approved production image, canonical chart, and package verification;
+- `end-to-end-scenarios` for official release-scope product certification.
+
+---
+
 # 7. Recommended implementation order
 
 ## Phase 1 — Minimum vertical slice
@@ -973,6 +1007,19 @@ Expected result: Kubeseer can filter, group, and aggregate typed values across m
 
 Expected result: Kubeseer is deployable, measurable, bounded, certifiable, and easy to explore locally without an existing Kubernetes cluster.
 
+## Phase 4 — Official release distribution
+
+```text
+19. release-distribution
+```
+
+Expected result: an explicitly tagged stable release is available as a public
+GHCR controller image, public Helm OCI chart, and matching GitHub Release.
+Normal development and CI publish no official artifacts.
+This follow-up may begin once `end-to-end-scenarios` and
+`packaging-and-installation` are approved and complete; its sequence number
+does not make `local-development-environment` a prerequisite.
+
 ---
 
 # 8. Dependency overview
@@ -1008,6 +1055,10 @@ local-development-environment
 ├── packaging-and-installation
 ├── end-to-end-scenarios
 └── depends on the capabilities demonstrated by its examples
+
+release-distribution
+├── packaging-and-installation
+└── end-to-end-scenarios
 ```
 
 # 9. Feature granularity rule
@@ -1049,3 +1100,44 @@ The first implementation milestone should prove the following end-to-end behavio
 9. the operator does not update status when the semantic result is unchanged.
 
 Selectors spanning many resources, advanced operators, and advanced aggregations should be introduced only after this slice has been certified.
+
+# 11. Corrective features from project review
+
+The September 5, 2026 review identified four actionable issues. These three
+follow-up features supplement the original 18-feature baseline. Each follows
+its own Requirements → Design → Tasks approval chain. Existing baseline
+approvals do not approve these corrections.
+
+| Priority / finding | Corrective feature | Observable outcome | Baseline dependencies |
+| --- | --- | --- | --- |
+| P1 / 1 | [configuration-budget-status-invalidation](.walden/specs/configuration-budget-status-invalidation/requirements.md) | Rejected persisted configurations lose old results through guarded status publication, including after policy removal or restriction. | performance-and-limits, reconciliation-runtime, status-and-conditions, authorization-enforcement |
+| P1 / 2 | [watch-startup-cancellation](.walden/specs/watch-startup-cancellation/requirements.md) | Stalled WATCH establishment respects evaluation deadlines and lease cancellation while preserving other authorized owners. | reconciliation-runtime, performance-and-limits, authorization-enforcement |
+| P2 / 3 and 4 | [native-scalar-conversion-compatibility](.walden/specs/native-scalar-conversion-compatibility/requirements.md) | Exact native quantity and duration inputs, including nano/micro quantities and zero/microsecond durations, convert successfully. | typed-output-model, field-extraction, kubeseer-api-foundation |
+
+All three also depend on integration-testing-foundation. Recommended priority
+is the table order; the corrective features do not depend on each other.
+Their Requirements documents record reproduction cases, failure handling,
+compatibility constraints, and verification expectations. Requirements and
+Designs are approved. Each Tasks plan contains four implementation/test or
+documentation leaf tasks and is prepared for review; implementation requires
+approved Tasks and an explicit execution request.
+
+The configuration-budget correction deliberately changes the old runtime
+test expectation of no status publication on budget failure. The corrective
+Designs and Tasks identify the affected baseline design/proof reconciliation
+and review gates required before execution. The two runtime corrections share
+one non-waiting route-promotion helper, which is implemented or reused once.
+
+# 12. Local cluster resume follow-up
+
+A September 23, 2026 local-development incident showed that an owned kind
+control-plane container can remain exited after host shutdown. The next
+`make local-up` then stops at API identity validation before it can converge
+the existing cluster.
+
+| Corrective feature | Observable outcome | Baseline dependency |
+| --- | --- | --- |
+| [local-cluster-resume](.walden/specs/local-cluster-resume/requirements.md) | An explicit `make local-up` resumes only the exited, owned kind node, waits for the API, and continues normal convergence without replacing the cluster. | local-development-environment |
+
+This follow-up has its own Requirements, Design, Tasks, and execution gates.
+Host-level Podman restart policy and systemd changes remain outside its scope.

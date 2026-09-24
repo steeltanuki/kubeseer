@@ -21,6 +21,7 @@ readonly COMMAND="$1"
 readonly REQUESTED="${2:-}"
 readonly STATE_DIR="${KUBESEER_LOCAL_STATE_DIR:-${XDG_STATE_HOME:-${HOME:?HOME is required}/.local/state}/kubeseer/local}"
 readonly KUBECONFIG_PATH="$STATE_DIR/kubeconfig"
+readonly CLUSTER_NAME="${LOCAL_CLUSTER_NAME:-kubeseer-local}"
 readonly KUBE_CONTEXT="${LOCAL_KUBE_CONTEXT:-kind-kubeseer-local}"
 readonly FIELD_MANAGER="kubeseer-local-examples"
 readonly NAMESPACE_LABEL="kubeseer.io/example"
@@ -85,6 +86,14 @@ namespaces_for() {
 	esac
 }
 
+fixture_crd_for() {
+	case "$1" in
+		custom-resource) printf '%s\n' widgets.fixtures.kubeseer.io ;;
+		partial-degradation) printf '%s\n' degradedwidgets.fixtures.kubeseer.io ;;
+		*) return 1 ;;
+	esac
+}
+
 selected_entries() {
 	if [[ -z "$REQUESTED" ]]; then printf '%s\n' "${CATALOG_ENTRIES[@]}"; return; fi
 	[[ -n "${seen[$REQUESTED]+set}" ]] || fail "unknown catalog entry: $REQUESTED"
@@ -111,7 +120,7 @@ apply_one() {
 	# CRDs are always established before their Custom Resources.
 	if [[ "$name" == custom-resource || "$name" == partial-degradation ]]; then
 		kubectl_local apply --server-side --field-manager="$FIELD_MANAGER" -f "$EXAMPLES_DIR/$name/fixture-crd.yaml"
-		kubectl_local wait --for=condition=Established --timeout=2m crd/widgets.fixtures.kubeseer.io
+		kubectl_local wait --for=condition=Established --timeout=2m "crd/$(fixture_crd_for "$name")"
 	fi
 	kubectl_local apply --server-side --field-manager="$FIELD_MANAGER" -f "$EXAMPLES_DIR/$name/workload.yaml"
 	kubectl_local apply --server-side --field-manager="$FIELD_MANAGER" -f "$EXAMPLES_DIR/$name/kubeseer.yaml"
@@ -124,12 +133,12 @@ apply_one() {
 # the exact managed profile afterward.
 narrow_authorization_denial_policy() {
 	kubectl_local patch kubeseeraccesspolicy installation-access-ceiling --type=merge \
-		-p='{"spec":{"resources":[{"apiGroups":[""],"kinds":["Pod"]},{"apiGroups":["apps"],"kinds":["Deployment"]},{"apiGroups":["fixtures.kubeseer.io"],"kinds":["Widget"]}]}}'
+		-p='{"spec":{"resources":[{"apiGroups":[""],"kinds":["Pod"]},{"apiGroups":["apps"],"kinds":["Deployment"]},{"apiGroups":["fixtures.kubeseer.io"],"kinds":["Widget","DegradedWidget"]}]}}'
 }
 
 restore_authorization_denial_policy() {
 	kubectl_local patch kubeseeraccesspolicy installation-access-ceiling --type=merge \
-		-p='{"spec":{"resources":[{"apiGroups":[""],"kinds":["Pod"]},{"apiGroups":["apps"],"kinds":["Deployment"]},{"apiGroups":[""],"kinds":["Service"]},{"apiGroups":["fixtures.kubeseer.io"],"kinds":["Widget"]}]}}'
+		-p='{"spec":{"resources":[{"apiGroups":[""],"kinds":["Pod"]},{"apiGroups":["apps"],"kinds":["Deployment"]},{"apiGroups":[""],"kinds":["Service"]},{"apiGroups":["fixtures.kubeseer.io"],"kinds":["Widget","DegradedWidget"]}]}}'
 }
 
 inspect_one() {
@@ -148,9 +157,9 @@ verify_one() {
 		# complete catalog was just (re)applied.
 		kubectl_local --namespace "$namespace" wait --for=condition=Ready --timeout="${KUBESEER_LOCAL_TIMEOUT:-2m}" kubeseer/degraded
 		# Leave the successful Deployment in place, then remove only the
-		# degradable Widget and its fixture type before observing status.
-		kubectl_local --namespace "$namespace" delete widget degraded-widget --ignore-not-found=true >/dev/null || true
-		kubectl_local delete crd widgets.fixtures.kubeseer.io --ignore-not-found=true >/dev/null || true
+		# degradable DegradedWidget and its fixture type before observing status.
+		kubectl_local --namespace "$namespace" delete degradedwidget degraded-widget --ignore-not-found=true >/dev/null || true
+		kubectl_local delete crd "$(fixture_crd_for "$name")" --ignore-not-found=true >/dev/null || true
 	fi
 	if [[ "$name" == authorization-denial ]]; then
 		# Admission already accepted the object while Service was in the local
@@ -158,7 +167,7 @@ verify_one() {
 		# AuthorizationDenied path required by this example.
 		local verify_status
 		narrow_authorization_denial_policy
-		if "${command[@]}" verify --state-dir "$STATE_DIR" --metadata "$STATE_DIR/metadata.v1" --kubeconfig "$KUBECONFIG_PATH" --context "$KUBE_CONTEXT" --timeout "${KUBESEER_LOCAL_TIMEOUT:-2m}" --example "$name" --namespace "$namespace"; then
+		if "${command[@]}" verify --state-dir "$STATE_DIR" --metadata "$STATE_DIR/metadata.v1" --kubeconfig "$KUBECONFIG_PATH" --cluster-name "$CLUSTER_NAME" --context "$KUBE_CONTEXT" --timeout "${KUBESEER_LOCAL_TIMEOUT:-2m}" --example "$name" --namespace "$namespace"; then
 			verify_status=0
 		else
 			verify_status=$?
@@ -169,7 +178,7 @@ verify_one() {
 		fi
 		((verify_status == 0)) || return "$verify_status"
 	else
-		"${command[@]}" verify --state-dir "$STATE_DIR" --metadata "$STATE_DIR/metadata.v1" --kubeconfig "$KUBECONFIG_PATH" --context "$KUBE_CONTEXT" --timeout "${KUBESEER_LOCAL_TIMEOUT:-2m}" --example "$name" --namespace "$namespace"
+		"${command[@]}" verify --state-dir "$STATE_DIR" --metadata "$STATE_DIR/metadata.v1" --kubeconfig "$KUBECONFIG_PATH" --cluster-name "$CLUSTER_NAME" --context "$KUBE_CONTEXT" --timeout "${KUBESEER_LOCAL_TIMEOUT:-2m}" --example "$name" --namespace "$namespace"
 	fi
 	printf 'EXAMPLE=%s STATUS=passed\n' "$name"
 }
@@ -180,12 +189,12 @@ down_one() {
 	kubectl_local --namespace "$namespace" delete -f "$EXAMPLES_DIR/$name/kubeseer.yaml" --ignore-not-found=true >/dev/null
 	if [[ "$name" == partial-degradation ]]; then
 		kubectl_local --namespace "$namespace" delete deployment degraded --ignore-not-found=true >/dev/null || true
-		kubectl_local --namespace "$namespace" delete widget degraded-widget --ignore-not-found=true >/dev/null || true
+		if kubectl_local get crd "$(fixture_crd_for "$name")" >/dev/null 2>&1; then
+			kubectl_local --namespace "$namespace" delete degradedwidget degraded-widget --ignore-not-found=true >/dev/null
+		fi
 	elif [[ "$name" == custom-resource ]]; then
-		# The partial-degradation example may already have removed the shared
-		# fixture CRD. Avoid asking kubectl to resolve a type that no longer
-		# exists while still deleting the CR before the CRD when present.
-		if kubectl_local get crd widgets.fixtures.kubeseer.io >/dev/null 2>&1; then
+		# Delete the fixture CR before its own CRD when the type is present.
+		if kubectl_local get crd "$(fixture_crd_for "$name")" >/dev/null 2>&1; then
 			kubectl_local --namespace "$namespace" delete -f "$EXAMPLES_DIR/$name/workload.yaml" --ignore-not-found=true >/dev/null
 		fi
 	elif [[ "$name" == cross-namespace-aggregation ]]; then

@@ -27,8 +27,13 @@ kubectl --context my-cluster -n kubeseer-system \
 kubectl --context my-cluster -n kubeseer-system \
   get deployment kubeseer -o wide
 kubectl --context my-cluster -n kubeseer-system \
-  get pods,service,endpoints
+  get pods,service
+kubectl --context my-cluster -n kubeseer-system \
+  get endpointslice --selector kubernetes.io/service-name=kubeseer-webhook
 ```
+
+The last command inspects every controller-managed webhook backend through the
+discovery/v1 EndpointSlice API and the standard Service-name selector.
 
 For direct endpoint inspection without exposing the Service externally:
 
@@ -71,6 +76,82 @@ message text. Public reason codes are listed in the
 `status.resultHash` identifies the semantic result. A stable hash with repeated
 reconciliations is expected: Kubeseer suppresses status writes when only
 volatile processing details changed.
+
+## Diagnose configuration-budget rejection
+
+`Accepted=False` with reason `ConfigurationBudgetExceeded` is distinct from a
+policy denial. In this terminal state `Authorized` and `SourcesResolved` are
+`Unknown` with `AuthorizationNotEvaluated` and `ResolutionNotEvaluated`; no
+observation result is available, and `Degraded=True` carries
+`EvaluationUnavailable`. Use a status-only projection so source
+payloads and selectors are not copied into tickets or logs:
+
+```sh
+kubectl --context my-cluster -n applications get kubeseer workload-view -o json \
+  | jq '{generation: .metadata.generation, observedGeneration: .status.observedGeneration, conditions: [.status.conditions[] | {type, status, reason}], resultPresent: (.status.result != null), summaryPresent: (.status.summary != null), resultHashPresent: (.status.resultHash != null)}'
+```
+
+Compare `generation` and `observedGeneration` first. If the observed generation
+is older, wait for reconciliation before diagnosing the outcome. If it is
+current and the five reasons match the [API contract](api-reference.md#configuration-budget-rejection),
+the object is over the effective manager budget, not denied by policy. A
+policy denial instead reports `Authorized=False` with a policy or authorization
+reason and must be investigated against the installation access ceiling and
+RBAC.
+
+Fix the declaration so it fits the configured limits, or restart the manager
+with a compatible profile. The next attempt evaluates the current policy: a
+denial clears the old result without restoring it, while an authorized success
+replaces the rejection with a fresh result. The prior result is removed only
+after a successful status write is accepted by the API. During a conflict, transient API
+failure, or forbidden status subresource, the old status can remain; retry and
+check the `kubeseer_status_updates_total` metric and Events rather than
+claiming deletion.
+
+See [the security boundary](security.md#budget-rejection-and-data-removal) for
+the write and confidentiality guarantees.
+
+## Diagnose stalled WATCH startup and recovery
+
+WATCH startup is bounded by the resolved `EvaluationTimeout` in the manager
+profile. A caller deadline is reported as `EvaluationTimedOut`; it does not
+tear down a healthy stream that still serves another current owner. A failed
+startup, stream gap, or capacity promotion schedules a serial replacement and
+queues current owners for a fresh `LIST`. The periodic safety interval remains
+available when no stream exists.
+
+Use identity and reason fields only when triaging an incident:
+
+```sh
+kubectl --context my-cluster -n applications get kubeseer workload-view \
+  -o jsonpath='{.metadata.generation}{" "}{.status.observedGeneration}{"\n"}{range .status.conditions[*]}{.type}{"="}{.status}{" reason="}{.reason}{"\n"}{end}'
+kubectl --context my-cluster -n kubeseer-system logs deployment/kubeseer \
+  --all-containers --tail=200 | grep -E 'SourceWatchStopped|SourceWatchRestarted'
+kubectl --context my-cluster -n kubeseer-system get --raw /metrics \
+  | grep kubeseer_source_watch_restarts_total
+```
+
+Read the signals in this order:
+
+1. Compare `metadata.generation` with `status.observedGeneration`. An older
+   observed generation is not a current diagnosis.
+2. For current state, inspect `EvaluationTimedOut`, `ReadInterrupted`,
+   `ReadUnavailable`, or `ListExpired` and correlate the bounded
+   `SourceWatchStopped`/`SourceWatchRestarted` events with the restart metric.
+   Allow the serial retry and periodic safety reconciliation to establish a
+   stream or perform a fresh `LIST`.
+3. If the reason is `AuthorizationDenied`, `AuthorizationStale`, or
+   `StaleLease`, treat it as policy or identity revocation. Check the
+   current `installation-access-ceiling` and wait for a new authorized
+   reconciliation; do not interpret it as an API-server outage.
+4. If the reason is `ReadForbidden`, policy allowed the exact target but
+   Kubernetes RBAC denied the manager ServiceAccount. Confirm the manager
+   identity and run an exact `auth can-i` check for that resource and scope.
+
+Keep payloads, field paths, selectors, and capabilities out of tickets and
+commands. See [the architecture guide](concepts-and-architecture.md#watch-lifecycle-and-observation-gaps)
+for the lifetime model and [the security model](security.md#watch-authority-and-transport-lifetime)
+for the confidentiality boundary.
 
 ## Kubernetes Events
 

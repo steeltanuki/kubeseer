@@ -71,7 +71,7 @@ func assertObservabilityWatchScenarios(t *testing.T, ctx context.Context, resolv
 		if err := watchRegistry.Start(watchContext, queue); err != nil {
 			t.Fatalf("start observed watch registry: %v", err)
 		}
-		if err := watchRegistry.Replace(lease, []reconciliation.AuthorizedRoute{route}); err != nil {
+		if err := watchRegistry.Replace(context.Background(), lease, []reconciliation.AuthorizedRoute{route}); err != nil {
 			t.Fatalf("replace observed watch route: %v", err)
 		}
 		waitForRuntimeWatchCondition(t, func() bool { return len(watcher.Calls()) >= 1 })
@@ -122,7 +122,7 @@ func assertObservabilityWatchScenarios(t *testing.T, ctx context.Context, resolv
 			release()
 			t.Fatalf("start forbidden-watch registry: %v", err)
 		}
-		if err := watchRegistry.Replace(lease, []reconciliation.AuthorizedRoute{route}); err != nil {
+		if err := watchRegistry.Replace(context.Background(), lease, []reconciliation.AuthorizedRoute{route}); err != nil {
 			cancel()
 			queue.ShutDown()
 			release()
@@ -175,7 +175,7 @@ func assertObservabilityWatchScenarios(t *testing.T, ctx context.Context, resolv
 		if err := watchRegistry.Start(watchContext, queue); err != nil {
 			t.Fatalf("start cancellation registry: %v", err)
 		}
-		if err := watchRegistry.Replace(lease, []reconciliation.AuthorizedRoute{route}); err != nil {
+		if err := watchRegistry.Replace(context.Background(), lease, []reconciliation.AuthorizedRoute{route}); err != nil {
 			t.Fatalf("replace cancellation route: %v", err)
 		}
 		waitForRuntimeWatchCondition(t, func() bool { return len(watcher.Calls()) >= 1 })

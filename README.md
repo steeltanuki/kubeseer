@@ -30,10 +30,42 @@ bounded by both Kubernetes RBAC and the administrator-owned
 - validating admission, runtime revalidation, bounded execution, and
   fail-closed authorization.
 
-## Quick start
+## Install an official release
 
-The shortest supported evaluation path is the persistent local environment on
-Linux/amd64 with rootless Podman and kind:
+After a maintainer publishes an official stable release, install its versioned
+Helm OCI artifact and matching public controller image directly from GHCR. This
+path needs Helm and cluster access; it does not need a repository checkout or a
+local image/chart build. Replace `0.1.0` with a version listed on the
+[GitHub Releases page](https://github.com/steeltanuki/kubeseer/releases):
+
+```sh
+helm upgrade --install kubeseer oci://ghcr.io/steeltanuki/charts/kubeseer \
+  --version 0.1.0 --namespace kubeseer-system --create-namespace \
+  --wait --timeout 10m
+```
+
+The chart defaults to `ghcr.io/steeltanuki/kubeseer:<chart appVersion>`, so
+the selected chart and controller versions stay aligned. The image and chart
+GHCR packages for a published release are public for anonymous pulls. The
+initial release contract certifies Linux/amd64 controller images, Kubernetes
+1.35.6 and 1.36.2, and Helm 3.12 or newer. See the
+[installation and lifecycle guide](docs/installation.md) for prerequisites,
+upgrades, rollback, and recovery.
+
+## Install or build from source
+
+Contributors can clone the source to change Kubeseer, run its verification
+gates, or inspect and package the canonical chart locally. Those locally built
+images and charts are development artifacts; official versions are published
+only by the maintainer-controlled version-tag release workflow. See the
+[contribution guide](CONTRIBUTING.md) for issues and pull requests, and
+[development and verification](docs/development.md) for build and test
+commands.
+
+## Local development quick start
+
+The project-owned local environment uses Linux/amd64 with rootless Podman and
+kind. It builds and loads temporary local images without publishing them:
 
 ```sh
 make local-check
@@ -108,6 +140,7 @@ for the complete status contract.
 
 | Guide | Use it for |
 | --- | --- |
+| [Contributing](CONTRIBUTING.md) | Issue reports, proposals, pull requests, review, and maintainer responsibilities |
 | [Concepts and architecture](docs/concepts-and-architecture.md) | Mental model, evaluation pipeline, reconciliation, and package boundaries |
 | [API reference](docs/api-reference.md) | `Kubeseer` and `KubeseerAccessPolicy` fields, JSONPath, types, operators, aggregations, and status |
 | [Configuration](docs/configuration.md) | Helm policy, RBAC, certificates, limits, and deployment settings |
@@ -141,11 +174,10 @@ The exact development toolchain and kind node-image pins are defined in
 
 ## Project status and delivery model
 
-The repository's Walden portfolio currently records all 18 planned features as
-approved and implemented. That includes the API foundation, selection,
-extraction, typing, operators, aggregation, status, reconciliation,
-authorization, admission, observability, integration and E2E verification,
-packaging, and the local environment.
+The Walden portfolio tracks Kubeseer's API, controller behavior, verification,
+packaging, local development, and official release distribution. Each feature
+is backed by approved requirements, design, implementation tasks, and
+verification evidence.
 
 Kubeseer is also an experiment in specification-driven delivery with
 [Walden](https://github.com/andrearaponi/walden) and AI coding agents. Features
@@ -154,9 +186,18 @@ and durable verification evidence. AI agents may assist at each stage;
 architectural approval and responsibility for the result remain with the human
 maintainer.
 
+Contributors may use Walden, but it is optional. For an ordinary issue or pull
+request, the maintainer decides whether a specification is needed and manages
+any required approval and evidence before integration.
+
 Before treating a commit as release-ready, run the repository verification
 appropriate to the change and the isolated `make e2e` certification described
 in [development and verification](docs/development.md).
+
+## Acknowledgments
+
+Kubeseer began with a conversation. We are grateful to Prof. Fulvio Risso for
+the exchange that first sparked the idea for this project.
 
 ## License
 

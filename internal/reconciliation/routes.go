@@ -213,10 +213,11 @@ func (w *ClientMetadataWatcher) Watch(ctx context.Context, permit WatchPermit, r
 }
 
 type routeRegistryOptions struct {
-	watchBackoffBase time.Duration
-	watchBackoffMax  time.Duration
-	maxActiveWatches int
-	watchObserver    *observability.Observer
+	watchBackoffBase     time.Duration
+	watchBackoffMax      time.Duration
+	maxActiveWatches     int
+	establishmentTimeout time.Duration
+	watchObserver        *observability.Observer
 }
 
 // RouteRegistryOption configures watch restart timing.
@@ -245,6 +246,16 @@ func WithMaxActiveWatches(capacity int) RouteRegistryOption {
 	}
 }
 
+// WithRouteWatchEstablishmentTimeout bounds each serial WATCH establishment
+// attempt. It defaults to the resolved evaluation timeout profile.
+func WithRouteWatchEstablishmentTimeout(timeout time.Duration) RouteRegistryOption {
+	return func(options *routeRegistryOptions) {
+		if timeout > 0 {
+			options.establishmentTimeout = timeout
+		}
+	}
+}
+
 // WithRouteWatchObserver reports unexpected source-watch stops and scheduled
 // restarts without changing route ownership or retry semantics.
 func WithRouteWatchObserver(observer *observability.Observer) RouteRegistryOption {
@@ -264,6 +275,7 @@ type RouteRegistry struct {
 	byOwner  map[types.NamespacedName]map[routeBindingKey]RouteBinding
 	byTarget map[WatchAddress]map[routeBindingKey]RouteBinding
 	watches  map[WatchAddress]*watchSupervisor
+	deferred map[WatchAddress]bool
 	started  bool
 	ctx      context.Context
 	queue    workqueue.TypedRateLimitingInterface[reconcile.Request]
@@ -273,9 +285,10 @@ type RouteRegistry struct {
 // NewRouteRegistry creates an identity-only route registry.
 func NewRouteRegistry(watcher MetadataWatcher, tracker *FreshnessTracker, options ...RouteRegistryOption) *RouteRegistry {
 	settings := routeRegistryOptions{
-		watchBackoffBase: defaultWatchBackoffBase,
-		watchBackoffMax:  defaultWatchBackoffMax,
-		maxActiveWatches: limits.DefaultMaxActiveWatches,
+		watchBackoffBase:     defaultWatchBackoffBase,
+		watchBackoffMax:      defaultWatchBackoffMax,
+		maxActiveWatches:     limits.DefaultMaxActiveWatches,
+		establishmentTimeout: limits.DefaultEvaluationTimeout,
 	}
 	for _, option := range options {
 		if option != nil {
@@ -292,6 +305,7 @@ func NewRouteRegistry(watcher MetadataWatcher, tracker *FreshnessTracker, option
 		byOwner:  make(map[types.NamespacedName]map[routeBindingKey]RouteBinding),
 		byTarget: make(map[WatchAddress]map[routeBindingKey]RouteBinding),
 		watches:  make(map[WatchAddress]*watchSupervisor),
+		deferred: make(map[WatchAddress]bool),
 	}
 }
 
@@ -346,9 +360,12 @@ func (r *RouteRegistry) Start(ctx context.Context, queue workqueue.TypedRateLimi
 
 // Replace atomically replaces all routes owned by the lease. Denied,
 // obsolete, or stale bindings cannot reach the registry.
-func (r *RouteRegistry) Replace(lease Lease, routes []AuthorizedRoute) error {
+func (r *RouteRegistry) Replace(ctx context.Context, lease Lease, routes []AuthorizedRoute) error {
 	if r == nil {
 		return errors.New("route registry is nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	if r.tracker != nil && !r.tracker.IsLeaseCurrent(lease) {
 		return staleRuntimeError("route-replace")
@@ -401,7 +418,78 @@ func (r *RouteRegistry) Replace(lease Lease, routes []AuthorizedRoute) error {
 		delete(r.byOwner, lease.Key)
 	}
 	started := r.started
-	ctx := r.ctx
+	managerCtx := r.ctx
+	_ = r.ensureWatchCapacityLocked()
+	if started {
+		if r.deferred == nil {
+			r.deferred = make(map[WatchAddress]bool)
+		}
+		for _, binding := range newBindings {
+			if _, active := r.watches[binding.Address]; !active {
+				r.deferred[binding.Address] = true
+			}
+		}
+	}
+	waitSupervisors := r.supervisorsForBindingsLocked(newBindings)
+	r.mu.Unlock()
+	for _, supervisor := range toStop {
+		supervisor.stop()
+	}
+	if started {
+		for _, supervisor := range waitSupervisors {
+			if err := r.startSupervisorAndWait(supervisor, managerCtx, ctx); err != nil {
+				r.pruneStaleOwner(lease.Key)
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (r *RouteRegistry) supervisorsForBindingsLocked(bindings map[routeBindingKey]RouteBinding) []*watchSupervisor {
+	if r == nil || len(bindings) == 0 {
+		return nil
+	}
+	addresses := make([]WatchAddress, 0, len(bindings))
+	seen := make(map[WatchAddress]struct{}, len(bindings))
+	for _, binding := range bindings {
+		if _, exists := seen[binding.Address]; exists {
+			continue
+		}
+		seen[binding.Address] = struct{}{}
+		addresses = append(addresses, binding.Address)
+	}
+	sort.Slice(addresses, func(i, j int) bool { return watchAddressLess(addresses[i], addresses[j]) })
+	supervisors := make([]*watchSupervisor, 0, len(addresses))
+	for _, address := range addresses {
+		if supervisor := r.watches[address]; supervisor != nil {
+			supervisors = append(supervisors, supervisor)
+		}
+	}
+	return supervisors
+}
+
+// pruneStaleOwner removes only bindings that no longer match the freshness
+// tracker for one owner. It is used after a caller wait is interrupted so a
+// current timeout or external cancellation cannot revoke another generation's
+// authority.
+func (r *RouteRegistry) pruneStaleOwner(owner types.NamespacedName) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	bindings := r.byOwner[owner]
+	toStop := make([]*watchSupervisor, 0)
+	for _, binding := range bindings {
+		if r.tracker != nil && r.tracker.IsCurrent(binding.Subject) {
+			continue
+		}
+		if supervisor := r.removeBindingLocked(binding); supervisor != nil {
+			toStop = append(toStop, supervisor)
+		}
+	}
+	started := r.started
+	managerCtx := r.ctx
 	toStart := r.ensureWatchCapacityLocked()
 	r.mu.Unlock()
 	for _, supervisor := range toStop {
@@ -409,10 +497,9 @@ func (r *RouteRegistry) Replace(lease Lease, routes []AuthorizedRoute) error {
 	}
 	if started {
 		for _, supervisor := range toStart {
-			r.startSupervisorAndWait(supervisor, ctx)
+			r.startSupervisor(supervisor, managerCtx)
 		}
 	}
-	return nil
 }
 
 // startSupervisorAndWait closes the small check/start race between a route
@@ -420,26 +507,48 @@ func (r *RouteRegistry) Replace(lease Lease, routes []AuthorizedRoute) error {
 // supervisor registered while its first WATCH attempt is launched; an owner
 // removal that wins first makes the check fail, while one that follows waits
 // and then stops the supervisor.
-func (r *RouteRegistry) startSupervisorAndWait(supervisor *watchSupervisor, parent context.Context) {
+func (r *RouteRegistry) startSupervisor(supervisor *watchSupervisor, parent context.Context) {
 	if r == nil || supervisor == nil || parent == nil {
 		return
 	}
-	ready := make(chan struct{})
 	r.mu.RLock()
 	current := r.started && r.watches[supervisor.address] == supervisor && len(r.byTarget[supervisor.address]) != 0
 	if current {
-		started := supervisor.startWithReady(parent, ready)
+		supervisor.start(parent)
+	}
+	r.mu.RUnlock()
+}
+
+func (r *RouteRegistry) startSupervisorAndWait(supervisor *watchSupervisor, parent, waitContext context.Context) error {
+	if r == nil || supervisor == nil || parent == nil {
+		return nil
+	}
+	if waitContext == nil {
+		waitContext = context.Background()
+	}
+	var ready <-chan struct{}
+	r.mu.RLock()
+	current := r.started && r.watches[supervisor.address] == supervisor && len(r.byTarget[supervisor.address]) != 0
+	if current {
+		ready = supervisor.startWithReady(parent)
 		r.mu.RUnlock()
-		if !started {
-			return
+		if ready == nil {
+			return nil
 		}
 		select {
 		case <-ready:
+			if err := waitContext.Err(); err != nil {
+				return err
+			}
+			return nil
+		case <-waitContext.Done():
+			return waitContext.Err()
 		case <-parent.Done():
+			return parent.Err()
 		}
-		return
 	}
 	r.mu.RUnlock()
+	return nil
 }
 
 // currentPermit prunes every stale exact binding for an address and returns a
@@ -464,7 +573,7 @@ func (r *RouteRegistry) currentPermit(address WatchAddress) (WatchPermit, bool) 
 	}
 	if started {
 		for _, supervisor := range toStart {
-			r.startSupervisorAndWait(supervisor, ctx)
+			r.startSupervisor(supervisor, ctx)
 		}
 	}
 	if len(ordered) == 0 {
@@ -542,6 +651,7 @@ func (r *RouteRegistry) removeBindingLocked(binding RouteBinding) *watchSupervis
 		return nil
 	}
 	delete(r.byTarget, binding.Address)
+	delete(r.deferred, binding.Address)
 	supervisor := r.watches[binding.Address]
 	delete(r.watches, binding.Address)
 	return supervisor
@@ -568,13 +678,17 @@ func (r *RouteRegistry) ensureWatchCapacityLocked() []*watchSupervisor {
 		if _, exists := r.watches[address]; exists {
 			continue
 		}
+		recoveryPending := r.deferred[address]
+		delete(r.deferred, address)
 		supervisor := &watchSupervisor{
-			registry: r,
-			address:  address,
-			watcher:  r.watcher,
-			base:     r.options.watchBackoffBase,
-			maximum:  r.options.watchBackoffMax,
-			observer: r.options.watchObserver,
+			registry:             r,
+			address:              address,
+			watcher:              r.watcher,
+			base:                 r.options.watchBackoffBase,
+			maximum:              r.options.watchBackoffMax,
+			establishmentTimeout: r.options.establishmentTimeout,
+			observer:             r.options.watchObserver,
+			recoveryPending:      recoveryPending,
 		}
 		r.watches[address] = supervisor
 		toStart = append(toStart, supervisor)
@@ -632,7 +746,7 @@ func (r *RouteRegistry) RemoveOwner(owner types.NamespacedName) {
 	}
 	if started {
 		for _, supervisor := range toStart {
-			r.startSupervisorAndWait(supervisor, ctx)
+			r.startSupervisor(supervisor, ctx)
 		}
 	}
 }
@@ -685,7 +799,7 @@ func (r *RouteRegistry) currentOwners(address WatchAddress) []types.NamespacedNa
 	}
 	if started {
 		for _, supervisor := range toStart {
-			r.startSupervisorAndWait(supervisor, ctx)
+			r.startSupervisor(supervisor, ctx)
 		}
 	}
 	sort.Slice(owners, func(i, j int) bool {
@@ -736,17 +850,20 @@ func (r *RouteRegistry) routeEvent(address WatchAddress) {
 }
 
 type watchSupervisor struct {
-	registry *RouteRegistry
-	address  WatchAddress
-	watcher  MetadataWatcher
-	base     time.Duration
-	maximum  time.Duration
-	observer *observability.Observer
+	registry             *RouteRegistry
+	address              WatchAddress
+	watcher              MetadataWatcher
+	base                 time.Duration
+	maximum              time.Duration
+	establishmentTimeout time.Duration
+	observer             *observability.Observer
 
-	mu      sync.Mutex
-	started bool
-	cancel  context.CancelFunc
-	ready   chan struct{}
+	mu              sync.Mutex
+	started         bool
+	cancel          context.CancelFunc
+	ready           chan struct{}
+	firstAttempt    bool
+	recoveryPending bool
 }
 
 func (s *watchSupervisor) isStarted() bool {
@@ -756,39 +873,39 @@ func (s *watchSupervisor) isStarted() bool {
 }
 
 func (s *watchSupervisor) start(parent context.Context) {
-	_ = s.startWithReady(parent, nil)
+	_ = s.startWithReady(parent)
 }
 
 func (s *watchSupervisor) startAndWait(parent context.Context) {
 	if s == nil || parent == nil {
 		return
 	}
-	ready := make(chan struct{})
-	if !s.startWithReady(parent, ready) {
+	ready := s.startWithReady(parent)
+	if ready == nil {
 		return
 	}
-	select {
-	case <-ready:
-	case <-parent.Done():
-	}
+	<-ready
 }
 
-func (s *watchSupervisor) startWithReady(parent context.Context, ready chan struct{}) bool {
+func (s *watchSupervisor) startWithReady(parent context.Context) <-chan struct{} {
 	if s == nil || s.watcher == nil || parent == nil {
-		return false
+		return nil
 	}
 	s.mu.Lock()
 	if s.started {
+		ready := s.ready
 		s.mu.Unlock()
-		return false
+		return ready
 	}
+	ready := make(chan struct{})
 	ctx, cancel := context.WithCancel(parent)
 	s.started = true
 	s.cancel = cancel
 	s.ready = ready
+	s.firstAttempt = true
 	s.mu.Unlock()
 	go s.run(ctx)
-	return true
+	return ready
 }
 
 func (s *watchSupervisor) stop() {
@@ -799,6 +916,7 @@ func (s *watchSupervisor) stop() {
 	cancel := s.cancel
 	s.cancel = nil
 	s.started = false
+	s.firstAttempt = false
 	ready := s.ready
 	s.ready = nil
 	s.mu.Unlock()
@@ -810,40 +928,173 @@ func (s *watchSupervisor) stop() {
 	}
 }
 
+type watchEstablishment struct {
+	mu       sync.Mutex
+	settled  bool
+	timedOut bool
+	cancel   context.CancelFunc
+	timer    *time.Timer
+}
+
+func newWatchEstablishment(parent context.Context, timeout time.Duration, onTimeout func()) (*watchEstablishment, context.Context) {
+	if timeout <= 0 {
+		timeout = limits.DefaultEvaluationTimeout
+	}
+	watchContext, cancel := context.WithCancel(parent)
+	establishment := &watchEstablishment{cancel: cancel}
+	establishment.timer = time.AfterFunc(timeout, func() {
+		establishment.mu.Lock()
+		if establishment.settled {
+			establishment.mu.Unlock()
+			return
+		}
+		establishment.settled = true
+		establishment.timedOut = true
+		cancelTransport := establishment.cancel
+		establishment.cancel = nil
+		establishment.mu.Unlock()
+		if cancelTransport != nil {
+			cancelTransport()
+		}
+		if onTimeout != nil {
+			onTimeout()
+		}
+	})
+	return establishment, watchContext
+}
+
+func (e *watchEstablishment) settle() (timedOut bool, cancelTransport context.CancelFunc) {
+	if e == nil {
+		return false, nil
+	}
+	e.mu.Lock()
+	if e.settled {
+		timedOut = e.timedOut
+		cancelTransport = e.cancel
+		e.cancel = nil
+		e.mu.Unlock()
+		return timedOut, cancelTransport
+	}
+	e.settled = true
+	timer := e.timer
+	e.timer = nil
+	// A successful establishment hands the child context to the stream for
+	// its supervisor-owned lifetime. The caller releases it after consumption.
+	cancelTransport = e.cancel
+	e.cancel = nil
+	e.mu.Unlock()
+	if timer != nil {
+		timer.Stop()
+	}
+	return false, cancelTransport
+}
+
+func (s *watchSupervisor) markRecoveryPending() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.recoveryPending = true
+	s.mu.Unlock()
+}
+
+func (s *watchSupervisor) takeRecoveryPending() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	pending := s.recoveryPending
+	s.recoveryPending = false
+	s.mu.Unlock()
+	return pending
+}
+
+func (r *RouteRegistry) supervisorCurrent(supervisor *watchSupervisor) bool {
+	if r == nil || supervisor == nil || r.tracker == nil {
+		return false
+	}
+	r.mu.RLock()
+	if !r.started || r.watches[supervisor.address] != supervisor {
+		r.mu.RUnlock()
+		return false
+	}
+	bindings := make([]RouteBinding, 0, len(r.byTarget[supervisor.address]))
+	for _, binding := range r.byTarget[supervisor.address] {
+		bindings = append(bindings, binding)
+	}
+	r.mu.RUnlock()
+	for _, binding := range bindings {
+		if r.tracker.IsCurrent(binding.Subject) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *watchSupervisor) run(ctx context.Context) {
 	resourceVersion := ""
 	backoff := s.base
-	firstAttempt := true
 	for {
 		if ctx.Err() != nil {
 			return
 		}
 		permit, current := s.registry.currentPermit(s.address)
 		if !current {
-			signalWatchReady(s, &firstAttempt)
+			s.signalReady()
 			return
 		}
-		stream, err := s.watcher.Watch(ctx, permit, resourceVersion)
-		if firstAttempt {
-			signalWatchReady(s, &firstAttempt)
-		}
-		if err == nil && stream != nil {
-			err = s.consume(ctx, stream, &resourceVersion)
-			stream.Stop()
-		} else if err == nil {
-			err = errors.New("metadata watcher returned no stream")
+
+		establishment, watchContext := newWatchEstablishment(ctx, s.establishmentTimeout, s.signalReady)
+		stream, err := s.watcher.Watch(watchContext, permit, resourceVersion)
+		timedOut, cancelTransport := establishment.settle()
+		if timedOut {
+			s.markRecoveryPending()
+			if err == nil {
+				err = context.DeadlineExceeded
+			}
 		}
 		if apierrors.IsForbidden(err) {
 			recordWatchForbidden(ctx, permit)
 		}
+
+		if err == nil && stream != nil && !timedOut {
+			s.signalReady()
+			if ctx.Err() != nil || !s.registry.supervisorCurrent(s) {
+				if cancelTransport != nil {
+					cancelTransport()
+				}
+				stream.Stop()
+				return
+			}
+			if s.takeRecoveryPending() {
+				s.registry.routeEvent(s.address)
+			}
+			err = s.consume(ctx, stream, &resourceVersion)
+			if cancelTransport != nil {
+				cancelTransport()
+			}
+			stream.Stop()
+			s.markRecoveryPending()
+		} else {
+			if cancelTransport != nil {
+				cancelTransport()
+			}
+			s.signalReady()
+			if stream != nil {
+				stream.Stop()
+			}
+			if err == nil {
+				err = errors.New("metadata watcher returned no stream")
+			}
+			s.markRecoveryPending()
+		}
+
 		if ctx.Err() != nil {
 			return
 		}
-		// A closed or failed WATCH can mean that the observed type was
-		// removed (for example, a fixture CRD deletion).  Reconcile every
-		// current owner immediately so the status reflects the unavailable
-		// source instead of waiting for the periodic safety interval.
-		s.registry.routeEvent(s.address)
+		if err != nil {
+			s.registry.routeEvent(s.address)
+		}
 		if isExpiredWatchError(err) {
 			resourceVersion = ""
 		}
@@ -895,18 +1146,22 @@ func classifyWatchReason(err error) observability.Reason {
 	return observability.ReasonReadUnavailable
 }
 
-func signalWatchReady(s *watchSupervisor, firstAttempt *bool) {
-	if s == nil || firstAttempt == nil || !*firstAttempt {
+func (s *watchSupervisor) signalReady() {
+	if s == nil {
 		return
 	}
 	s.mu.Lock()
+	if !s.firstAttempt {
+		s.mu.Unlock()
+		return
+	}
+	s.firstAttempt = false
 	ready := s.ready
 	s.ready = nil
 	s.mu.Unlock()
 	if ready != nil {
 		close(ready)
 	}
-	*firstAttempt = false
 }
 
 func recordWatchForbidden(ctx context.Context, permit WatchPermit) {

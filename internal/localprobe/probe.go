@@ -43,15 +43,20 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/selection"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	admissionregistrationv1 "k8s.io/client-go/kubernetes/typed/admissionregistration/v1"
+	discoveryclient "k8s.io/client-go/kubernetes/typed/discovery/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
@@ -91,6 +96,7 @@ type Config struct {
 	StateDir    string
 	Metadata    string
 	Kubeconfig  string
+	ClusterName string
 	Context     string
 	Timeout     time.Duration
 	Catalog     string
@@ -116,10 +122,13 @@ type IdentityReport struct {
 }
 
 // LoadMetadata parses metadata as data, not executable shell input.
-func LoadMetadata(path string) (Metadata, error) {
+func LoadMetadata(path, expectedClusterName, expectedContext string) (Metadata, error) {
 	var metadata Metadata
 	if path == "" || !filepath.IsAbs(path) {
 		return metadata, errors.New("metadata path must be absolute")
+	}
+	if len(validation.IsDNS1123Label(expectedClusterName)) != 0 || expectedContext != "kind-"+expectedClusterName {
+		return metadata, errors.New("configured cluster/context identity is invalid")
 	}
 	contents, err := os.ReadFile(path)
 	if err != nil {
@@ -160,8 +169,8 @@ func LoadMetadata(path string) (Metadata, error) {
 	if metadata.SchemaVersion != "1" || (metadata.State != "creating" && metadata.State != "owned") {
 		return Metadata{}, errors.New("unsupported ownership metadata schema or state")
 	}
-	if metadata.ClusterName != ClusterName || metadata.Context != ContextName || metadata.Namespace != Namespace || metadata.Release != Release {
-		return Metadata{}, errors.New("ownership metadata identity does not match kubeseer-local")
+	if metadata.ClusterName != expectedClusterName || metadata.Context != expectedContext || metadata.Namespace != Namespace || metadata.Release != Release {
+		return Metadata{}, errors.New("ownership metadata identity does not match expected cluster/context")
 	}
 	if !filepath.IsAbs(metadata.Kubeconfig) {
 		return Metadata{}, errors.New("metadata kubeconfig must be absolute")
@@ -195,17 +204,88 @@ func validHex(value string, minLength, maxLength int) bool {
 }
 
 type clients struct {
-	core      kubernetes.Interface
-	dynamic   dynamic.Interface
-	apiExt    apiextensionsclient.Interface
-	admission admissionregistrationv1.AdmissionregistrationV1Interface
-	config    *rest.Config
-	metadata  Metadata
-	identity  IdentityReport
+	core             kubernetes.Interface
+	dynamic          dynamic.Interface
+	apiExt           apiextensionsclient.Interface
+	admission        admissionregistrationv1.AdmissionregistrationV1Interface
+	webhookEndpoints *EndpointSliceObserver
+	config           *rest.Config
+	metadata         Metadata
+	identity         IdentityReport
+}
+
+// EndpointSliceObserver reads the ready backend count for one Service through
+// the stable discovery/v1 API. The namespace is fixed when the observer is
+// constructed so every invocation remains namespace-scoped and read-only.
+type EndpointSliceObserver struct {
+	endpointSlices discoveryclient.EndpointSliceInterface
+	namespace      string
+	serviceName    string
+}
+
+// NewEndpointSliceObserver constructs the production webhook backend
+// observer. The caller provides the typed discovery client and the exact
+// namespace/Service identity; no EndpointSlice name is inferred.
+func NewEndpointSliceObserver(client discoveryclient.DiscoveryV1Interface, namespace, serviceName string) (*EndpointSliceObserver, error) {
+	if client == nil {
+		return nil, errors.New("EndpointSlice discovery client is required")
+	}
+	if strings.TrimSpace(namespace) == "" || namespace != strings.TrimSpace(namespace) {
+		return nil, errors.New("EndpointSlice namespace must be non-empty")
+	}
+	if strings.TrimSpace(serviceName) == "" || serviceName != strings.TrimSpace(serviceName) {
+		return nil, errors.New("EndpointSlice Service name must be non-empty")
+	}
+	if _, err := endpointSliceServiceSelector(serviceName); err != nil {
+		return nil, err
+	}
+	return &EndpointSliceObserver{
+		endpointSlices: client.EndpointSlices(namespace),
+		namespace:      namespace,
+		serviceName:    serviceName,
+	}, nil
+}
+
+func endpointSliceServiceSelector(serviceName string) (string, error) {
+	requirement, err := labels.NewRequirement(discoveryv1.LabelServiceName, selection.Equals, []string{serviceName})
+	if err != nil {
+		return "", fmt.Errorf("build EndpointSlice Service selector for %q: %w", serviceName, err)
+	}
+	return labels.NewSelector().Add(*requirement).String(), nil
+}
+
+// ReadyEndpointCount lists every EndpointSlice selected by the Service-name
+// label and aggregates endpoint entries across all returned slices. An
+// absent ready condition is treated as ready by the discovery/v1 contract;
+// only an explicit false condition is excluded.
+func (o *EndpointSliceObserver) ReadyEndpointCount(ctx context.Context) (int, error) {
+	if o == nil || o.endpointSlices == nil {
+		return 0, errors.New("EndpointSlice observer is not configured")
+	}
+	selector, err := endpointSliceServiceSelector(o.serviceName)
+	if err != nil {
+		return 0, err
+	}
+	slices, err := o.endpointSlices.List(ctx, metav1.ListOptions{LabelSelector: selector})
+	if err != nil {
+		return 0, fmt.Errorf("webhook Service %s/%s EndpointSlice list unavailable: %w", o.namespace, o.serviceName, err)
+	}
+	ready := 0
+	for _, endpointSlice := range slices.Items {
+		for _, endpoint := range endpointSlice.Endpoints {
+			if endpoint.Conditions.Ready == nil || *endpoint.Conditions.Ready {
+				ready++
+			}
+		}
+	}
+	if ready == 0 {
+		return 0, fmt.Errorf("webhook Service %s/%s has no ready EndpointSlice endpoints", o.namespace, o.serviceName)
+	}
+	return ready, nil
 }
 
 func newClients(ctx context.Context, cfg Config) (*clients, error) {
-	metadata, err := LoadMetadata(cfg.Metadata)
+	metadata, err := LoadMetadata(cfg.Metadata, cfg.ClusterName, cfg.Context)
 	if err != nil {
 		return nil, err
 	}
@@ -253,7 +333,11 @@ func newClients(ctx context.Context, cfg Config) (*clients, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &clients{core: core, dynamic: dynamicClient, apiExt: apiExt, admission: core.AdmissionregistrationV1(), config: restConfig, metadata: metadata}, nil
+	webhookEndpoints, err := NewEndpointSliceObserver(core.DiscoveryV1(), metadata.Namespace, metadata.Release+"-webhook")
+	if err != nil {
+		return nil, fmt.Errorf("configure webhook EndpointSlice observer: %w", err)
+	}
+	return &clients{core: core, dynamic: dynamicClient, apiExt: apiExt, admission: core.AdmissionregistrationV1(), webhookEndpoints: webhookEndpoints, config: restConfig, metadata: metadata}, nil
 }
 
 func isLoopback(host string) bool {
@@ -354,16 +438,11 @@ func (c *clients) readinessOnce(ctx context.Context, report *readinessReport) er
 	if report.WebhookCABundles == 0 {
 		return errors.New("awaited at least one validating-webhook CA bundle")
 	}
-	endpoints, err := c.core.CoreV1().Endpoints(c.metadata.Namespace).Get(ctx, c.metadata.Release+"-webhook", metav1.GetOptions{})
+	readyEndpoints, err := c.webhookEndpoints.ReadyEndpointCount(ctx)
 	if err != nil {
-		return fmt.Errorf("awaited webhook Service endpoints: %w", err)
+		return fmt.Errorf("awaited webhook Service EndpointSlice readiness: %w", err)
 	}
-	for _, subset := range endpoints.Subsets {
-		report.WebhookEndpoints += len(subset.Addresses)
-	}
-	if report.WebhookEndpoints == 0 {
-		return errors.New("awaited webhook Service to have a reachable endpoint")
-	}
+	report.WebhookEndpoints = readyEndpoints
 	policy, err := c.dynamic.Resource(schema.GroupVersionResource{Group: "kubeseer.io", Version: "v1alpha1", Resource: "kubeseeraccesspolicies"}).Get(ctx, PolicyName, metav1.GetOptions{})
 	if err != nil || policy.GetName() != PolicyName {
 		return errors.New("awaited installation-access-ceiling policy")
@@ -401,15 +480,22 @@ func Readiness(ctx context.Context, cfg Config) (map[string]any, error) {
 	waitCtx, cancel := context.WithTimeout(ctx, deadline)
 	defer cancel()
 	report := &readinessReport{}
+	var lastErr error
 	err = wait.PollUntilContextTimeout(waitCtx, 500*time.Millisecond, deadline, true, func(pollCtx context.Context) (bool, error) {
-		err := c.readinessOnce(pollCtx, report)
-		if err != nil {
+		attempt := &readinessReport{}
+		attemptErr := c.readinessOnce(pollCtx, attempt)
+		if attemptErr != nil {
+			lastErr = attemptErr
 			return false, nil
 		}
+		*report = *attempt
 		return true, nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("readiness timeout; awaited package predicate: %w", err)
+		if lastErr == nil {
+			lastErr = err
+		}
+		return nil, fmt.Errorf("readiness timeout; awaited package predicate: %w", lastErr)
 	}
 	return map[string]any{"phase": "readiness", "status": "passed", "report": report}, nil
 }
@@ -451,6 +537,13 @@ func Status(ctx context.Context, cfg Config) (map[string]any, error) {
 	} else if getErr != nil {
 		policyStatus["reason"] = stableError(getErr)
 	}
+	webhookStatus := map[string]any{"status": "unavailable", "endpoints": 0}
+	if endpoints, endpointErr := c.webhookEndpoints.ReadyEndpointCount(ctx); endpointErr == nil {
+		webhookStatus["status"] = "ready"
+		webhookStatus["endpoints"] = endpoints
+	} else {
+		webhookStatus["reason"] = stableError(endpointErr)
+	}
 	exampleStatus := map[string]any{"catalog": cfg.Catalog, "observed": []string{}}
 	if names, catalogErr := loadCatalog(cfg.Catalog); catalogErr == nil {
 		observed := []string{}
@@ -464,7 +557,7 @@ func Status(ctx context.Context, cfg Config) (map[string]any, error) {
 		exampleStatus["catalog"] = names
 		exampleStatus["observed"] = observed
 	}
-	result := map[string]any{"cluster": identity, "package": packageStatus, "manager": managerStatus, "policy": policyStatus, "examples": exampleStatus}
+	result := map[string]any{"cluster": identity, "package": packageStatus, "manager": managerStatus, "webhook": webhookStatus, "policy": policyStatus, "examples": exampleStatus}
 	return result, nil
 }
 
@@ -655,7 +748,7 @@ func publicExampleOutcome(name string, object unstructured.Unstructured) bool {
 					return false
 				}
 			}
-			if name == "typed-extraction" && !resourceHasIntegerField(resources[0], "replicas", 2) {
+			if name == "typed-extraction" && !resourceHasTimestampField(resources[0], "createdAt") {
 				return false
 			}
 			if name == "builtin-resource" && !resourceHasIntegerField(resources[0], "replicas", 1) {
@@ -711,6 +804,42 @@ func resourceHasIntegerField(raw any, wantedName string, wantedValue int64) bool
 		value, valueOK, _ := unstructured.NestedInt64(match, "integerValue")
 		state, stateOK, _ := unstructured.NestedString(match, "state")
 		if valueOK && stateOK && state == "value" && value == wantedValue {
+			return true
+		}
+	}
+	return false
+}
+
+func resourceHasTimestampField(raw any, wantedName string) bool {
+	resource, ok := raw.(map[string]any)
+	if !ok {
+		return false
+	}
+	fields, ok, _ := unstructured.NestedSlice(resource, "fields")
+	if !ok {
+		return false
+	}
+	for _, rawField := range fields {
+		field, ok := rawField.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, nameOK, _ := unstructured.NestedString(field, "name")
+		typeName, typeOK, _ := unstructured.NestedString(field, "type")
+		matches, matchesOK, _ := unstructured.NestedSlice(field, "matches")
+		if !nameOK || !typeOK || name != wantedName || typeName != "timestamp" || !matchesOK || len(matches) == 0 {
+			continue
+		}
+		match, matchOK := matches[0].(map[string]any)
+		if !matchOK {
+			continue
+		}
+		value, valueOK, _ := unstructured.NestedString(match, "timestampValue")
+		state, stateOK, _ := unstructured.NestedString(match, "state")
+		if !valueOK || !stateOK || state != "value" {
+			continue
+		}
+		if _, err := time.Parse(time.RFC3339Nano, value); err == nil {
 			return true
 		}
 	}
@@ -824,12 +953,8 @@ func (c *clients) readinessProjection(ctx context.Context) map[string]any {
 		}
 		webhookStatus["caBundles"] = caBundles
 	}
-	if endpoints, err := c.core.CoreV1().Endpoints(c.metadata.Namespace).Get(ctx, c.metadata.Release+"-webhook", metav1.GetOptions{}); err == nil {
-		addresses := 0
-		for _, subset := range endpoints.Subsets {
-			addresses += len(subset.Addresses)
-		}
-		webhookStatus["endpoints"] = addresses
+	if endpoints, err := c.webhookEndpoints.ReadyEndpointCount(ctx); err == nil {
+		webhookStatus["endpoints"] = endpoints
 	}
 	return result
 }
@@ -928,7 +1053,7 @@ func Diagnostics(ctx context.Context, cfg Config) (string, error) {
 		completed = append(completed, name)
 		return nil
 	}
-	metadata, metadataErr := LoadMetadata(cfg.Metadata)
+	metadata, metadataErr := LoadMetadata(cfg.Metadata, cfg.ClusterName, cfg.Context)
 	if metadataErr != nil {
 		return "", metadataErr
 	}

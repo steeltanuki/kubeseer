@@ -114,7 +114,7 @@ func assertReconciliationRuntimeWatchRoutingScenarios(t *testing.T, ctx context.
 		if got := routeA.Binding(); got.SourceID != namespacedSourceA.ID || got.Address.Namespace != "team-a" || got.Address.Scope != discovery.ScopeNamespaced {
 			t.Fatalf("owner A route binding = %#v", got)
 		}
-		if err := registry.Replace(leaseA, []reconciliation.AuthorizedRoute{routeA}); err != nil {
+		if err := registry.Replace(context.Background(), leaseA, []reconciliation.AuthorizedRoute{routeA}); err != nil {
 			t.Fatalf("replace owner A routes: %v", err)
 		}
 		waitForRuntimeWatchCondition(t, func() bool { return len(watcher.Calls()) >= 1 })
@@ -138,7 +138,7 @@ func assertReconciliationRuntimeWatchRoutingScenarios(t *testing.T, ctx context.
 		if err != nil {
 			t.Fatalf("authorize owner B route: %v", err)
 		}
-		if err := registry.Replace(leaseB, []reconciliation.AuthorizedRoute{routeB}); err != nil {
+		if err := registry.Replace(context.Background(), leaseB, []reconciliation.AuthorizedRoute{routeB}); err != nil {
 			t.Fatalf("replace owner B routes: %v", err)
 		}
 		if registry.WatchCount() != 1 || registry.BindingCount(ownerB) != 1 {
@@ -208,7 +208,7 @@ func assertReconciliationRuntimeWatchRoutingScenarios(t *testing.T, ctx context.
 		if err != nil {
 			t.Fatalf("authorize updated cluster route: %v", err)
 		}
-		if err := registry.Replace(leaseA2, []reconciliation.AuthorizedRoute{clusterRoute}); err != nil {
+		if err := registry.Replace(context.Background(), leaseA2, []reconciliation.AuthorizedRoute{clusterRoute}); err != nil {
 			t.Fatalf("replace stale owner A route: %v", err)
 		}
 		if registry.BindingCount(ownerA) != 1 || len(registry.Owners(wantAddress)) != 1 || registry.Owners(wantAddress)[0] != ownerB {
@@ -252,7 +252,7 @@ func assertReconciliationRuntimeWatchRoutingScenarios(t *testing.T, ctx context.
 		if err != nil {
 			t.Fatalf("authorize restart route: %v", err)
 		}
-		if err := registry.Replace(lease, []reconciliation.AuthorizedRoute{route}); err != nil {
+		if err := registry.Replace(context.Background(), lease, []reconciliation.AuthorizedRoute{route}); err != nil {
 			t.Fatalf("replace restart route: %v", err)
 		}
 		waitForRuntimeWatchCondition(t, func() bool { return len(watcher.Calls()) >= 1 })
@@ -326,7 +326,7 @@ func assertReconciliationRuntimeWatchRoutingScenarios(t *testing.T, ctx context.
 				release()
 				t.Fatalf("authorize metadata adapter route: %v", err)
 			}
-			if err := registry.Replace(lease, []reconciliation.AuthorizedRoute{route}); err != nil {
+			if err := registry.Replace(context.Background(), lease, []reconciliation.AuthorizedRoute{route}); err != nil {
 				release()
 				t.Fatalf("replace metadata adapter route: %v", err)
 			}

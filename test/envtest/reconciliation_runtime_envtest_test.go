@@ -32,6 +32,7 @@ import (
 	"github.com/steeltanuki/kubeseer/internal/authorization"
 	discoveryruntime "github.com/steeltanuki/kubeseer/internal/discovery"
 	"github.com/steeltanuki/kubeseer/internal/limits"
+	"github.com/steeltanuki/kubeseer/internal/observability"
 	"github.com/steeltanuki/kubeseer/internal/operators"
 	"github.com/steeltanuki/kubeseer/internal/reconciliation"
 	"github.com/steeltanuki/kubeseer/internal/selection"
@@ -44,6 +45,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	k8sdiscovery "k8s.io/client-go/discovery"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/metadata"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/workqueue"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlmanager "sigs.k8s.io/controller-runtime/pkg/manager"
@@ -128,7 +133,8 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 		t.Fatalf("create controller-runtime manager: %v", err)
 	}
 	managerWorkerLimit := 2
-	managerProfile, err := limits.Resolve(limits.Overrides{MaxConcurrentReconciles: &managerWorkerLimit})
+	startupTimeout := 2 * time.Second
+	managerProfile, err := limits.Resolve(limits.Overrides{MaxConcurrentReconciles: &managerWorkerLimit, EvaluationTimeout: &startupTimeout})
 	if err != nil {
 		t.Fatalf("resolve manager performance profile: %v", err)
 	}
@@ -161,6 +167,7 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	busyKey := types.NamespacedName{Namespace: namespace, Name: "runtime-busy"}
 	freeKey := types.NamespacedName{Namespace: namespace, Name: "runtime-free"}
 	deterministicKey := types.NamespacedName{Namespace: namespace, Name: "runtime-deterministic"}
+	budgetKey := types.NamespacedName{Namespace: namespace, Name: "runtime-budget-rejection"}
 	operatorKey := types.NamespacedName{Namespace: namespace, Name: "runtime-operators"}
 	operatorInvalidKey := types.NamespacedName{Namespace: namespace, Name: "runtime-operators-invalid"}
 	operatorFailureKey := types.NamespacedName{Namespace: namespace, Name: "runtime-operators-failure"}
@@ -181,7 +188,7 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	policy := runtimeEnvtestPolicy(namespace)
 	environment.AddCleanup("delete reconciliation runtime fixtures", func(ctx context.Context) error {
 		var cleanupErr error
-		for _, key := range []types.NamespacedName{existingKey, fanoutKey, newKey, watchKey, watchPeerKey, statusKey, observabilityKey, allFailedKey, emptyKey, adapterKey, busyKey, freeKey, deterministicKey, operatorKey, operatorInvalidKey, operatorFailureKey, operatorSiblingKey, aggregationKey} {
+		for _, key := range []types.NamespacedName{existingKey, fanoutKey, newKey, watchKey, watchPeerKey, statusKey, observabilityKey, allFailedKey, emptyKey, adapterKey, busyKey, freeKey, deterministicKey, budgetKey, operatorKey, operatorInvalidKey, operatorFailureKey, operatorSiblingKey, aggregationKey} {
 			object := &v1alpha1.Kubeseer{}
 			err := apiClient.Get(ctx, key, object)
 			if apierrors.IsNotFound(err) {
@@ -817,7 +824,23 @@ func TestEnvtestReconciliationRuntime(t *testing.T) {
 	}
 
 	stopAndWaitManager()
+	t.Run("WatchStartupProfileWiring", func(t *testing.T) {
+		if got := managerProfile.EvaluationTimeout(); got != startupTimeout {
+			t.Fatalf("manager startup timeout = %s, want configured %s", got, startupTimeout)
+		}
+		if requestRecorder.WatchRequestCount() == 0 {
+			t.Fatal("manager profile wiring did not exercise a production metadata WATCH")
+		}
+		if err := WaitFor(ctx, time.Second, func(context.Context) (bool, error) {
+			return requestRecorder.ActiveWatches() == 0, nil
+		}); err != nil {
+			t.Fatalf("cooperative WATCH transports remained active after manager shutdown: %v", err)
+		}
+	})
 	runPerformanceLimitsEnvtestStatusScenario(t, ctx, apiClient, namespace, statusKey, requestRecorder)
+	t.Run("BudgetRejectionPersistence", func(t *testing.T) {
+		runBudgetRejectionPersistenceScenario(t, ctx, config, apiClient, namespace, budgetKey, requestRecorder)
+	})
 	runRuntimeEnvtestAdapterScenarios(t, ctx, apiClient, clients, namespace, adapterKey, busyKey, freeKey, deterministicKey, emptyKey)
 
 	t.Log("API_CONTRACT=authorization-enforcement STATUS=passed")
@@ -934,6 +957,359 @@ func runPerformanceLimitsEnvtestStatusScenario(t *testing.T, ctx context.Context
 	}
 	t.Log("MODULE_INTEGRATION=performance-and-limits-deadline-status STATUS=passed")
 	t.Log("API_CONTRACT=performance-and-limits-status STATUS=passed")
+}
+
+func runBudgetRejectionPersistenceScenario(t *testing.T, ctx context.Context, config *rest.Config, apiClient crclient.Client, namespace string, key types.NamespacedName, requestRecorder *runtimeObservedRequestRecorder) {
+	t.Helper()
+	if requestRecorder != nil {
+		requestRecorder.Reset()
+	}
+	store := reconciliation.NewClientKubeseerStore(apiClient)
+	source := runtimeEnvtestPodSource("budget-persist-source", true)
+	object := runtimeEnvtestKubeseer(key, source)
+	if err := apiClient.Create(ctx, object); err != nil {
+		t.Fatalf("create budget persistence Kubeseer: %v", err)
+	}
+	current := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, key, current); err != nil {
+		t.Fatalf("read budget persistence Kubeseer: %v", err)
+	}
+	result := v1alpha1.KubeseerResult{Sources: []v1alpha1.KubeseerSourceResult{{ID: source.ID, State: v1alpha1.SourceStateValues}}}
+	success := envtestStatusEvaluation(result)
+	acquire := func(candidate *v1alpha1.Kubeseer, tracker *reconciliation.FreshnessTracker) (reconciliation.Lease, context.Context, func()) {
+		tracker.Observe(candidate)
+		lease, leaseCtx, release, err := tracker.Acquire(ctx, key, candidate.UID, candidate.Generation)
+		if err != nil {
+			t.Fatalf("acquire budget persistence lease: %v", err)
+		}
+		return lease, leaseCtx, release
+	}
+
+	initialTracker := reconciliation.NewFreshnessTracker()
+	initialLease, initialCtx, initialRelease := acquire(current, initialTracker)
+	if err := reconciliation.NewStatusPublisher(store, reconciliation.NewClientStatusWriter(apiClient.Status()), initialTracker).Publish(initialCtx, initialLease, success); err != nil {
+		initialRelease()
+		t.Fatalf("publish initial budget persistence result: %v", err)
+	}
+	initialRelease()
+	persisted := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, key, persisted); err != nil {
+		t.Fatalf("read initial budget persistence result: %v", err)
+	}
+	assertRuntimeStatusSnapshot(t, persisted, persisted.Generation, true)
+
+	rejection := statuscontract.Evaluation{ConfigurationBudgetExceeded: true}
+	for _, test := range []struct {
+		name       string
+		err        error
+		wantRetry  bool
+		wantReason reconciliation.FailureReason
+	}{
+		{name: "conflict", wantRetry: true, wantReason: reconciliation.ReasonStatusConflict},
+		{name: "transient", err: apierrors.NewServiceUnavailable("status API unavailable"), wantRetry: true, wantReason: reconciliation.ReasonStatusUnavailable},
+		{name: "forbidden", err: apierrors.NewForbidden(schema.GroupResource{Group: "kubeseer.io", Resource: "kubeseers"}, key.Name, errors.New("status RBAC denied")), wantRetry: false, wantReason: reconciliation.ReasonStatusUnavailable},
+	} {
+		t.Run("failed "+test.name+" write preserves the old result", func(t *testing.T) {
+			candidate := &v1alpha1.Kubeseer{}
+			if err := apiClient.Get(ctx, key, candidate); err != nil {
+				t.Fatalf("read candidate before %s write: %v", test.name, err)
+			}
+			tracker := reconciliation.NewFreshnessTracker()
+			lease, leaseCtx, release := acquire(candidate, tracker)
+			var writer reconciliation.StatusWriter
+			if test.name == "conflict" {
+				writer = &runtimeEnvtestConflictStatusWriter{delegate: reconciliation.NewClientStatusWriter(apiClient.Status()), client: apiClient, key: key}
+			} else {
+				writer = &budgetEnvtestStatusWriter{delegate: reconciliation.NewClientStatusWriter(apiClient.Status()), err: test.err}
+			}
+			err := reconciliation.NewStatusPublisher(store, writer, tracker).Publish(leaseCtx, lease, rejection)
+			release()
+			if err == nil || reconciliation.IsRetryable(err) != test.wantRetry {
+				t.Fatalf("%s write error = %v retryable=%t, want retryable=%t", test.name, err, reconciliation.IsRetryable(err), test.wantRetry)
+			}
+			var runtimeErr *reconciliation.RuntimeError
+			if !errors.As(err, &runtimeErr) || runtimeErr.Reason != test.wantReason {
+				t.Fatalf("%s write error = %v, want sanitized reason %s", test.name, err, test.wantReason)
+			}
+			calls := 1
+			if counted, ok := writer.(interface{ Calls() int }); ok {
+				calls = counted.Calls()
+			}
+			if calls != 1 {
+				t.Fatalf("%s writer calls = %d, want one attempted write", test.name, calls)
+			}
+			unchanged := &v1alpha1.Kubeseer{}
+			if err := apiClient.Get(ctx, key, unchanged); err != nil {
+				t.Fatalf("read status after failed %s write: %v", test.name, err)
+			}
+			if unchanged.Status.Result == nil || len(unchanged.Status.Result.Sources) != 1 || unchanged.Status.Result.Sources[0].ID != source.ID {
+				t.Fatalf("failed %s write removed or changed prior result: %#v", test.name, unchanged.Status)
+			}
+			if strings.Contains(err.Error(), "removed") || strings.Contains(err.Error(), "secret") {
+				t.Fatalf("%s failure claimed removal or leaked sensitive data: %v", test.name, err)
+			}
+		})
+	}
+
+	beforeRejectionWrites := requestRecorder.StatusWrites(key.Name)
+	budgetTracker := reconciliation.NewFreshnessTracker()
+	budgetLease, budgetCtx, budgetRelease := acquire(persisted, budgetTracker)
+	if err := reconciliation.NewStatusPublisher(store, reconciliation.NewClientStatusWriter(apiClient.Status()), budgetTracker).Publish(budgetCtx, budgetLease, rejection); err != nil {
+		budgetRelease()
+		t.Fatalf("publish persisted budget rejection: %v", err)
+	}
+	budgetRelease()
+	rejected := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, key, rejected); err != nil {
+		t.Fatalf("read persisted budget rejection: %v", err)
+	}
+	assertRuntimeStatusSnapshot(t, rejected, rejected.Generation, false)
+	assertRuntimeCondition(t, rejected.Status, statuscontract.ConditionAccepted, metav1.ConditionFalse, statuscontract.ReasonConfigurationBudgetExceeded)
+	assertRuntimeCondition(t, rejected.Status, statuscontract.ConditionAuthorized, metav1.ConditionUnknown, statuscontract.ReasonAuthorizationNotEvaluated)
+	assertRuntimeCondition(t, rejected.Status, statuscontract.ConditionSourcesResolved, metav1.ConditionUnknown, statuscontract.ReasonResolutionNotEvaluated)
+	assertRuntimeCondition(t, rejected.Status, statuscontract.ConditionReady, metav1.ConditionFalse, statuscontract.ReasonConfigurationBudgetExceeded)
+	assertRuntimeCondition(t, rejected.Status, statuscontract.ConditionDegraded, metav1.ConditionTrue, statuscontract.ReasonEvaluationUnavailable)
+	if requestRecorder.StatusWrites(key.Name) != beforeRejectionWrites+1 {
+		t.Fatalf("budget rejection status writes = %d, want %d", requestRecorder.StatusWrites(key.Name), beforeRejectionWrites+1)
+	}
+	for _, condition := range rejected.Status.Conditions {
+		if strings.Contains(condition.Message, "secret") || strings.Contains(condition.Message, "selector") || strings.Contains(condition.Message, "jsonpath") {
+			t.Fatalf("budget rejection condition leaked a diagnostic payload: %#v", condition)
+		}
+	}
+
+	repeatWriter := &runtimeEnvtestCountingStatusWriter{delegate: reconciliation.NewClientStatusWriter(apiClient.Status())}
+	repeatTracker := reconciliation.NewFreshnessTracker()
+	repeatLease, repeatCtx, repeatRelease := acquire(rejected, repeatTracker)
+	if err := reconciliation.NewStatusPublisher(store, repeatWriter, repeatTracker).Publish(repeatCtx, repeatLease, rejection); err != nil {
+		repeatRelease()
+		t.Fatalf("repeat persisted budget rejection: %v", err)
+	}
+	repeatRelease()
+	if repeatWriter.Calls() != 0 || requestRecorder.StatusWrites(key.Name) != beforeRejectionWrites+1 {
+		t.Fatalf("equivalent rejection issued a write: adapter calls=%d API writes=%d", repeatWriter.Calls(), requestRecorder.StatusWrites(key.Name))
+	}
+
+	limitedWriter := &runtimeEnvtestCountingStatusWriter{delegate: reconciliation.NewClientStatusWriter(apiClient.Status())}
+	limitedTracker := reconciliation.NewFreshnessTracker()
+	limitedLease, limitedCtx, limitedRelease := acquire(rejected, limitedTracker)
+	limitedErr := reconciliation.NewStatusPublisher(store, limitedWriter, limitedTracker, reconciliation.WithMaxStatusBytes(64)).Publish(limitedCtx, limitedLease, rejection)
+	limitedRelease()
+	var limitedRuntimeErr *reconciliation.RuntimeError
+	if !errors.As(limitedErr, &limitedRuntimeErr) || limitedRuntimeErr.Reason != reconciliation.ReasonStatusLimitInvalid {
+		t.Fatalf("uncontainable budget rejection error = %v, want StatusLimitInvalid", limitedErr)
+	}
+	if limitedWriter.Calls() != 0 || requestRecorder.StatusWrites(key.Name) != beforeRejectionWrites+1 {
+		t.Fatalf("uncontainable rejection attempted a status write: adapter calls=%d API writes=%d", limitedWriter.Calls(), requestRecorder.StatusWrites(key.Name))
+	}
+
+	// A spec edit advances the generation. A denied compliant evaluation must
+	// clear the rejection without restoring the old result, then a successful
+	// evaluation may publish a new result.
+	recoveredSpec := rejected.DeepCopy()
+	recoveredSpec.Spec.Sources[0].ID = "budget-recovered-source"
+	if err := apiClient.Update(ctx, recoveredSpec); err != nil {
+		t.Fatalf("update compliant budget recovery spec: %v", err)
+	}
+	compliant := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, key, compliant); err != nil {
+		t.Fatalf("read compliant budget recovery object: %v", err)
+	}
+	denied := statuscontract.Evaluation{
+		Sources:           []statuscontract.SourceAssessment{{Index: 0, Configuration: statuscontract.ConfigurationAcceptedOutcome, Authorization: statuscontract.AuthorizationDeniedOutcome, Resolution: statuscontract.ResolutionNotEvaluatedOutcome}},
+		ResultUnavailable: true,
+	}
+	deniedTracker := reconciliation.NewFreshnessTracker()
+	deniedLease, deniedCtx, deniedRelease := acquire(compliant, deniedTracker)
+	if err := reconciliation.NewStatusPublisher(store, reconciliation.NewClientStatusWriter(apiClient.Status()), deniedTracker).Publish(deniedCtx, deniedLease, denied); err != nil {
+		deniedRelease()
+		t.Fatalf("publish denied compliant recovery: %v", err)
+	}
+	deniedRelease()
+	deniedPersisted := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, key, deniedPersisted); err != nil {
+		t.Fatalf("read denied compliant recovery: %v", err)
+	}
+	assertRuntimeStatusSnapshot(t, deniedPersisted, deniedPersisted.Generation, false)
+	assertRuntimeCondition(t, deniedPersisted.Status, statuscontract.ConditionAuthorized, metav1.ConditionFalse, statuscontract.ReasonAuthorizationDenied)
+
+	recoveredResult := v1alpha1.KubeseerResult{Sources: []v1alpha1.KubeseerSourceResult{{ID: "budget-recovered-source", State: v1alpha1.SourceStateValues}}}
+	recoveryTracker := reconciliation.NewFreshnessTracker()
+	recoveryLease, recoveryCtx, recoveryRelease := acquire(deniedPersisted, recoveryTracker)
+	if err := reconciliation.NewStatusPublisher(store, reconciliation.NewClientStatusWriter(apiClient.Status()), recoveryTracker).Publish(recoveryCtx, recoveryLease, envtestStatusEvaluation(recoveredResult)); err != nil {
+		recoveryRelease()
+		t.Fatalf("publish successful budget recovery: %v", err)
+	}
+	recoveryRelease()
+	recovered := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, key, recovered); err != nil {
+		t.Fatalf("read successful budget recovery: %v", err)
+	}
+	assertRuntimeStatusSnapshot(t, recovered, recovered.Generation, true)
+	if recovered.Status.Result.Sources[0].ID != "budget-recovered-source" {
+		t.Fatalf("successful recovery result = %#v", recovered.Status.Result)
+	}
+
+	// Tighten the manager profile after a successful result is persisted. The
+	// next manager restart must publish the compact rejection without reading
+	// sources, while a compatible profile restart must evaluate the current
+	// policy and replace it with fresh data.
+	restartSpec := recovered.DeepCopy()
+	restartSpec.Spec.Sources = []v1alpha1.KubeseerSource{
+		runtimeEnvtestPodSource("budget-restart-source-a", false),
+		runtimeEnvtestPodSource("budget-restart-source-b", false),
+	}
+	if err := apiClient.Update(ctx, restartSpec); err != nil {
+		t.Fatalf("tighten budget restart spec: %v", err)
+	}
+
+	newRuntime := func(profile *limits.Profile) (*reconciliation.Runtime, error) {
+		if config == nil {
+			return nil, errors.New("budget restart REST config is nil")
+		}
+		discoveryClient, err := k8sdiscovery.NewDiscoveryClientForConfig(config)
+		if err != nil {
+			return nil, err
+		}
+		dynamicClient, err := dynamic.NewForConfig(config)
+		if err != nil {
+			return nil, err
+		}
+		metadataClient, err := metadata.NewForConfig(config)
+		if err != nil {
+			return nil, err
+		}
+		tracker := reconciliation.NewFreshnessTracker()
+		observer := observability.NewNoop()
+		store := reconciliation.NewClientKubeseerStore(apiClient)
+		routes := reconciliation.NewRouteRegistry(
+			reconciliation.NewClientMetadataWatcher(metadataClient),
+			tracker,
+			reconciliation.WithRouteWatchBackoff(5*time.Millisecond, 40*time.Millisecond),
+			reconciliation.WithMaxActiveWatches(profile.MaxActiveWatches()),
+		)
+		dependencies := reconciliation.Dependencies{
+			Reader:       store,
+			Lister:       store,
+			PolicySource: accesspolicy.NewClientPolicySource(apiClient),
+			Enforcer:     authorization.NewEnforcer(observability.NewAuthorizationRecorder(observer)),
+			Planner: selection.NewPlanner(discoveryruntime.NewResolver(
+				discoveryClient,
+				discoveryruntime.WithCacheTTL(profile.DiscoveryCacheTTL()),
+				discoveryruntime.WithCacheCapacity(profile.DiscoveryCacheEntries()),
+			)),
+			Executor: selection.NewExecutor(
+				selection.NewDynamicResourceLister(dynamicClient, tracker),
+				selection.WithVerifier(tracker),
+				selection.WithLimits(*profile),
+				selection.WithPageObserver(observability.NewPageObserver(observer)),
+			),
+			Routes:          routes,
+			Publisher:       reconciliation.NewStatusPublisher(store, reconciliation.NewClientStatusWriter(apiClient.Status()), tracker, reconciliation.WithMaxStatusBytes(profile.MaxStatusBytes())),
+			BudgetValidator: admission.NewBudgetValidatorFromProfile(*profile),
+			Tracker:         tracker,
+			Observer:        observer,
+		}
+		return reconciliation.NewRuntime(reconciliation.Options{
+			SafetyInterval:     25 * time.Millisecond,
+			WatchBackoffBase:   5 * time.Millisecond,
+			WatchBackoffMax:    40 * time.Millisecond,
+			EnqueueBackoffBase: 5 * time.Millisecond,
+			EnqueueBackoffMax:  40 * time.Millisecond,
+			LimitProfile:       profile,
+		}, dependencies)
+	}
+
+	restrictiveSources := 1
+	restrictiveProfile, err := limits.Resolve(limits.Overrides{Admission: limits.AdmissionOverrides{MaxKubeseerSources: &restrictiveSources}})
+	if err != nil {
+		t.Fatalf("resolve restrictive budget restart profile: %v", err)
+	}
+	requestRecorder.Reset()
+	restrictiveRuntime, err := newRuntime(&restrictiveProfile)
+	if err != nil {
+		t.Fatalf("create restrictive budget restart runtime: %v", err)
+	}
+	if _, err := restrictiveRuntime.Reconcile(ctx, reconcile.Request{NamespacedName: key}); err != nil {
+		var runtimeErr *reconciliation.RuntimeError
+		if !errors.As(err, &runtimeErr) || runtimeErr.Reason != reconciliation.ReasonConfigurationBudgetExceeded {
+			t.Fatalf("restrictive profile runtime rejection: %v", err)
+		}
+	}
+	rejectedAfterRestart := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, key, rejectedAfterRestart); err != nil {
+		t.Fatalf("read restrictive profile rejection: %v", err)
+	}
+	assertRuntimeStatusSnapshot(t, rejectedAfterRestart, rejectedAfterRestart.Generation, false)
+	assertRuntimeCondition(t, rejectedAfterRestart.Status, statuscontract.ConditionReady, metav1.ConditionFalse, statuscontract.ReasonConfigurationBudgetExceeded)
+
+	compatibleSources := 2
+	compatibleProfile, err := limits.Resolve(limits.Overrides{Admission: limits.AdmissionOverrides{MaxKubeseerSources: &compatibleSources}})
+	if err != nil {
+		t.Fatalf("resolve compatible budget restart profile: %v", err)
+	}
+	requestRecorder.Reset()
+	compatibleRuntime, err := newRuntime(&compatibleProfile)
+	if err != nil {
+		t.Fatalf("create compatible budget restart runtime: %v", err)
+	}
+	if _, err := compatibleRuntime.Reconcile(ctx, reconcile.Request{NamespacedName: key}); err != nil {
+		t.Fatalf("compatible profile runtime recovery: %v", err)
+	}
+	restarted := &v1alpha1.Kubeseer{}
+	if err := apiClient.Get(ctx, key, restarted); err != nil {
+		t.Fatalf("read compatible profile recovery: %v", err)
+	}
+	assertRuntimeStatusSnapshot(t, restarted, restarted.Generation, true)
+	if len(restarted.Status.Result.Sources) != 2 || restarted.Status.Result.Sources[0].ID != "budget-restart-source-a" || restarted.Status.Result.Sources[1].ID != "budget-restart-source-b" {
+		t.Fatalf("compatible profile recovery result = %#v", restarted.Status.Result)
+	}
+
+	for _, test := range []struct {
+		name   string
+		mutate func(*reconciliation.FreshnessTracker, *v1alpha1.Kubeseer)
+	}{
+		{name: "uid", mutate: func(tracker *reconciliation.FreshnessTracker, candidate *v1alpha1.Kubeseer) {
+			newer := candidate.DeepCopy()
+			newer.UID = types.UID("different-budget-uid")
+			tracker.Observe(newer)
+		}},
+		{name: "generation", mutate: func(tracker *reconciliation.FreshnessTracker, candidate *v1alpha1.Kubeseer) {
+			newer := candidate.DeepCopy()
+			newer.Generation++
+			tracker.Observe(newer)
+		}},
+		{name: "deletion", mutate: func(tracker *reconciliation.FreshnessTracker, candidate *v1alpha1.Kubeseer) {
+			newer := candidate.DeepCopy()
+			newer.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+			tracker.Observe(newer)
+		}},
+		{name: "policy epoch", mutate: func(tracker *reconciliation.FreshnessTracker, _ *v1alpha1.Kubeseer) {
+			tracker.InvalidateAll()
+		}},
+	} {
+		t.Run("stale "+test.name+" suppresses write", func(t *testing.T) {
+			candidate := &v1alpha1.Kubeseer{}
+			if err := apiClient.Get(ctx, key, candidate); err != nil {
+				t.Fatalf("read stale candidate: %v", err)
+			}
+			tracker := reconciliation.NewFreshnessTracker()
+			lease, leaseCtx, release := acquire(candidate, tracker)
+			test.mutate(tracker, candidate)
+			writer := &runtimeEnvtestCountingStatusWriter{delegate: reconciliation.NewClientStatusWriter(apiClient.Status())}
+			err := reconciliation.NewStatusPublisher(store, writer, tracker).Publish(leaseCtx, lease, rejection)
+			release()
+			if err == nil || writer.Calls() != 0 {
+				t.Fatalf("stale %s publication = err=%v writes=%d", test.name, err, writer.Calls())
+			}
+		})
+	}
+
+	if requestRecorder != nil {
+		assertRuntimeObservedRequestsAbsent(t, ctx, requestRecorder, 100*time.Millisecond)
+	}
+	t.Log("MODULE_INTEGRATION=configuration-budget-persistence STATUS=passed")
+	t.Log("API_CONTRACT=configuration-budget-status-invalidation STATUS=passed")
 }
 
 func runtimeEnvtestKubeseer(key types.NamespacedName, source v1alpha1.KubeseerSource) *v1alpha1.Kubeseer {
@@ -2376,13 +2752,37 @@ func (a *runtimeEnvtestResourceListerAdapter) List(ctx context.Context, read sel
 
 type runtimeEnvtestRouteManager struct{}
 
-func (*runtimeEnvtestRouteManager) Replace(reconciliation.Lease, []reconciliation.AuthorizedRoute) error {
+func (*runtimeEnvtestRouteManager) Replace(context.Context, reconciliation.Lease, []reconciliation.AuthorizedRoute) error {
 	return nil
 }
 
 func (*runtimeEnvtestRouteManager) RemoveOwner(types.NamespacedName) {}
 
 func (*runtimeEnvtestRouteManager) RemoveAll() {}
+
+type budgetEnvtestStatusWriter struct {
+	delegate reconciliation.StatusWriter
+	err      error
+	mu       sync.Mutex
+	calls    int
+}
+
+func (w *budgetEnvtestStatusWriter) Update(ctx context.Context, object *v1alpha1.Kubeseer) error {
+	w.mu.Lock()
+	w.calls++
+	err := w.err
+	w.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	return w.delegate.Update(ctx, object)
+}
+
+func (w *budgetEnvtestStatusWriter) Calls() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.calls
+}
 
 type runtimeEnvtestCountingStatusWriter struct {
 	delegate reconciliation.StatusWriter

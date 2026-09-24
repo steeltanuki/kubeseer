@@ -122,7 +122,7 @@ Until a command is implemented by an approved task, its absence is expected and 
 
 ## Feature Portfolio And Delivery Order
 
-The canonical feature set is the 18 directories named in `SPECIFICATIONS.md`. The recommended order is:
+The canonical feature set is the 18 baseline directories plus the corrective follow-up features explicitly listed in `SPECIFICATIONS.md`. The recommended baseline order is:
 
 1. Minimum vertical slice: `kubeseer-api-foundation`, `integration-testing-foundation`, `resource-discovery`, `installation-access-policy`, `resource-selection`, `field-extraction`, `typed-output-model`, `reconciliation-runtime`, `status-and-conditions`, `authorization-enforcement`.
 2. Filtering and aggregation: `value-operators`, `cross-namespace-aggregation`, `admission-validation`.

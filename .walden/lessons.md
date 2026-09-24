@@ -219,3 +219,68 @@ Review this file before non-trivial work when the current request matches past m
 - Lesson: A valid proof can fail before reaching its assertion when the runner cannot access Podman runtime state or download uncached Go modules.
 - Guardrail: Before full re-verification, compare environment probes and use the recorded writable caches, network access, and XDG_RUNTIME_DIR needed by the proof.
 
+### 2026-09-03T08:45:54Z | local-development-environment | requirements
+- Trigger: A contributor observed the Kubernetes 1.33+ core/v1 Endpoints deprecation warning during make local-up after the local workflow had been completed
+- Lesson: An API-agnostic webhook reachability requirement allowed the implementation to depend on a deprecated Kubernetes resource across a compatibility matrix where the deprecation warning is expected
+- Guardrail: Require local and E2E webhook readiness observers to use discovery.k8s.io/v1 EndpointSlice and prove that supported workflows do not request core/v1 Endpoints
+
+### 2026-09-03T08:57:38Z | local-development-environment | design
+- Trigger: A read-only memory keyword scan passed Markdown backticks inside a double-quoted shell pattern and attempted command substitution
+- Lesson: A previously recorded shell-safety lesson was reviewed but not enforced while constructing a later search command
+- Guardrail: Use single-quoted rg patterns whenever Markdown backticks are literal and reject double-quoted search patterns containing shell substitution syntax before execution
+
+### 2026-09-03T09:08:04Z | local-development-environment | tasks
+- Trigger: Task-plan non-vacuity review found that make test-local-environment can emit its generic success marker after taking the fake-tool fallback
+- Lesson: A genuine-cluster proof is vacuous when its expected output is shared with a fallback that never contacts the Kubernetes API server
+- Guardrail: Require a genuine-only terminal marker that the fake fallback cannot emit for every proof intended to certify live cluster behavior
+
+### 2026-09-03T10:03:26Z | local-development-environment | execute
+- Trigger: Genuine local acceptance encountered an existing persistently owned kubeseer-local cluster while using an isolated temporary state directory.
+- Lesson: A temporary local acceptance state directory does not isolate the fixed cluster identity from a contributor-owned persistent cluster.
+- Guardrail: Before genuine acceptance, inspect the fixed cluster identity; preserve an existing owned environment and run the proof with an explicit disposable cluster identity when cleanup is not authorized.
+
+### 2026-09-03T10:28:20Z | local-development-environment | execute
+- Trigger: Independent E2E observability scenario read the persistent local cluster because its fixed metrics and readiness port-forwards occupied 18080 and 18081.
+- Lesson: Run-unique Kubernetes identity does not by itself isolate fixed host port-forwards from a persistent local workflow.
+- Guardrail: Before E2E certification, reserve run-owned readiness and metrics ports or verify they are free; never accept a pre-existing listener as the E2E forward.
+
+### 2026-09-10T07:16:17Z | native-scalar-conversion-compatibility | execute
+- Trigger: walden verify encountered Podman profile drift in the sandbox
+- Lesson: API envtest proofs can fail before assertions when the sandbox cannot initialize Podman, even though the same exact proof passes with the recorded runtime.
+- Guardrail: Before re-verifying envtest-backed tasks, compare the recorded environment profile and run the exact proof with the required writable runtime directory and authorized Podman access.
+
+### 2026-09-10T08:45:39Z | configuration-budget-status-invalidation | tasks
+- Trigger: Sandbox envtest could not bind its local control-plane socket, and the route promotion proof exposed a blocking initial Replace fixture.
+- Lesson: Run the exact envtest proof with approved local-socket escalation; keep initial Replace readiness ordering while making RemoveOwner promotion nonblocking, and drive deliberately stalled initial replacements asynchronously in tests.
+- Guardrail: Before completion, rerun every exact Walden proof on the final code, inspect all RouteRegistry promotion callsites, and run the route race proof to catch hidden waits.
+
+### 2026-09-10T11:58:24Z | watch-startup-cancellation | tasks
+- Trigger: envtest ha rilevato WATCH duplicati dopo una risposta di establishment riuscita
+- Lesson: Non cancellare il contesto di trasporto quando la risposta WATCH ha vinto la gara del timer: il contesto figlio deve restare supervisor-owned per tutta la vita dello stream.
+- Guardrail: Separare il timer di establishment dalla cancellazione del trasporto; annullare il trasporto solo su timeout, rimozione dell'ultimo owner o shutdown e mantenere una prova envtest con uno stream attivo.
+
+### 2026-09-23T07:02:25Z | local-cluster-resume | requirements
+- Trigger: EARS validation warned about two state conditions placed after SHALL
+- Lesson: State-limited recovery invariants were phrased as ubiquitous criteria with DURING or WHILE in the response
+- Guardrail: Put WHILE preconditions before SHALL and inspect per-criterion EARS warnings before opening review
+
+### 2026-09-23T07:32:39Z | local-cluster-resume | tasks
+- Trigger: walden validate reported missing R3 task coverage despite R3 acceptance IDs in wrapped Requirements lists
+- Lesson: Task coverage parsing depends on IDs on the same physical Requirements line; wrapped continuation lines can hide valid references.
+- Guardrail: Keep each leaf task Requirements field on one physical line and validate task coverage before review.
+
+### 2026-09-23T08:13:39Z | local-cluster-resume | tasks
+- Trigger: genuine Podman proof showed kind provider diagnostics on stderr were included in the kind node inventory during API identity comparison
+- Lesson: Combining provider stderr with machine-readable node output can fabricate inventory entries and cause false identity conflicts.
+- Guardrail: Capture kind node inventory from stdout only and preserve stderr as diagnostics; exercise identity comparison on a real provider.
+
+### 2026-09-23T08:25:09Z | local-cluster-resume | design
+- Trigger: The approved run-unique genuine resume proof was blocked because cmd/kubeseer-local also hard-coded kubeseer-local and kind-kubeseer-local in its read-only ownership metadata validator
+- Lesson: A private probe can duplicate a fixed project identity constraint and invalidate a run-unique integration contract even when its kubeconfig and context inputs are explicit
+- Guardrail: When an approved genuine harness uses configurable resource identity, include the probe's independently expected identity interface and default, unique, and mismatch assertions in Design before implementation
+
+### 2026-09-23T08:42:46Z | local-cluster-resume | execute
+- Trigger: The genuine Podman run stopped in the harness ownership proof because the inspect template requested HostIp, while Podman reports its host port field as HostIP
+- Lesson: Podman inspect template fields are case-sensitive Go struct fields; Docker-style HostIp is not interchangeable with Podman's HostIP
+- Guardrail: Before using Podman inspect fields in ownership proofs, compare the template with real formatted output from the supported Podman provider and cover that proof with the genuine harness
+

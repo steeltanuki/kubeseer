@@ -16,7 +16,7 @@ include hack/toolchain.mk
 GO_TEST_FLAGS ?=
 KUBEBUILDER_ASSETS ?=
 
-.PHONY: generate manifests package-sync-crds package-crd-check package-apply-crds build build-purge verify verify-package test test-integration test-api test-compatibility test-package-compatibility e2e local-check local-up local-status local-examples local-verify local-diagnostics local-examples-down local-down local-example verify-local-environment test-local-environment
+.PHONY: generate manifests package-sync-crds package-crd-check package-apply-crds build build-purge verify verify-package test test-integration test-api test-compatibility test-package-compatibility test-release-distribution verify-release-source e2e local-check local-up local-status local-examples local-verify local-diagnostics local-examples-down local-down local-example verify-local-environment test-local-environment test-local-cluster-resume
 
 generate:
 	$(CONTROLLER_GEN) object:headerFile=$(DEEP_COPY_HEADER) paths=$(API_PACKAGE)
@@ -39,6 +39,19 @@ verify-package:
 
 test-package-compatibility:
 	./hack/test-package-compatibility.sh
+
+test-release-distribution:
+	SCENARIO="$(SCENARIO)" ./hack/test-release-distribution.sh
+
+verify-release-source:
+	@set -eu; \
+	if [ -z "$(TAG)" ]; then printf '%s\n' 'verify-release-source requires TAG=vMAJOR.MINOR.PATCH' >&2; exit 2; fi; \
+	source_sha="$$(git rev-parse --verify "refs/tags/$(TAG)^{commit}")"; \
+	if [ -n "$(OUTPUT_DIR)" ]; then \
+		./hack/release-distribution.sh stage --tag "$(TAG)" --source-sha "$$source_sha" --output-dir "$(OUTPUT_DIR)"; \
+	else \
+		./hack/release-distribution.sh stage --tag "$(TAG)" --source-sha "$$source_sha"; \
+	fi
 
 package-sync-crds:
 	./hack/package-sync-crds.sh
@@ -133,3 +146,6 @@ verify-local-environment:
 
 test-local-environment:
 	./hack/test-local-environment.sh
+
+test-local-cluster-resume:
+	./hack/test-local-cluster-resume.sh

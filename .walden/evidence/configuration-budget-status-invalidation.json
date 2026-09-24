@@ -1,0 +1,210 @@
+{
+  "schema_version": "v1alpha2",
+  "feature": "configuration-budget-status-invalidation",
+  "tasks": {
+    "1.1": {
+      "task_fingerprint": "sha256:b7b72f8ab7adf896a5cf65686588d1f457fdcad95117f27d4c8d8648e9b8990b",
+      "task_fingerprint_scheme": "walden/task-definition/v2",
+      "execution": {
+        "origin": "verify",
+        "policy": "verify-purity/v1",
+        "assertion_result": "passed",
+        "integrity": "pure",
+        "before_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
+        "after_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6"
+      },
+      "requirements_fingerprint": "sha256:b245d66d600bd2d850e90738a2a638b0286770f20c01c40f2dea4b4823fa7490",
+      "design_fingerprint": "sha256:c7922cf02203430e85a046f14a7061b1796df730f3e1bbcfe95be6a936d7e763",
+      "tasks_fingerprint": "sha256:ec1cde41a6c782901ef7550367bd688ab2fd17f4e8f50246f943e1c8a2861f3d",
+      "code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
+      "profile": {
+        "go": "go version go1.26.8-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.11.0"
+      },
+      "steps": [
+        {
+          "command": [
+            "env",
+            "GOCACHE=/tmp/kubeseer-corrective-go-build",
+            "GOMODCACHE=/tmp/kubeseer-corrective-go-mod",
+            "rtk",
+            "proxy",
+            "go",
+            "test",
+            "-v",
+            "-count=1",
+            "-run",
+            "^TestModuleIntegration$/^BudgetRejectionStatus$",
+            "./test/integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:2c78d967f7ac80bb4e2d82dcef75a1898b092875c89d9c41f0d903cd401545a9"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-09-24T14:48:17Z"
+    },
+    "1.2": {
+      "task_fingerprint": "sha256:4da3492c0f300fe3a54bea258fd31f64ae229bac09cf2366f2e4a274709b44f0",
+      "task_fingerprint_scheme": "walden/task-definition/v2",
+      "execution": {
+        "origin": "verify",
+        "policy": "verify-purity/v1",
+        "assertion_result": "passed",
+        "integrity": "pure",
+        "before_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
+        "after_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6"
+      },
+      "requirements_fingerprint": "sha256:b245d66d600bd2d850e90738a2a638b0286770f20c01c40f2dea4b4823fa7490",
+      "design_fingerprint": "sha256:c7922cf02203430e85a046f14a7061b1796df730f3e1bbcfe95be6a936d7e763",
+      "tasks_fingerprint": "sha256:ec1cde41a6c782901ef7550367bd688ab2fd17f4e8f50246f943e1c8a2861f3d",
+      "code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
+      "profile": {
+        "go": "go version go1.26.8-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.11.0"
+      },
+      "steps": [
+        {
+          "command": [
+            "env",
+            "GOCACHE=/tmp/kubeseer-corrective-go-build",
+            "GOMODCACHE=/tmp/kubeseer-corrective-go-mod",
+            "rtk",
+            "proxy",
+            "go",
+            "test",
+            "-v",
+            "-count=10",
+            "-race",
+            "-run",
+            "^TestModuleIntegration$/^BudgetRejectionRuntime$",
+            "./test/integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:99bb2d9f46410ec4a75d2cc021f01ccd57d3386cea348ef8358fa66d4889e70c"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-09-24T14:48:17Z"
+    },
+    "2.1": {
+      "task_fingerprint": "sha256:af619831a14aed376eee9d0ada2ac9edf0d1e51580ad5e40140d3cbd20b5393d",
+      "task_fingerprint_scheme": "walden/task-definition/v2",
+      "execution": {
+        "origin": "verify",
+        "policy": "verify-purity/v1",
+        "assertion_result": "passed",
+        "integrity": "pure",
+        "before_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
+        "after_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6"
+      },
+      "requirements_fingerprint": "sha256:b245d66d600bd2d850e90738a2a638b0286770f20c01c40f2dea4b4823fa7490",
+      "design_fingerprint": "sha256:c7922cf02203430e85a046f14a7061b1796df730f3e1bbcfe95be6a936d7e763",
+      "tasks_fingerprint": "sha256:ec1cde41a6c782901ef7550367bd688ab2fd17f4e8f50246f943e1c8a2861f3d",
+      "code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
+      "profile": {
+        "go": "go version go1.26.8-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.11.0"
+      },
+      "steps": [
+        {
+          "command": [
+            "env",
+            "GOCACHE=/tmp/kubeseer-corrective-go-build",
+            "GOMODCACHE=/tmp/kubeseer-corrective-go-mod",
+            "rtk",
+            "proxy",
+            "make",
+            "test-api",
+            "GO_TEST_FLAGS=-count=1"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:8e8eb743624f86fb23f60144548d4bb35da84a34fdb1da4afa0ac075882d9341"
+        },
+        {
+          "command": [
+            "env",
+            "GOCACHE=/tmp/kubeseer-corrective-go-build",
+            "GOMODCACHE=/tmp/kubeseer-corrective-go-mod",
+            "rtk",
+            "proxy",
+            "go",
+            "test",
+            "-v",
+            "-count=1",
+            "-run",
+            "^TestModuleIntegration$/^(performance_limits_.*|status_.*)$",
+            "./test/integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:34062ee589b41e4dee053b17b6f55301379811d11739754d889f09d8b6fc9a10"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-09-24T14:48:17Z"
+    },
+    "3.1": {
+      "task_fingerprint": "sha256:a11a482c1a988987f475e28f29e4743bc4aa73f51aee29aa23c7837cfe94dadd",
+      "task_fingerprint_scheme": "walden/task-definition/v2",
+      "execution": {
+        "origin": "verify",
+        "policy": "verify-purity/v1",
+        "assertion_result": "passed",
+        "integrity": "pure",
+        "before_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
+        "after_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6"
+      },
+      "requirements_fingerprint": "sha256:b245d66d600bd2d850e90738a2a638b0286770f20c01c40f2dea4b4823fa7490",
+      "design_fingerprint": "sha256:c7922cf02203430e85a046f14a7061b1796df730f3e1bbcfe95be6a936d7e763",
+      "tasks_fingerprint": "sha256:ec1cde41a6c782901ef7550367bd688ab2fd17f4e8f50246f943e1c8a2861f3d",
+      "code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
+      "profile": {
+        "go": "go version go1.26.8-X:nodwarf5 linux/amd64",
+        "kind": "kind v0.27.0 go1.23.6 linux/amd64",
+        "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
+        "platform": "linux/amd64",
+        "podman": "podman version 5.8.4",
+        "walden": "v0.11.0"
+      },
+      "steps": [
+        {
+          "command": [
+            "env",
+            "GOCACHE=/tmp/kubeseer-corrective-go-build",
+            "GOMODCACHE=/tmp/kubeseer-corrective-go-mod",
+            "rtk",
+            "proxy",
+            "go",
+            "test",
+            "-v",
+            "-count=1",
+            "-run",
+            "^TestModuleIntegration$/^BudgetRejectionDocumentation$",
+            "./test/integration"
+          ],
+          "expected_exit": 0,
+          "actual_exit": 0,
+          "output_digest": "sha256:77541543faf9f873edb6598dc3cbac9d2652a975dcedcb2647c6c36b22b4ecad"
+        }
+      ],
+      "result": "passed",
+      "verified_at": "2026-09-24T14:48:17Z"
+    }
+  }
+}

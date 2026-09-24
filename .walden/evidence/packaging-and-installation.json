@@ -1,20 +1,29 @@
 {
-  "schema_version": "v1alpha1",
+  "schema_version": "v1alpha2",
   "feature": "packaging-and-installation",
   "tasks": {
     "1.1": {
-      "task_fingerprint": "sha256:ffa02dd891801c43c7e9aba446754352082e454cfc57b2dc72ea39ef786a8367",
+      "task_fingerprint": "sha256:ada293ef93dd1468f43b33e267dea5c01342726079c30af5dabb31caa3c96189",
+      "task_fingerprint_scheme": "walden/task-definition/v2",
+      "execution": {
+        "origin": "verify",
+        "policy": "verify-purity/v1",
+        "assertion_result": "passed",
+        "integrity": "pure",
+        "before_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
+        "after_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6"
+      },
       "requirements_fingerprint": "sha256:2c70a2672efedbd212d151c0b2dbaf1efaa069e0598ae5f216504e4962c98084",
       "design_fingerprint": "sha256:1164721abe8248bdb9b119aa7279bfbdb3d05d0e2166c3a55c2fc437dc28f7b0",
       "tasks_fingerprint": "sha256:43a7b4cb41f958e7e05a5cb5a411ca03866945bda7497ce19aedd1d9f1e7ce59",
-      "code_identity": "sha256:47f1f9008f6fdebbb2afda59b7f261b001391586c8a7bb9b8b4622d9d245a630",
+      "code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
       "profile": {
-        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "go": "go version go1.26.8-X:nodwarf5 linux/amd64",
         "kind": "kind v0.27.0 go1.23.6 linux/amd64",
         "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
         "platform": "linux/amd64",
         "podman": "podman version 5.8.4",
-        "walden": "v0.10.1"
+        "walden": "v0.11.0"
       },
       "steps": [
         {
@@ -25,25 +34,34 @@
           ],
           "expected_exit": 0,
           "actual_exit": 0,
-          "output_digest": "sha256:3c7e3bed7bb27e06c611055e37cb782a6ef11787542f1dafade4c4e8a45cd65f"
+          "output_digest": "sha256:54569508f0beba305d931b2392fcc613e0c7e2f2fd72a98920113415ceb7672b"
         }
       ],
       "result": "passed",
-      "verified_at": "2026-09-02T21:44:26Z"
+      "verified_at": "2026-09-24T15:13:38Z"
     },
     "10.1": {
-      "task_fingerprint": "sha256:9dfcb02407321a3858cec90f1f7dd86c4dd3f24df52fc8c01d0415bee44a5e3c",
+      "task_fingerprint": "sha256:51b2cc166daa07c3090c8c5b4aefaf13ff35d9c5682e11da6270f2d99c5c3147",
+      "task_fingerprint_scheme": "walden/task-definition/v2",
+      "execution": {
+        "origin": "verify",
+        "policy": "verify-purity/v1",
+        "assertion_result": "passed",
+        "integrity": "pure",
+        "before_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
+        "after_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6"
+      },
       "requirements_fingerprint": "sha256:2c70a2672efedbd212d151c0b2dbaf1efaa069e0598ae5f216504e4962c98084",
       "design_fingerprint": "sha256:1164721abe8248bdb9b119aa7279bfbdb3d05d0e2166c3a55c2fc437dc28f7b0",
       "tasks_fingerprint": "sha256:43a7b4cb41f958e7e05a5cb5a411ca03866945bda7497ce19aedd1d9f1e7ce59",
-      "code_identity": "sha256:47f1f9008f6fdebbb2afda59b7f261b001391586c8a7bb9b8b4622d9d245a630",
+      "code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
       "profile": {
-        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "go": "go version go1.26.8-X:nodwarf5 linux/amd64",
         "kind": "kind v0.27.0 go1.23.6 linux/amd64",
         "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
         "platform": "linux/amd64",
         "podman": "podman version 5.8.4",
-        "walden": "v0.10.1"
+        "walden": "v0.11.0"
       },
       "steps": [
         {
@@ -53,7 +71,7 @@
           ],
           "expected_exit": 0,
           "actual_exit": 0,
-          "output_digest": "sha256:dcb264ca7fa59ca1c538ac009b28dee1597ae9fa481b00cee3d3b7ecf8521c76"
+          "output_digest": "sha256:2a3672f14084fedeb725437d055fb48caa0b3a4eb1fc4d786339a720b47924c3"
         },
         {
           "command": [
@@ -66,21 +84,30 @@
         }
       ],
       "result": "passed",
-      "verified_at": "2026-09-02T21:44:26Z"
+      "verified_at": "2026-09-24T15:13:38Z"
     },
     "2.1": {
-      "task_fingerprint": "sha256:cbaba140c74823a1d59872960842050fa26d20a298bb9d51d83de1dd0a99e97f",
+      "task_fingerprint": "sha256:b9c5ae5e5f38208f0f923c2b3efb5ea8838500461adeb1edc6f6e46a65e21db9",
+      "task_fingerprint_scheme": "walden/task-definition/v2",
+      "execution": {
+        "origin": "verify",
+        "policy": "verify-purity/v1",
+        "assertion_result": "passed",
+        "integrity": "pure",
+        "before_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
+        "after_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6"
+      },
       "requirements_fingerprint": "sha256:2c70a2672efedbd212d151c0b2dbaf1efaa069e0598ae5f216504e4962c98084",
       "design_fingerprint": "sha256:1164721abe8248bdb9b119aa7279bfbdb3d05d0e2166c3a55c2fc437dc28f7b0",
       "tasks_fingerprint": "sha256:43a7b4cb41f958e7e05a5cb5a411ca03866945bda7497ce19aedd1d9f1e7ce59",
-      "code_identity": "sha256:47f1f9008f6fdebbb2afda59b7f261b001391586c8a7bb9b8b4622d9d245a630",
+      "code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
       "profile": {
-        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "go": "go version go1.26.8-X:nodwarf5 linux/amd64",
         "kind": "kind v0.27.0 go1.23.6 linux/amd64",
         "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
         "platform": "linux/amd64",
         "podman": "podman version 5.8.4",
-        "walden": "v0.10.1"
+        "walden": "v0.11.0"
       },
       "steps": [
         {
@@ -90,25 +117,34 @@
           ],
           "expected_exit": 0,
           "actual_exit": 0,
-          "output_digest": "sha256:e3cba8a775c793bd3e539117d694c49bba6856badc55ae6f70eabc874b65f611"
+          "output_digest": "sha256:ca1cff106500fd4fb3faaa9ad4eba33946f3492cc44d991da53d3f5d1e2c04f5"
         }
       ],
       "result": "passed",
-      "verified_at": "2026-09-02T21:44:26Z"
+      "verified_at": "2026-09-24T15:13:38Z"
     },
     "3.1": {
-      "task_fingerprint": "sha256:20892710bf420c1fd56ac420be9988e713e63d851364036db5aec3e1fec717e9",
+      "task_fingerprint": "sha256:dd3c2886b1a485733823c58fac868f8f3e38f71585f238ff25932322f94ac2b2",
+      "task_fingerprint_scheme": "walden/task-definition/v2",
+      "execution": {
+        "origin": "verify",
+        "policy": "verify-purity/v1",
+        "assertion_result": "passed",
+        "integrity": "pure",
+        "before_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
+        "after_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6"
+      },
       "requirements_fingerprint": "sha256:2c70a2672efedbd212d151c0b2dbaf1efaa069e0598ae5f216504e4962c98084",
       "design_fingerprint": "sha256:1164721abe8248bdb9b119aa7279bfbdb3d05d0e2166c3a55c2fc437dc28f7b0",
       "tasks_fingerprint": "sha256:43a7b4cb41f958e7e05a5cb5a411ca03866945bda7497ce19aedd1d9f1e7ce59",
-      "code_identity": "sha256:47f1f9008f6fdebbb2afda59b7f261b001391586c8a7bb9b8b4622d9d245a630",
+      "code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
       "profile": {
-        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "go": "go version go1.26.8-X:nodwarf5 linux/amd64",
         "kind": "kind v0.27.0 go1.23.6 linux/amd64",
         "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
         "platform": "linux/amd64",
         "podman": "podman version 5.8.4",
-        "walden": "v0.10.1"
+        "walden": "v0.11.0"
       },
       "steps": [
         {
@@ -119,25 +155,34 @@
           ],
           "expected_exit": 0,
           "actual_exit": 0,
-          "output_digest": "sha256:7e6009f5bd7a3f876d81aa159e3f25dee3bcc23faa27f9b368ac80623407a5a6"
+          "output_digest": "sha256:54569508f0beba305d931b2392fcc613e0c7e2f2fd72a98920113415ceb7672b"
         }
       ],
       "result": "passed",
-      "verified_at": "2026-09-02T21:44:26Z"
+      "verified_at": "2026-09-24T15:13:38Z"
     },
     "4.1": {
-      "task_fingerprint": "sha256:53ccd411e5af8fd2d7a490a05495ce67e4b3b2a0b410f08aeaefa1a510ab14a1",
+      "task_fingerprint": "sha256:596b128660e147f6a20599a8e51d9fb13351ab944479eddff52d0ea89719d8b4",
+      "task_fingerprint_scheme": "walden/task-definition/v2",
+      "execution": {
+        "origin": "verify",
+        "policy": "verify-purity/v1",
+        "assertion_result": "passed",
+        "integrity": "pure",
+        "before_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
+        "after_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6"
+      },
       "requirements_fingerprint": "sha256:2c70a2672efedbd212d151c0b2dbaf1efaa069e0598ae5f216504e4962c98084",
       "design_fingerprint": "sha256:1164721abe8248bdb9b119aa7279bfbdb3d05d0e2166c3a55c2fc437dc28f7b0",
       "tasks_fingerprint": "sha256:43a7b4cb41f958e7e05a5cb5a411ca03866945bda7497ce19aedd1d9f1e7ce59",
-      "code_identity": "sha256:47f1f9008f6fdebbb2afda59b7f261b001391586c8a7bb9b8b4622d9d245a630",
+      "code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
       "profile": {
-        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "go": "go version go1.26.8-X:nodwarf5 linux/amd64",
         "kind": "kind v0.27.0 go1.23.6 linux/amd64",
         "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
         "platform": "linux/amd64",
         "podman": "podman version 5.8.4",
-        "walden": "v0.10.1"
+        "walden": "v0.11.0"
       },
       "steps": [
         {
@@ -147,25 +192,34 @@
           ],
           "expected_exit": 0,
           "actual_exit": 0,
-          "output_digest": "sha256:7d2a601a0da60ba746d165caa7c42d495d5b5633dd93da42de9c3dfc3070eb99"
+          "output_digest": "sha256:d187b50a48606839716b01ffdb10b60b612b161b3daf2335774c6b827cf7db4a"
         }
       ],
       "result": "passed",
-      "verified_at": "2026-09-02T21:44:26Z"
+      "verified_at": "2026-09-24T15:13:38Z"
     },
     "5.1": {
-      "task_fingerprint": "sha256:3f2f2e09000d494bcd9e6e82b4d7e7c03f9d603719df6e7d7ddc120fb9684840",
+      "task_fingerprint": "sha256:4dbe420194d48d2302894941bfecf411de4f9c93272ba4160328465d9ab82f67",
+      "task_fingerprint_scheme": "walden/task-definition/v2",
+      "execution": {
+        "origin": "verify",
+        "policy": "verify-purity/v1",
+        "assertion_result": "passed",
+        "integrity": "pure",
+        "before_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
+        "after_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6"
+      },
       "requirements_fingerprint": "sha256:2c70a2672efedbd212d151c0b2dbaf1efaa069e0598ae5f216504e4962c98084",
       "design_fingerprint": "sha256:1164721abe8248bdb9b119aa7279bfbdb3d05d0e2166c3a55c2fc437dc28f7b0",
       "tasks_fingerprint": "sha256:43a7b4cb41f958e7e05a5cb5a411ca03866945bda7497ce19aedd1d9f1e7ce59",
-      "code_identity": "sha256:47f1f9008f6fdebbb2afda59b7f261b001391586c8a7bb9b8b4622d9d245a630",
+      "code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
       "profile": {
-        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "go": "go version go1.26.8-X:nodwarf5 linux/amd64",
         "kind": "kind v0.27.0 go1.23.6 linux/amd64",
         "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
         "platform": "linux/amd64",
         "podman": "podman version 5.8.4",
-        "walden": "v0.10.1"
+        "walden": "v0.11.0"
       },
       "steps": [
         {
@@ -176,25 +230,34 @@
           ],
           "expected_exit": 0,
           "actual_exit": 0,
-          "output_digest": "sha256:7e6009f5bd7a3f876d81aa159e3f25dee3bcc23faa27f9b368ac80623407a5a6"
+          "output_digest": "sha256:54569508f0beba305d931b2392fcc613e0c7e2f2fd72a98920113415ceb7672b"
         }
       ],
       "result": "passed",
-      "verified_at": "2026-09-02T21:44:26Z"
+      "verified_at": "2026-09-24T15:13:38Z"
     },
     "6.1": {
-      "task_fingerprint": "sha256:466a4538ad62dfa07d34e55804e622b28b21f24da9e7726f67443bda15daa639",
+      "task_fingerprint": "sha256:b9407b4d09c7f8d0df55192bdc08d0ba25db62fe4edf2941162008309b1ffcc7",
+      "task_fingerprint_scheme": "walden/task-definition/v2",
+      "execution": {
+        "origin": "verify",
+        "policy": "verify-purity/v1",
+        "assertion_result": "passed",
+        "integrity": "pure",
+        "before_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
+        "after_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6"
+      },
       "requirements_fingerprint": "sha256:2c70a2672efedbd212d151c0b2dbaf1efaa069e0598ae5f216504e4962c98084",
       "design_fingerprint": "sha256:1164721abe8248bdb9b119aa7279bfbdb3d05d0e2166c3a55c2fc437dc28f7b0",
       "tasks_fingerprint": "sha256:43a7b4cb41f958e7e05a5cb5a411ca03866945bda7497ce19aedd1d9f1e7ce59",
-      "code_identity": "sha256:47f1f9008f6fdebbb2afda59b7f261b001391586c8a7bb9b8b4622d9d245a630",
+      "code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
       "profile": {
-        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "go": "go version go1.26.8-X:nodwarf5 linux/amd64",
         "kind": "kind v0.27.0 go1.23.6 linux/amd64",
         "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
         "platform": "linux/amd64",
         "podman": "podman version 5.8.4",
-        "walden": "v0.10.1"
+        "walden": "v0.11.0"
       },
       "steps": [
         {
@@ -205,25 +268,34 @@
           ],
           "expected_exit": 0,
           "actual_exit": 0,
-          "output_digest": "sha256:7e6009f5bd7a3f876d81aa159e3f25dee3bcc23faa27f9b368ac80623407a5a6"
+          "output_digest": "sha256:54569508f0beba305d931b2392fcc613e0c7e2f2fd72a98920113415ceb7672b"
         }
       ],
       "result": "passed",
-      "verified_at": "2026-09-02T21:44:26Z"
+      "verified_at": "2026-09-24T15:13:38Z"
     },
     "7.1": {
-      "task_fingerprint": "sha256:f36d9fa82da87fc5c34b40f4c7f791d2b93e7d940e51c020ce0ee43dd832969f",
+      "task_fingerprint": "sha256:086760420897ec032f90587e86358cd3279317804c619e443b4aedce0b0fc896",
+      "task_fingerprint_scheme": "walden/task-definition/v2",
+      "execution": {
+        "origin": "verify",
+        "policy": "verify-purity/v1",
+        "assertion_result": "passed",
+        "integrity": "pure",
+        "before_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
+        "after_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6"
+      },
       "requirements_fingerprint": "sha256:2c70a2672efedbd212d151c0b2dbaf1efaa069e0598ae5f216504e4962c98084",
       "design_fingerprint": "sha256:1164721abe8248bdb9b119aa7279bfbdb3d05d0e2166c3a55c2fc437dc28f7b0",
       "tasks_fingerprint": "sha256:43a7b4cb41f958e7e05a5cb5a411ca03866945bda7497ce19aedd1d9f1e7ce59",
-      "code_identity": "sha256:47f1f9008f6fdebbb2afda59b7f261b001391586c8a7bb9b8b4622d9d245a630",
+      "code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
       "profile": {
-        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "go": "go version go1.26.8-X:nodwarf5 linux/amd64",
         "kind": "kind v0.27.0 go1.23.6 linux/amd64",
         "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
         "platform": "linux/amd64",
         "podman": "podman version 5.8.4",
-        "walden": "v0.10.1"
+        "walden": "v0.11.0"
       },
       "steps": [
         {
@@ -234,25 +306,34 @@
           ],
           "expected_exit": 0,
           "actual_exit": 0,
-          "output_digest": "sha256:7e6009f5bd7a3f876d81aa159e3f25dee3bcc23faa27f9b368ac80623407a5a6"
+          "output_digest": "sha256:54569508f0beba305d931b2392fcc613e0c7e2f2fd72a98920113415ceb7672b"
         }
       ],
       "result": "passed",
-      "verified_at": "2026-09-02T21:44:26Z"
+      "verified_at": "2026-09-24T15:13:38Z"
     },
     "8.1": {
-      "task_fingerprint": "sha256:afbb95adfde39cabb6598e9b1285d7173f46f1e94c73714b1f487925a0415790",
+      "task_fingerprint": "sha256:fa693e4515f6c0513d11dc6ce3d2961d7a2e2eb481d293e7519c2527afc7e746",
+      "task_fingerprint_scheme": "walden/task-definition/v2",
+      "execution": {
+        "origin": "verify",
+        "policy": "verify-purity/v1",
+        "assertion_result": "passed",
+        "integrity": "pure",
+        "before_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
+        "after_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6"
+      },
       "requirements_fingerprint": "sha256:2c70a2672efedbd212d151c0b2dbaf1efaa069e0598ae5f216504e4962c98084",
       "design_fingerprint": "sha256:1164721abe8248bdb9b119aa7279bfbdb3d05d0e2166c3a55c2fc437dc28f7b0",
       "tasks_fingerprint": "sha256:43a7b4cb41f958e7e05a5cb5a411ca03866945bda7497ce19aedd1d9f1e7ce59",
-      "code_identity": "sha256:47f1f9008f6fdebbb2afda59b7f261b001391586c8a7bb9b8b4622d9d245a630",
+      "code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
       "profile": {
-        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "go": "go version go1.26.8-X:nodwarf5 linux/amd64",
         "kind": "kind v0.27.0 go1.23.6 linux/amd64",
         "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
         "platform": "linux/amd64",
         "podman": "podman version 5.8.4",
-        "walden": "v0.10.1"
+        "walden": "v0.11.0"
       },
       "steps": [
         {
@@ -263,25 +344,34 @@
           ],
           "expected_exit": 0,
           "actual_exit": 0,
-          "output_digest": "sha256:7e6009f5bd7a3f876d81aa159e3f25dee3bcc23faa27f9b368ac80623407a5a6"
+          "output_digest": "sha256:54569508f0beba305d931b2392fcc613e0c7e2f2fd72a98920113415ceb7672b"
         }
       ],
       "result": "passed",
-      "verified_at": "2026-09-02T21:44:26Z"
+      "verified_at": "2026-09-24T15:13:38Z"
     },
     "9.1": {
-      "task_fingerprint": "sha256:ba8f8315593b0b047e47a8e1c30b0386dd3f71a874f8da8f6675db8f0611cc94",
+      "task_fingerprint": "sha256:bc34b44b33a4ab88cc0ce7c834135cc0459b756b416a1fc4aa22a9ded665e0f8",
+      "task_fingerprint_scheme": "walden/task-definition/v2",
+      "execution": {
+        "origin": "verify",
+        "policy": "verify-purity/v1",
+        "assertion_result": "passed",
+        "integrity": "pure",
+        "before_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
+        "after_code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6"
+      },
       "requirements_fingerprint": "sha256:2c70a2672efedbd212d151c0b2dbaf1efaa069e0598ae5f216504e4962c98084",
       "design_fingerprint": "sha256:1164721abe8248bdb9b119aa7279bfbdb3d05d0e2166c3a55c2fc437dc28f7b0",
       "tasks_fingerprint": "sha256:43a7b4cb41f958e7e05a5cb5a411ca03866945bda7497ce19aedd1d9f1e7ce59",
-      "code_identity": "sha256:47f1f9008f6fdebbb2afda59b7f261b001391586c8a7bb9b8b4622d9d245a630",
+      "code_identity": "sha256:9d584c3adc66bec5ba964f91c4bbb4f6e5bb3502de3c716d05379283a3ccecc6",
       "profile": {
-        "go": "go version go1.26.7-X:nodwarf5 linux/amd64",
+        "go": "go version go1.26.8-X:nodwarf5 linux/amd64",
         "kind": "kind v0.27.0 go1.23.6 linux/amd64",
         "kubectl": "Client Version: v1.29.14\nKustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3",
         "platform": "linux/amd64",
         "podman": "podman version 5.8.4",
-        "walden": "v0.10.1"
+        "walden": "v0.11.0"
       },
       "steps": [
         {
@@ -292,11 +382,11 @@
           ],
           "expected_exit": 0,
           "actual_exit": 0,
-          "output_digest": "sha256:7e6009f5bd7a3f876d81aa159e3f25dee3bcc23faa27f9b368ac80623407a5a6"
+          "output_digest": "sha256:54569508f0beba305d931b2392fcc613e0c7e2f2fd72a98920113415ceb7672b"
         }
       ],
       "result": "passed",
-      "verified_at": "2026-09-02T21:44:26Z"
+      "verified_at": "2026-09-24T15:13:38Z"
     }
   }
 }

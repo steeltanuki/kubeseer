@@ -244,7 +244,7 @@ func (r *runtimeTestRoutes) Start(context.Context, workqueue.TypedRateLimitingIn
 	return nil
 }
 
-func (r *runtimeTestRoutes) Replace(reconciliation.Lease, []reconciliation.AuthorizedRoute) error {
+func (r *runtimeTestRoutes) Replace(context.Context, reconciliation.Lease, []reconciliation.AuthorizedRoute) error {
 	return nil
 }
 

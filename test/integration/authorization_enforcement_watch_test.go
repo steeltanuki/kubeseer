@@ -76,10 +76,10 @@ func assertAuthorizationEnforcementWatchScenarios(t *testing.T, ctx context.Cont
 		if err != nil {
 			t.Fatalf("authorize stale owner: %v", err)
 		}
-		if err := registry.Replace(currentLease, []reconciliation.AuthorizedRoute{currentRoute}); err != nil {
+		if err := registry.Replace(context.Background(), currentLease, []reconciliation.AuthorizedRoute{currentRoute}); err != nil {
 			t.Fatalf("replace current route: %v", err)
 		}
-		if err := registry.Replace(staleLease, []reconciliation.AuthorizedRoute{staleRoute}); err != nil {
+		if err := registry.Replace(context.Background(), staleLease, []reconciliation.AuthorizedRoute{staleRoute}); err != nil {
 			t.Fatalf("replace stale route: %v", err)
 		}
 		if err := registry.Start(watchContext, queue); err != nil {
@@ -132,7 +132,7 @@ func assertAuthorizationEnforcementWatchScenarios(t *testing.T, ctx context.Cont
 		if err != nil {
 			t.Fatalf("authorize epoch route: %v", err)
 		}
-		if err := registry.Replace(lease, []reconciliation.AuthorizedRoute{route}); err != nil {
+		if err := registry.Replace(context.Background(), lease, []reconciliation.AuthorizedRoute{route}); err != nil {
 			t.Fatalf("replace epoch route: %v", err)
 		}
 		waitForRuntimeWatchCondition(t, func() bool { return len(watcher.Calls()) >= 1 })
@@ -181,7 +181,7 @@ func assertAuthorizationEnforcementWatchScenarios(t *testing.T, ctx context.Cont
 		if err != nil {
 			t.Fatalf("authorize forbidden route: %v", err)
 		}
-		if err := registry.Replace(lease, []reconciliation.AuthorizedRoute{route}); err != nil {
+		if err := registry.Replace(context.Background(), lease, []reconciliation.AuthorizedRoute{route}); err != nil {
 			t.Fatalf("replace forbidden route: %v", err)
 		}
 		waitForRuntimeWatchCondition(t, func() bool { return len(snapshotRecords()) >= 2 })

@@ -34,3 +34,6 @@ go.work.sum
 
 # MCP data
 .serena
+
+# temp
+tmp/

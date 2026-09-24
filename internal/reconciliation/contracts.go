@@ -118,7 +118,7 @@ type StatusPublisherPort interface {
 
 // RouteManager owns only authorized source-event routing state.
 type RouteManager interface {
-	Replace(Lease, []AuthorizedRoute) error
+	Replace(context.Context, Lease, []AuthorizedRoute) error
 	RemoveOwner(types.NamespacedName)
 	RemoveAll()
 }

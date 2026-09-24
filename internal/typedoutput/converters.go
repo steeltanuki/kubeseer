@@ -32,7 +32,7 @@ import (
 var (
 	integerTextPattern = regexp.MustCompile(`^-?(0|[1-9][0-9]*)$`)
 	jsonNumberPattern  = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$`)
-	quantityPattern    = regexp.MustCompile(`^([+-]?)([0-9]+(?:\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+|Ki|Mi|Gi|Ti|Pi|Ei|m|k|M|G|T|P|E)?$`)
+	quantityPattern    = regexp.MustCompile(`^([+-]?)([0-9]+(?:\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+|Ki|Mi|Gi|Ti|Pi|Ei|n|u|m|k|M|G|T|P|E)?$`)
 
 	errInvalidDecimal   = errors.New("invalid decimal")
 	errDecimalOverflow  = errors.New("decimal exceeds supported representation")
@@ -322,6 +322,10 @@ func convertDuration(typeName v1alpha1.KubeseerValueType, native any) (value, Co
 }
 
 func exactDurationNanoseconds(text string) (*big.Int, error) {
+	if text == "0" || text == "+0" || text == "-0" {
+		return new(big.Int), nil
+	}
+
 	negative := false
 	position := 0
 	if strings.HasPrefix(text, "+") || strings.HasPrefix(text, "-") {
@@ -382,6 +386,7 @@ func durationUnit(remaining string) (string, int64, bool) {
 		{name: "ns", factor: 1},
 		{name: "us", factor: 1000},
 		{name: "µs", factor: 1000},
+		{name: "μs", factor: 1000},
 		{name: "ms", factor: 1000000},
 		{name: "s", factor: 1000000000},
 		{name: "m", factor: 60000000000},
@@ -462,6 +467,11 @@ func quantitySuffixFactor(suffix string) (*big.Rat, error) {
 	if suffix == "" {
 		return new(big.Rat).SetInt64(1), nil
 	}
+	for index, candidate := range []string{"Ki", "Mi", "Gi", "Ti", "Pi", "Ei"} {
+		if suffix == candidate {
+			return new(big.Rat).SetInt(new(big.Int).Lsh(big.NewInt(1), uint(10*(index+1)))), nil
+		}
+	}
 	if len(suffix) > 1 && (suffix[0] == 'e' || suffix[0] == 'E') {
 		exponent, err := strconv.ParseInt(suffix[1:], 10, 64)
 		if err != nil || exponent > maxCanonicalDecimalDigits || exponent < -maxCanonicalDecimalDigits {
@@ -476,13 +486,9 @@ func quantitySuffixFactor(suffix string) (*big.Rat, error) {
 	if exponent, found := decimalExponents[suffix]; found {
 		return new(big.Rat).SetInt(pow10BigInt(exponent)), nil
 	}
-	if suffix == "m" {
-		return new(big.Rat).SetFrac(big.NewInt(1), big.NewInt(1000)), nil
-	}
-	for index, candidate := range []string{"Ki", "Mi", "Gi", "Ti", "Pi", "Ei"} {
-		if suffix == candidate {
-			return new(big.Rat).SetInt(new(big.Int).Lsh(big.NewInt(1), uint(10*(index+1)))), nil
-		}
+	decimalFractions := map[string]int{"n": 9, "u": 6, "m": 3}
+	if exponent, found := decimalFractions[suffix]; found {
+		return new(big.Rat).SetFrac(big.NewInt(1), pow10BigInt(exponent)), nil
 	}
 	return nil, errQuantityInvalid
 }

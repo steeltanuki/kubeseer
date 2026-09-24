@@ -1,10 +1,11 @@
 # Kubeseer installation and lifecycle guide
 
-This guide covers the canonical Helm package in `charts/kubeseer`. Kubeseer
-supports Kubernetes `1.35.6` and `1.36.2`, Helm 3.12 or newer, and the
-`kubeseer.io/v1alpha1` API. The chart declares the Kubernetes gate
-`>=1.35.0-0 <1.37.0-0`; a cluster outside that range is rejected before
-resources are rendered or installed.
+This guide covers both the canonical chart in `charts/kubeseer` and its
+official Helm OCI distribution. Kubeseer supports Kubernetes `1.35.6` and
+`1.36.2`, Helm 3.12 or newer, and the `kubeseer.io/v1alpha1` API. The chart
+declares the Kubernetes gate `>=1.35.0-0 <1.37.0-0`; a cluster outside that
+range is rejected before resources are rendered or installed. The official
+controller image release contract currently certifies `linux/amd64` only.
 
 For policy, RBAC, certificate, limit, and process-setting decisions, read
 [Configuration](configuration.md). For runtime checks after installation, see
@@ -18,7 +19,8 @@ The administrator needs:
 
 - an explicitly selected Kubernetes context and permission to install CRDs,
   cluster-scoped RBAC, admission webhooks, and cert-manager resources;
-- Helm 3.12 or newer and an image registry reachable by the cluster;
+- Helm 3.12 or newer and access from the cluster to the public GHCR controller
+  image (or to the registry hosting a deliberately overridden image);
 - a versioned, non-`latest` Kubeseer image;
 - cert-manager exposing `cert-manager.io/v1` (the package compatibility profile
   is pinned to cert-manager `v1.18.2`) for the default certificate mode, or an
@@ -27,7 +29,51 @@ The administrator needs:
 The package never uses an ambient cloud credential or ambient kubeconfig in a
 compatibility run. Cluster commands below show the selected context explicitly.
 
-## Render, lint, and package
+## Installing an official release
+
+Official releases use the public Helm OCI artifact and the matching public
+controller image. They can be installed without cloning the source repository
+or building either artifact. The GitHub Container Registry packages must be
+public so Helm and Kubernetes can pull them anonymously. A registry login is
+not needed for these public packages.
+
+Choose a stable version shown on the
+[GitHub Releases page](https://github.com/steeltanuki/kubeseer/releases). For
+example, this installs `0.1.0` (source tag `v0.1.0`):
+
+```sh
+helm upgrade --install kubeseer oci://ghcr.io/steeltanuki/charts/kubeseer \
+  --version 0.1.0 \
+  --namespace kubeseer-system --create-namespace \
+  --wait --timeout 10m
+```
+
+`Chart.yaml` `version` and `appVersion` match the selected release. The
+default image repository is `ghcr.io/steeltanuki/kubeseer`; its empty chart
+`image.tag` resolves to `appVersion`, so this command installs
+`ghcr.io/steeltanuki/kubeseer:0.1.0`. The `.tgz` chart archive is a temporary
+release-verification input and is not attached to the GitHub Release; the OCI
+chart is the canonical distribution artifact.
+
+To inspect or render an official chart without installing it:
+
+```sh
+helm show chart oci://ghcr.io/steeltanuki/charts/kubeseer --version 0.1.0
+helm template kubeseer oci://ghcr.io/steeltanuki/charts/kubeseer \
+  --version 0.1.0 --namespace kubeseer-system \
+  --kube-version 1.35.6 --include-crds
+```
+
+Before upgrading, review the release notes for compatibility and CRD changes.
+The [policy, RBAC, and upgrade guidance](#policy-rbac-and-upgrades) describes
+the required CRD gate and retained-state behavior.
+
+## Working from a source checkout: render, lint, and package
+
+The following commands are for contributors validating or packaging the
+source-controlled canonical chart. Users installing an official release do
+not need to clone the repository or run these commands. A local package does
+not become an official release artifact.
 
 Run these checks before installation:
 
@@ -45,7 +91,10 @@ verify-package` also regenerates the CRDs with the pinned controller-tools
 version, checks the image and security contract, and renders both certificate
 modes.
 
-## Install
+## Install a locally packaged source chart
+
+This path is for contributor testing against a locally modified chart. For a
+released version, use the OCI command above.
 
 Choose the namespace with Helm; do not edit the chart's canonical files. The
 default chart mode is `certManager` and uses cert-manager:
@@ -57,6 +106,84 @@ helm upgrade --install kubeseer charts/kubeseer \
   --set image.tag=0.1.0 \
   --wait --timeout 10m
 ```
+
+This source-chart example uses the public versioned controller image by
+default. Contributors testing a locally built controller should follow the
+local environment procedure below so the temporary image is loaded into kind.
+
+For the contributor-owned local kind/Podman workflow, use the
+[local development guide](local-development.md). It builds and loads a
+temporary local image and does not publish an image or chart.
+
+## Release publication and recovery
+
+`develop` is the integration branch. Protected `main` is the latest promoted
+release-source branch: it holds the newest release source selected by the
+maintainer, rather than a floating `stable` tag or artifact alias. Contributor
+pull requests continue to target `develop`; a release reaches `main` through
+the maintainer's reviewed promotion.
+
+Official releases use stable Semantic Versioning tags of the form
+`vMAJOR.MINOR.PATCH`, such as `v0.1.0`. Prerelease tags are not supported by
+the initial release-distribution workflow. For a release, the maintainer
+prepares the chart's `version` and `appVersion` in
+`charts/kubeseer/Chart.yaml` and substantive notes at
+`docs/releases/v<version>.md`, including `Highlights` and
+`Upgrade considerations`, then promotes that commit from `develop` to
+protected `main` in a reviewed pull request. Before creating the tag, confirm
+that the required CI checks for the promotion have passed and that the GitHub
+rulesets for the `main` branch and `v*` tags are active. Check out the exact
+reviewed promotion commit from `origin/main`, verify its SHA, then create and
+push the annotated version tag. For example:
+
+```sh
+TAG=v0.1.0
+git fetch origin main
+git switch --detach origin/main
+git rev-parse HEAD  # Confirm this is the reviewed promotion commit.
+git tag -a "$TAG" -m "Kubeseer $TAG"
+git push origin "$TAG"
+```
+
+The tagged commit must be reachable from fetched `origin/main`; the validator
+also checks the exact tag SHA, chart versions, and release notes. An earlier
+version tag remains valid after `main` advances. The workflow does not rewrite
+source files or create tags. Branch pushes, including pushes to `develop` or
+`main`, and floating `stable` or `latest` Git tags or image/chart aliases do
+not publish artifacts; publication is triggered only by a versioned tag.
+
+The tagged source currently certifies controller images for `linux/amd64`,
+Kubernetes `1.35.6` and `1.36.2`, and Helm 3.12 or newer. The production image
+contract is amd64-only; an arm64 image or multi-platform manifest is not
+claimed. See the exact version and upgrade notes on each GitHub Release.
+
+If a release workflow fails after some registry writes, first inspect the
+failed job and ensure the GHCR image and chart packages allow anonymous pulls.
+For read-only inventory from a clean checkout of the exact tag, a maintainer
+can compare the public artifacts and their recorded digests:
+
+```sh
+TAG=v0.1.0
+git checkout --detach "$TAG"
+SOURCE_SHA="$(git rev-parse "refs/tags/${TAG}^{commit}")"
+GH_TOKEN="$(gh auth token)" \
+  ./hack/release-distribution.sh inventory --tag "$TAG" --source-sha "$SOURCE_SHA"
+GH_TOKEN="$(gh auth token)" \
+  ./hack/release-distribution.sh audit --tag "$TAG" --source-sha "$SOURCE_SHA"
+```
+
+`inventory` shows which image, chart, and GitHub Release references are
+present; `audit` succeeds only when all public artifacts match the tagged
+version, source commit, and recorded digests. After checking a missing-only
+partial release and confirming package visibility, a maintainer may explicitly
+rerun the failed workflow for the same protected tag. The workflow reuses
+matching immutable artifacts and publishes only missing ones. If any digest,
+revision, or release metadata conflicts, stop and investigate; do not move the
+tag or overwrite the published version. A GitHub Release is created only
+after both OCI artifacts pass public verification.
+
+The complete maintainer-authored release notes are included in the GitHub
+Release. The chart `.tgz` is not attached as a second download format.
 
 The lifecycle is ordered by hook weight: read-only preflight, policy bootstrap,
 normal release resources, then bounded post-install readiness verification.
@@ -115,10 +242,9 @@ mounts the named Secret read-only, and renders no cert-manager object and no
 TLS Secret:
 
 ```sh
-helm upgrade --install kubeseer charts/kubeseer \
+helm upgrade --install kubeseer oci://ghcr.io/steeltanuki/charts/kubeseer \
+  --version 0.1.0 \
   --namespace kubeseer-system --create-namespace \
-  --set image.repository=ghcr.io/steeltanuki/kubeseer \
-  --set image.tag=0.1.0 \
   --set certificate.mode=externalSecret \
   --set certificate.externalSecret.secretName=administrator-webhook-tls \
   --set-file certificate.externalSecret.caBundle=public-ca.pem \
@@ -147,10 +273,15 @@ export KUBECONFIG=/absolute/path/to/kubeconfig
 export KUBE_CONTEXT=my-cluster
 make package-crd-check
 make package-apply-crds
-helm upgrade kubeseer charts/kubeseer \
+helm upgrade kubeseer oci://ghcr.io/steeltanuki/charts/kubeseer \
+  --version 0.1.0 \
   --namespace kubeseer-system --reuse-values \
   --wait --timeout 10m
 ```
+
+Use the target release's version in `--version`. If you are testing a modified
+source chart, replace the OCI reference with `charts/kubeseer` and follow the
+source-checkout verification steps above.
 
 `--reuse-values` preserves effective policy and certificate inputs when no
 explicit change is intended. An explicit policy or certificate change is a

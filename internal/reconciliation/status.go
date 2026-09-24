@@ -252,6 +252,9 @@ func (p *StatusPublisher) composeBoundedStatus(generation int64, persisted []met
 	if int64(size) <= p.maxStatusBytes {
 		return composed, nil
 	}
+	if evaluation.ConfigurationBudgetExceeded {
+		return v1alpha1.KubeseerStatus{}, &RuntimeError{Stage: "status-compose", Reason: ReasonStatusLimitInvalid, Message: "configured status limit cannot contain configuration rejection"}
+	}
 	compact, err := statuscontract.ComposeResultLimitExceeded(generation, persisted, evaluation)
 	if err != nil {
 		return v1alpha1.KubeseerStatus{}, &RuntimeError{Stage: "status-compose", Reason: ReasonBuildFailure, Message: "compact status composition failed", Cause: err}

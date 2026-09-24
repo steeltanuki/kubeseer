@@ -36,7 +36,7 @@ state ownership.
 | Example | Capability | Expected public outcome |
 | --- | --- | --- |
 | [`builtin-resource`](../examples/builtin-resource/) | Exact Deployment selection and provenance | `Ready=True`, one Deployment, integer `replicas=1` |
-| [`typed-extraction`](../examples/typed-extraction/) | Native scalar extraction and integer conversion | Successful integer replica value |
+| [`typed-extraction`](../examples/typed-extraction/) | RFC 3339 timestamp parsing into a typed value | `createdAt` has type `timestamp` and a parsed timestamp value |
 | [`value-operator`](../examples/value-operator/) | Typed `gte` predicate | Non-empty result whose replica value is at least 1 |
 | [`cross-namespace-aggregation`](../examples/cross-namespace-aggregation/) | Authorized selection in two namespaces and `sum` | One deterministic aggregate with both namespaces contributing |
 | [`custom-resource`](../examples/custom-resource/) | Discovery and selection of a structural `Widget` CRD | Typed integer `size` with Widget provenance |

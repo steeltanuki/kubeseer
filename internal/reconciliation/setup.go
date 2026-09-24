@@ -99,6 +99,7 @@ func SetupWithManager(mgr manager.Manager, options Options) error {
 		NewClientMetadataWatcher(metadataClient),
 		tracker,
 		WithRouteWatchBackoff(normalized.WatchBackoffBase, normalized.WatchBackoffMax),
+		WithRouteWatchEstablishmentTimeout(profile.EvaluationTimeout()),
 		WithMaxActiveWatches(profile.MaxActiveWatches()),
 		WithRouteWatchObserver(observer),
 	)

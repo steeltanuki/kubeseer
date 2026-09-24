@@ -14,7 +14,7 @@ spec:
       selector: {name: degraded}
       fields: [{name: replicas, path: "{.spec.replicas}", type: integer}]
     - id: unavailable-widget
-      resource: {apiVersion: fixtures.kubeseer.io/v1alpha1, kind: Widget}
+      resource: {apiVersion: fixtures.kubeseer.io/v1alpha1, kind: DegradedWidget}
       namespaces: {names: [kubeseer-example-degraded]}
       selector: {name: degraded-widget}
       fields: [{name: size, path: "{.spec.size}", type: integer}]

@@ -40,6 +40,37 @@ an otherwise policy-authorized request, producing `ReadForbidden`.
 Policy and identity changes cancel in-flight work and invalidate existing
 routes. An older result is not allowed to publish after authority changes.
 
+## Watch authority and transport lifetime
+
+Sharing is exact-target only. Kubeseer creates one supervisor stream per
+`WatchAddress`—the exact API resource, scope, and namespace—and shares it only
+with bindings whose current owners are authorized for that target. A stream
+never broadens a source's scope or combines unrelated targets.
+
+Every WATCH attempt obtains a fresh permit containing the current owner
+identity, UID, generation, and policy epoch. The registry rechecks that permit
+before a serial retry and before routing recovery. Events carry no authority
+by themselves: they only enqueue a current owner, whose next `LIST` repeats
+logical policy and Kubernetes RBAC checks. A revoked or stale owner therefore
+cannot be re-enqueued or publish an old result.
+
+The resolved `EvaluationTimeout` bounds establishment, while the supervisor
+context owns an established stream. Timing out or completing one evaluation
+does not cancel a stream that still has another current owner. Losing the last current owner,
+removing the supervisor, or shutting down the manager cancels its transport.
+Retries are serial with bounded backoff, so a blocked attempt is
+not accompanied by a second request.
+
+Late responses after an attempt is canceled or its supervisor is replaced are
+discarded and the late stream is stopped. This is a
+disposal and identity check. An arbitrary context-ignoring transport cannot be forcibly terminated;
+it can delay its own goroutine until it cooperates. The
+registry never detaches an untracked waiter to hide that delay.
+
+See [Operations](operations.md#diagnose-stalled-watch-startup-and-recovery) for
+reason-only diagnosis and [the architecture guide](concepts-and-architecture.md#watch-lifecycle-and-observation-gaps)
+for recovery and lifetime behavior.
+
 ## Admission and runtime revalidation
 
 The validating webhook rejects structurally invalid declarations, unsupported
@@ -119,6 +150,31 @@ Limits fail explicitly. Results are never silently truncated and presented as
 complete. Administrators should increase a limit only with corresponding API
 server, memory, CPU, and data-exposure analysis. See
 [Configuration](configuration.md#runtime-limits).
+
+## Budget rejection and data removal
+
+When the effective configuration budget rejects a `Kubeseer`, the runtime
+stops before policy, discovery, or observed-resource reads and removes that
+owner's route bindings. It composes a fixed status with
+`ConfigurationBudgetExceeded`, `AuthorizationNotEvaluated`,
+`ResolutionNotEvaluated`, and `EvaluationUnavailable`; no observation payload
+is needed to invalidate the previous result.
+
+The old `status.result`, `status.summary`, and `status.resultHash` are removed
+only after a guarded status write is accepted by the Kubernetes API. A stale
+UID, generation, deletion state, or policy epoch suppresses the write. A
+resource-version conflict or transient API failure is retryable, and a
+forbidden status-subresource write is reported as sanitized
+`StatusUnavailable`; in either case the old data may remain until a later
+successful attempt. Kubeseer does not emit an Event claiming removal for an
+unsuccessful write.
+
+Operational examples should project only identity, generation, condition
+status/reason, and whether result fields are present. Never copy source
+payloads, selector operands, JSONPath expressions, or sensitive values into
+status, Events, metrics, or support tickets. See the [API condition
+contract](api-reference.md#configuration-budget-rejection) and
+[diagnosis workflow](operations.md#diagnose-configuration-budget-rejection).
 
 ## Package and runtime hardening
 

@@ -1,9 +1,9 @@
 ---
 walden_schema_version: v1alpha1
 status: approved
-approved_at: 2026-09-01T18:25:07Z
-last_modified: 2026-09-01T18:25:07Z
-approved_fingerprint: sha256:2e3cf860c2525787b1c145fa464358465ef84b327e619823b833c7b7f6b0e732
+approved_at: 2026-09-03T08:54:34Z
+last_modified: 2026-09-03T08:54:34Z
+approved_fingerprint: sha256:bbb9db7d26f122b209515c4b12663a4b4fda6c81a7a6c7fa9bddd75675c72e13
 ---
 
 # Requirements Document
@@ -22,6 +22,12 @@ catalog, interactive diagnostics, and safe teardown. It consumes the approved
 packaging and end-to-end contracts without redefining product behavior. The
 long-lived local cluster remains separate from the run-unique disposable
 cluster created by `make e2e`.
+
+The supported local and disposable-cluster workflows must observe webhook
+backends through the stable EndpointSlice API. They must not rely on the
+deprecated core `v1 Endpoints` API, which emits server warnings on every
+supported Kubernetes release and no longer represents the forward-compatible
+Service-discovery contract.
 
 <!-- assumed: the initial supported host profile is Linux/amd64 because the current end-to-end evidence is recorded on linux/amd64 and no approved host evidence exists for macOS Podman machine, Windows, WSL, or another architecture (source: .walden/evidence/end-to-end-scenarios.json and the current build defaults in Makefile) -->
 <!-- assumed: the stable local cluster identity is `kubeseer-local`, with context `kind-kubeseer-local`, because an exact fixed project-owned identity makes repeated setup, inspection, and narrowly scoped cleanup externally verifiable (source: .walden/constitution.md and SPECIFICATIONS.md) -->
@@ -154,6 +160,9 @@ is easy to trust.
 11. `R6.AC11` WHEN repeated `make local-up` invocations use equivalent inputs, the system SHALL converge to one cluster, one Helm release, and one access-policy singleton.
 12. `R6.AC12` IF a bounded readiness wait expires, THEN the system SHALL identify the exact awaited condition.
 13. `R6.AC13` IF the API server identity does not match the owned kubeconfig and context, THEN the system SHALL stop before issuing a Kubernetes write.
+14. `R6.AC14` The local readiness and status workflows SHALL discover webhook Service backends through `discovery.k8s.io/v1 EndpointSlice` resources selected by the standard Service-name label.
+15. `R6.AC15` WHEN the local workflow evaluates matching webhook EndpointSlices, the system SHALL count only endpoints reported ready for traffic.
+16. `R6.AC16` IF no ready endpoint exists across the matching webhook EndpointSlices, THEN the system SHALL identify the webhook Service reachability condition as unavailable.
 
 ### R7 Executable example catalog
 
@@ -204,6 +213,7 @@ developer feedback is useful without weakening release evidence.
 10. `R8.AC10` WHEN a contributor runs `make e2e`, the system SHALL create its independent run-unique disposable cluster rather than reuse `kubeseer-local`.
 11. `R8.AC11` WHEN local workflow verification terminates, the system SHALL leave the repository worktree unchanged.
 12. `R8.AC12` The system SHALL preserve `make e2e` as the authoritative full-product cluster certification entry point.
+13. `R8.AC13` The system SHALL perform webhook backend readiness checks without requesting the deprecated core `v1 Endpoints` API in either the local or end-to-end workflow.
 
 ### R9 Sanitized local diagnostics
 
@@ -229,6 +239,7 @@ can troubleshoot and share evidence safely.
 14. `R9.AC14` WHEN local diagnostics complete, the system SHALL report their exact repository-external destination path.
 15. `R9.AC15` IF the local API server is unavailable, THEN the system SHALL retain the available local metadata and identify the failed cluster observation.
 16. `R9.AC16` IF diagnostic collection cannot create its destination, THEN the system SHALL exit non-zero without changing cluster state.
+17. `R9.AC17` WHEN local diagnostics record webhook readiness, the system SHALL aggregate ready backends from all matching EndpointSlices.
 
 ### R10 Safe example and environment cleanup
 
@@ -274,6 +285,7 @@ cluster knowledge.
 10. `R11.AC10` The system SHALL document the separation between persistent `kubeseer-local` exploration and disposable `make e2e` certification.
 11. `R11.AC11` The system SHALL link the local development guide from the repository README.
 12. `R11.AC12` IF a documented recovery step is destructive to the owned local cluster, THEN the system SHALL name the exact target that will be deleted.
+13. `R11.AC13` The system SHALL document webhook backend inspection through `discovery.k8s.io/v1 EndpointSlice` without directing contributors to the deprecated core `v1 Endpoints` API.
 
 ## Non-Functional Requirements
 
@@ -286,6 +298,7 @@ cluster knowledge.
 - `NFR7` **Portability:** The initial local workflow SHALL remain cloud-independent and registry-independent on the certified Linux/amd64 host profile; `R2`, `R3`, `R4`, and `R11.AC1` through `R11.AC3` provide behavioral coverage.
 - `NFR8` **Non-vacuous testability:** Local and continuous-integration proofs SHALL fail on missing phases, zero-match assertions, wrong cluster identity, or incorrect public outcomes; `R7.AC8`, `R7.AC17`, `R8`, and `R10` provide behavioral coverage.
 - `NFR9` **Maintainability:** Local orchestration SHALL compose the canonical build, packaging, observability, and end-to-end entry points instead of maintaining divergent product semantics; `R1.AC11`, `R4`, `R5`, `R8.AC12`, and `R9.AC7` through `R9.AC9` provide behavioral coverage.
+- `NFR10` **Kubernetes API longevity:** Local and end-to-end readiness observation SHALL avoid Kubernetes resources deprecated by the oldest supported release when a stable replacement is available; `R6.AC14` through `R6.AC16`, `R8.AC13`, `R9.AC17`, and `R11.AC13` provide behavioral coverage.
 
 ## Constraints And Dependencies
 
@@ -301,6 +314,7 @@ cluster knowledge.
 - `C10` Local mutable state and diagnostics must remain outside the repository worktree unless a version-controlled example, configuration, script, or document is intentionally authored.
 - `C11` Kubeseer-authored scripts, manifests, examples, tests, and documentation remain under Apache License 2.0 with Alessandro Rontani as the default copyright holder.
 - `C12` Automated proof follows the repository testing constitution: genuine higher-layer or cluster behavior is required where applicable, zero-match execution fails, and no dedicated package-local unit-test layer is introduced.
+- `C13` Webhook backend discovery depends on the stable `discovery.k8s.io/v1 EndpointSlice` API, the `kubernetes.io/service-name` label, and aggregation across zero or more matching slices.
 
 ## Out Of Scope
 
@@ -313,4 +327,5 @@ cluster knowledge.
 - Replacing `make e2e`, duplicating its full scenario catalog, or treating successful local examples as release certification.
 - Load, soak, chaos, upgrade-skew, disaster-recovery, backup, restore, multi-cluster, or cloud-provider verification.
 - Automatically installing IDE extensions, dev containers, virtual machines, Podman machine, system packages, or host networking configuration.
+- Creating, mirroring, or otherwise taking ownership of Service EndpointSlices; Kubernetes remains responsible for publishing them from Service selectors.
 - Global Podman pruning, unrelated container-engine cleanup, destructive CRD purge on an external cluster, or collection of Secret and credential material.

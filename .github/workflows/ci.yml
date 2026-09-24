@@ -1,0 +1,46 @@
+name: Continuous integration
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "**"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the event revision
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up the Go version declared by go.mod
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Download project modules for offline verification
+        run: go mod download
+
+      - name: Install ripgrep for repository verification
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ripgrep
+          rg --version
+
+      - name: Verify generated files, package rules, and repository boundaries
+        run: make verify
+
+      - name: Run the default integration test layer
+        run: make test
+
+      - name: Prove development events cannot publish release artifacts
+        run: make test-release-distribution SCENARIO=policy
