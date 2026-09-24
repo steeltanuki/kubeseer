@@ -90,8 +90,20 @@ PY
 }
 
 registry_probe() {
-	local kind="$1" repo="$2" reference="$3" output="$4"
-	python3 "$http_helper" registry-manifest --base "$(registry_base)" --repository "$repo" --reference "$reference" --kind "$kind" >"$output" || fail "cannot inventory public $kind artifact $repo:$reference"
+	local kind="$1" repo="$2" reference="$3" output="$4" access="${5:-public}"
+	local -a flags=()
+	if [[ "$access" == authenticated ]]; then flags+=(--authenticated); fi
+	python3 "$http_helper" registry-manifest --base "$(registry_base)" --repository "$repo" --reference "$reference" --kind "$kind" "${flags[@]}" >"$output" || fail "cannot inventory $access $kind artifact $repo:$reference"
+}
+
+registry_inventory_probe() {
+	local kind="$1" repo="$2" reference="$3" output="$4" public_output="$4.public"
+	registry_probe "$kind" "$repo" "$reference" "$output" authenticated
+	if [[ "$(json_value "$output" state)" == present ]]; then
+		registry_probe "$kind" "$repo" "$reference" "$public_output"
+		[[ "$(json_value "$public_output" state)" == present && "$(json_value "$public_output" digest)" == "$(json_value "$output" digest)" ]] || fail "authenticated and public $kind inventory disagree for $repo:$reference"
+		mv "$public_output" "$output"
+	fi
 }
 
 github_tag_identity() {
@@ -601,10 +613,10 @@ PY
 
 remote_inventory() {
 	local tag="$1" version="$2" source_sha="$3" directory="$4"
-	registry_probe image steeltanuki/kubeseer "$version" "$directory/image.json"
-	registry_probe chart steeltanuki/charts/kubeseer "$version" "$directory/chart.json"
-	registry_probe image steeltanuki/kubeseer latest "$directory/image-latest.json"
-	registry_probe chart steeltanuki/charts/kubeseer latest "$directory/chart-latest.json"
+	registry_inventory_probe image steeltanuki/kubeseer "$version" "$directory/image.json"
+	registry_inventory_probe chart steeltanuki/charts/kubeseer "$version" "$directory/chart.json"
+	registry_inventory_probe image steeltanuki/kubeseer latest "$directory/image-latest.json"
+	registry_inventory_probe chart steeltanuki/charts/kubeseer latest "$directory/chart-latest.json"
 	github_tag_identity "$tag" "$directory/github-tag.json"
 	[[ "$(json_value "$directory/github-tag.json" sha)" == "$source_sha" ]] || fail "GitHub release tag resolves to a different source commit"
 	github_release_identity "$tag" "$directory/github-release.json"
@@ -613,7 +625,7 @@ remote_inventory() {
 
 latest_baseline() {
 	local kind="$1" repo="$2" output="$3" state
-	registry_probe "$kind" "$repo" latest "$output"
+	registry_inventory_probe "$kind" "$repo" latest "$output"
 	state="$(json_value "$output" state)"
 	if [[ "$state" == present ]]; then json_value "$output" digest; else printf absent; fi
 }
@@ -720,7 +732,7 @@ publish_transaction() {
 		cmp -s "$directory/existing-release.md" "$directory/expected-release.md" || fail "existing GitHub Release body conflicts with the immutable release candidate"
 	fi
 	if [[ "$image_state" == absent && "$mode" != publish-chart && "$mode" != publish-release ]]; then
-		registry_probe image steeltanuki/kubeseer "$version" "$directory/image-immediate.json"
+		registry_inventory_probe image steeltanuki/kubeseer "$version" "$directory/image-immediate.json"
 		if [[ "$(json_value "$directory/image-immediate.json" state)" == present ]]; then
 			assert_public_image "$directory/image-immediate.json" "$version" "$source_sha" "$image_digest"
 		else
@@ -732,7 +744,7 @@ publish_transaction() {
 		image_state=present
 	fi
 	if [[ "$chart_state" == absent && "$mode" != publish-image && "$mode" != publish-release ]]; then
-		registry_probe chart steeltanuki/charts/kubeseer "$version" "$directory/chart-immediate.json"
+		registry_inventory_probe chart steeltanuki/charts/kubeseer "$version" "$directory/chart-immediate.json"
 		if [[ "$(json_value "$directory/chart-immediate.json" state)" == present ]]; then
 			chart_digest="$(verify_public_chart "$version" "$directory" "$directory/chart-raced" "$chart_digest")"
 		else
