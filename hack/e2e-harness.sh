@@ -322,7 +322,14 @@ wait_for_http() {
 				return 0
 			fi
 		fi
-		run_curl --fail --silent --show-error --max-time 2 "http://127.0.0.1:${local_port}${path}" >/dev/null 2>&1 || true
+		if ! kill -0 "$forward_pid" 2>/dev/null; then
+			printf 'port-forward exited before HTTP readiness for %s%s\n' "$service" "$path" >&2
+			return 1
+		fi
+		# Connection refusal returns immediately while kubectl is still starting.
+		if ((attempt < 30)); then
+			sleep 1
+		fi
 	done
 	printf 'HTTP readiness failed for %s%s\n' "$service" "$path" >&2
 	return 1

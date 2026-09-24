@@ -39,11 +39,11 @@ not needed for these public packages.
 
 Choose a stable version shown on the
 [GitHub Releases page](https://github.com/steeltanuki/kubeseer/releases). For
-example, this installs `0.1.0` (source tag `v0.1.0`):
+example, this installs `0.1.1` (source tag `v0.1.1`):
 
 ```sh
 helm upgrade --install kubeseer oci://ghcr.io/steeltanuki/charts/kubeseer \
-  --version 0.1.0 \
+  --version 0.1.1 \
   --namespace kubeseer-system --create-namespace \
   --wait --timeout 10m
 ```
@@ -51,16 +51,16 @@ helm upgrade --install kubeseer oci://ghcr.io/steeltanuki/charts/kubeseer \
 `Chart.yaml` `version` and `appVersion` match the selected release. The
 default image repository is `ghcr.io/steeltanuki/kubeseer`; its empty chart
 `image.tag` resolves to `appVersion`, so this command installs
-`ghcr.io/steeltanuki/kubeseer:0.1.0`. The `.tgz` chart archive is a temporary
+`ghcr.io/steeltanuki/kubeseer:0.1.1`. The `.tgz` chart archive is a temporary
 release-verification input and is not attached to the GitHub Release; the OCI
 chart is the canonical distribution artifact.
 
 To inspect or render an official chart without installing it:
 
 ```sh
-helm show chart oci://ghcr.io/steeltanuki/charts/kubeseer --version 0.1.0
+helm show chart oci://ghcr.io/steeltanuki/charts/kubeseer --version 0.1.1
 helm template kubeseer oci://ghcr.io/steeltanuki/charts/kubeseer \
-  --version 0.1.0 --namespace kubeseer-system \
+  --version 0.1.1 --namespace kubeseer-system \
   --kube-version 1.35.6 --include-crds
 ```
 
@@ -85,7 +85,7 @@ helm package charts/kubeseer --destination dist
 make verify-package
 ```
 
-`image.tag: ""` resolves to `Chart.appVersion` (`0.1.0` in this package).
+`image.tag: ""` resolves to `Chart.appVersion` (`0.1.1` in this package).
 Every explicit image tag must be immutable and `latest` is rejected. `make
 verify-package` also regenerates the CRDs with the pinned controller-tools
 version, checks the image and security contract, and renders both certificate
@@ -103,7 +103,7 @@ default chart mode is `certManager` and uses cert-manager:
 helm upgrade --install kubeseer charts/kubeseer \
   --namespace kubeseer-system --create-namespace \
   --set image.repository=ghcr.io/steeltanuki/kubeseer \
-  --set image.tag=0.1.0 \
+  --set image.tag=0.1.1 \
   --wait --timeout 10m
 ```
 
@@ -124,7 +124,7 @@ pull requests continue to target `develop`; a release reaches `main` through
 the maintainer's reviewed promotion.
 
 Official releases use stable Semantic Versioning tags of the form
-`vMAJOR.MINOR.PATCH`, such as `v0.1.0`. Prerelease tags are not supported by
+`vMAJOR.MINOR.PATCH`, such as `v0.1.1`. Prerelease tags are not supported by
 the initial release-distribution workflow. For a release, the maintainer
 prepares the chart's `version` and `appVersion` in
 `charts/kubeseer/Chart.yaml` and substantive notes at
@@ -137,7 +137,7 @@ reviewed promotion commit from `origin/main`, verify its SHA, then create and
 push the annotated version tag. For example:
 
 ```sh
-TAG=v0.1.0
+TAG=v0.1.1
 git fetch origin main
 git switch --detach origin/main
 git rev-parse HEAD  # Confirm this is the reviewed promotion commit.
@@ -163,7 +163,7 @@ For read-only inventory from a clean checkout of the exact tag, a maintainer
 can compare the public artifacts and their recorded digests:
 
 ```sh
-TAG=v0.1.0
+TAG=v0.1.1
 git checkout --detach "$TAG"
 SOURCE_SHA="$(git rev-parse "refs/tags/${TAG}^{commit}")"
 GH_TOKEN="$(gh auth token)" \
@@ -243,7 +243,7 @@ TLS Secret:
 
 ```sh
 helm upgrade --install kubeseer oci://ghcr.io/steeltanuki/charts/kubeseer \
-  --version 0.1.0 \
+  --version 0.1.1 \
   --namespace kubeseer-system --create-namespace \
   --set certificate.mode=externalSecret \
   --set certificate.externalSecret.secretName=administrator-webhook-tls \
@@ -274,7 +274,7 @@ export KUBE_CONTEXT=my-cluster
 make package-crd-check
 make package-apply-crds
 helm upgrade kubeseer oci://ghcr.io/steeltanuki/charts/kubeseer \
-  --version 0.1.0 \
+  --version 0.1.1 \
   --namespace kubeseer-system --reuse-values \
   --wait --timeout 10m
 ```
@@ -365,7 +365,7 @@ KUBESEER_PACKAGE_CONTEXT_1_35_6=my-135-cluster \
 KUBESEER_PACKAGE_KUBECONFIG_1_36_2=/absolute/kubeconfig-136 \
 KUBESEER_PACKAGE_CONTEXT_1_36_2=my-136-cluster \
 KUBESEER_PACKAGE_IMAGE_REPOSITORY=ghcr.io/steeltanuki/kubeseer \
-KUBESEER_PACKAGE_IMAGE_TAG=0.1.0 \
+KUBESEER_PACKAGE_IMAGE_TAG=0.1.1 \
   make test-package-compatibility
 ```
 

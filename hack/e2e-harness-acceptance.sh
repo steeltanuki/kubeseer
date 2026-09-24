@@ -141,7 +141,7 @@ set -euo pipefail
 printf 'kubectl kubeconfig-env=%s aws=%s args=%s\n' \
 	"${KUBECONFIG-<unset>}" "${AWS_SECRET_ACCESS_KEY-<unset>}" "$*" >>"$TRACE_FILE"
 
-while [[ "${1:-}" == --kubeconfig || "${1:-}" == --context ]]; do
+while [[ "${1:-}" == --kubeconfig || "${1:-}" == --context || "${1:-}" == --namespace ]]; do
 	shift 2
 done
 
@@ -153,6 +153,15 @@ if [[ "${1:-}" == version ]]; then
 	exit 0
 fi
 if [[ "${1:-}" == port-forward ]]; then
+	if [[ "$*" == *'18081:8081'* ]]; then
+		if [[ "${KUBESEER_FAIL_READY_PORT_FORWARD-}" == 1 ]]; then
+			exit 51
+		fi
+		if [[ "${KUBESEER_DELAY_READY_PORT_FORWARD-}" == 1 ]]; then
+			sleep 2
+			printf '%s\n' 'readiness-forward-listening' >>"$TRACE_FILE"
+		fi
+	fi
 	while :; do sleep 1; done
 fi
 if [[ "${1:-}" == get ]]; then
@@ -275,6 +284,13 @@ done
 if [[ -n "$output" ]]; then
 	printf '%s\n' '# pinned cert-manager acceptance manifest' >"$output"
 elif [[ "$*" == *'/readyz'* ]]; then
+	if [[ "${KUBESEER_FAIL_READY_PORT_FORWARD-}" == 1 ]]; then
+		exit 7
+	fi
+	if [[ "${KUBESEER_DELAY_READY_PORT_FORWARD-}" == 1 ]] && \
+		! grep -q -x 'readiness-forward-listening' "$TRACE_FILE"; then
+		exit 7
+	fi
 	printf '%s\n' 'ok'
 elif [[ "$*" == *'/metrics'* ]]; then
 	printf '%s\n' '# HELP kubeseer_reconciliations_total reconciliations' 'kubeseer_reconciliations_total 1'
@@ -362,6 +378,22 @@ second_output="$(run_success 2>&1)"
 assert_contains "$second_output" 'TEST_LAYER=end-to-end STATUS=passed'
 second_name="$(sed -n 's/.*args=create cluster --name \([^ ]*\).*/\1/p' "$TRACE_PATH" | head -n 1)"
 [[ "$create_name" != "$second_name" ]] || { printf '%s\n' 'cluster names are not run-unique' >&2; exit 1; }
+
+delayed_forward_trace="$FIXTURE_DIR/delayed-forward.trace"
+: >"$delayed_forward_trace"
+delayed_forward_output="$(run_with_status 0 env PATH="$BIN_DIR:$ORIGINAL_PATH" TRACE_FILE="$delayed_forward_trace" \
+	KUBECONFIG="$AMBIENT_KUBECONFIG" USE_EXISTING_CLUSTER=true KUBESEER_DELAY_READY_PORT_FORWARD=1 \
+	"$HARNESS" "$PACKAGE_DIR" '^TestEndToEnd$')"
+assert_contains "$delayed_forward_output" 'TEST_LAYER=end-to-end STATUS=passed'
+assert_contains "$(<"$delayed_forward_trace")" 'readiness-forward-listening'
+
+failed_forward_trace="$FIXTURE_DIR/failed-forward.trace"
+: >"$failed_forward_trace"
+failed_forward_output="$(run_with_status 1 env PATH="$BIN_DIR:$ORIGINAL_PATH" TRACE_FILE="$failed_forward_trace" \
+	KUBECONFIG="$AMBIENT_KUBECONFIG" USE_EXISTING_CLUSTER=true KUBESEER_FAIL_READY_PORT_FORWARD=1 \
+	"$HARNESS" "$PACKAGE_DIR" '^TestEndToEnd$')"
+assert_contains "$failed_forward_output" 'port-forward exited before HTTP readiness for deployment/kubeseer/readyz'
+assert_not_contains "$failed_forward_output" 'TEST_LAYER=end-to-end STATUS=passed'
 
 no_ready_trace="$FIXTURE_DIR/no-ready.trace"
 no_ready_output="$(run_with_status 1 env PATH="$BIN_DIR:$ORIGINAL_PATH" TRACE_FILE="$no_ready_trace" \
