@@ -15,11 +15,14 @@
 package integration
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"sigs.k8s.io/yaml"
 )
 
 func assertPackagingWorkloadScenarios(t *testing.T) {
@@ -39,7 +42,7 @@ func assertPackagingWorkloadScenarios(t *testing.T) {
 	for _, fragment := range []string{
 		"kind: Deployment",
 		"namespace: team-a",
-		"image: \"ghcr.io/steeltanuki/kubeseer:0.1.4\"",
+		"image: \"ghcr.io/steeltanuki/kubeseer:" + packagingAppVersion(t, chartDir) + "\"",
 		"maxUnavailable: 0",
 		"maxSurge: 1",
 		"readOnlyRootFilesystem: true",
@@ -72,4 +75,24 @@ func assertPackagingWorkloadScenarios(t *testing.T) {
 	}
 
 	t.Log("MODULE_INTEGRATION=packaging-workload STATUS=passed")
+}
+
+// Read the expected identity from the chart source, independently of rendering.
+func packagingAppVersion(t *testing.T, chartDir string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(chartDir, "Chart.yaml"))
+	if err != nil {
+		t.Fatalf("read chart metadata: %v", err)
+	}
+	var metadata struct {
+		Version    string `json:"version"`
+		AppVersion string `json:"appVersion"`
+	}
+	if err := yaml.Unmarshal(data, &metadata); err != nil {
+		t.Fatalf("decode chart metadata: %v", err)
+	}
+	if metadata.AppVersion == "" || metadata.Version != metadata.AppVersion {
+		t.Fatalf("chart version %q and appVersion %q must be nonempty and equal", metadata.Version, metadata.AppVersion)
+	}
+	return metadata.AppVersion
 }

@@ -286,7 +286,7 @@ copy_repository_fixture() {
 	done < <(git -C "$ROOT_DIR" ls-files --cached --others --exclude-standard -z)
 	# Candidate and transaction fixtures use a synthetic v0.1.3 tag regardless
 	# of the next version prepared in the source checkout.
-	sed -i 's/^version: 0\.1\.4$/version: 0.1.3/; s/^appVersion: "0\.1\.4"$/appVersion: "0.1.3"/' "$FIXTURE_REPO/charts/kubeseer/Chart.yaml"
+	sed -i 's/^version: .*/version: 0.1.3/; s/^appVersion: .*/appVersion: "0.1.3"/' "$FIXTURE_REPO/charts/kubeseer/Chart.yaml"
 	mkdir -p "$FIXTURE_REPO/.github/workflows" "$FIXTURE_REPO/docs/releases"
 	if [[ ! -f "$FIXTURE_REPO/.github/workflows/release.yml" ]]; then
 		printf '%s\n' 'name: Official release distribution' 'on:' '  push:' '    tags: ["v*"]' >"$FIXTURE_REPO/.github/workflows/release.yml"
@@ -327,7 +327,18 @@ commit_tagged_change() {
 }
 
 run_candidate() {
-	expected_cases=8
+	expected_cases=9
+	# Exercise the installed CLI parser, including the same option list used
+	# by publication, before building any image or contacting a registry.
+	local toolcheck_dir="$temp_dir/toolcheck" toolcheck_output
+	mkdir -p "$toolcheck_dir"
+	cp "$SCRIPT" "$ROOT_DIR/hack/release-distribution-http.py" "$toolcheck_dir/"
+	sed -i 's/push_flags=(--format/push_flags=(--kubeseer-invalid-option --format/' "$toolcheck_dir/release-distribution.sh"
+	if toolcheck_output="$("$toolcheck_dir/release-distribution.sh" check-tools 2>&1)"; then
+		fail "unsupported Podman publication option passed the tool preflight"
+	fi
+	[[ "$toolcheck_output" == *"installed Podman cannot parse the image publication options"* ]] || fail "tool preflight failed for the wrong reason: $toolcheck_output"
+	pass_case unsupported-podman-option-fails-before-build
 	copy_repository_fixture valid-candidate
 	local candidate_output="$temp_dir/candidate-output"
 	mkdir -p "$candidate_output"
@@ -480,7 +491,10 @@ EOF
 }
 
 run_transaction() {
-	expected_cases=19
+	expected_cases=20
+	# Fresh Actions runners do not have the local fixture images cached.
+	podman image exists docker.io/library/registry:2.8.3 || podman pull docker.io/library/registry:2.8.3 >/dev/null
+	podman image exists docker.io/library/alpine:3.20 || podman pull docker.io/library/alpine:3.20 >/dev/null
 	copy_repository_fixture transaction
 	local candidate="$temp_dir/transaction-candidate" stage_output write_log real_podman real_helm registry_port api_port api_state api_log fixture_bin
 	mkdir -p "$candidate"
@@ -570,6 +584,10 @@ PY
 	mkdir -p "$fixture_bin"
 	real_podman="$(command -v podman)"
 	real_helm="$(command -v helm)"
+	local -a fixture_helm_flags=()
+	local helm_push_help
+	helm_push_help="$("$real_helm" push --help)"
+	if [[ "$helm_push_help" == *--plain-http* ]]; then fixture_helm_flags+=(--plain-http); fi
 	cat >"$fixture_bin/gh" <<'PY'
 #!/usr/bin/env python3
 import json, os, pathlib, sys, urllib.error, urllib.request
@@ -603,6 +621,9 @@ with log.open("a", encoding="utf-8") as output:
 PY
 	cat >"$fixture_bin/podman" <<'SH'
 #!/usr/bin/env bash
+for option in "$@"; do
+	if [[ "$option" == --help ]]; then exec "$RELEASE_REAL_PODMAN" "$@"; fi
+done
 if [[ "${1:-}" == push ]]; then
 	printf 'podman push %s\n' "$*" >>"$RELEASE_TEST_WRITE_LOG"
 	if [[ "${RELEASE_TEST_FAIL_IMAGE_PUSH:-}" == true ]]; then exit 87; fi
@@ -611,6 +632,9 @@ exec "$RELEASE_REAL_PODMAN" "$@"
 SH
 	cat >"$fixture_bin/helm" <<'SH'
 #!/usr/bin/env bash
+for option in "$@"; do
+	if [[ "$option" == --help ]]; then exec "$RELEASE_REAL_HELM" "$@"; fi
+done
 if [[ "${1:-}" == push ]]; then
 	printf 'helm push %s\n' "$*" >>"$RELEASE_TEST_WRITE_LOG"
 	if [[ "${RELEASE_TEST_FAIL_CHART_PUSH:-}" == true ]]; then exit 88; fi
@@ -740,6 +764,19 @@ PY
 	mapfile -t write_lines <"$write_log"
 	[[ "${write_lines[0]}" == podman\ push* && "${write_lines[1]}" == podman\ push* && "${write_lines[2]}" == helm\ push* && "${write_lines[3]}" == helm\ push* && "${write_lines[4]}" == "github release create v0.1.3" ]] || fail "public release writes did not follow image, chart, Release order"
 	pass_case github-release-created-last-with-tagged-identity
+	# A workflow rerun rebuilds from source on a fresh runner. Reusing the same
+	# candidate directory here hid non-reproducible Helm archive timestamps.
+	local rebuilt_candidate="$temp_dir/transaction-rebuilt-candidate"
+	stage_output="$(cd "$FIXTURE_REPO" && ./hack/release-distribution.sh stage --tag v0.1.3 --source-sha "$FIXTURE_SHA" --output-dir "$rebuilt_candidate" 2>&1)" || fail "same-tag candidate rebuild failed: $stage_output"
+	cmp -s "$candidate/kubeseer-0.1.3.tgz" "$rebuilt_candidate/kubeseer-0.1.3.tgz" || fail "same-tag rebuild changed the chart archive bytes"
+	python3 - "$candidate/candidate.json" "$rebuilt_candidate/candidate.json" <<'PY'
+import json, pathlib, sys
+first, second = [json.loads(pathlib.Path(path).read_text()) for path in sys.argv[1:]]
+for key in ("source_commit", "image_manifest_digest", "image_config_digest", "chart_archive_sha256"):
+    assert first[key] == second[key], f"same-tag rebuild changed {key}"
+PY
+	candidate="$rebuilt_candidate"
+	pass_case same-tag-rebuild-preserves-image-and-chart-digests
 	for mode in publish-image publish-chart publish-release; do
 		publish_output="$(call_release "$mode" 2>&1)" || fail "identical rerun failed in $mode: $publish_output"
 	done
@@ -798,14 +835,14 @@ PY
 	cp -a "$FIXTURE_REPO/charts/kubeseer" "$conflict_chart"
 	printf '# immutable conflict fixture\n' >"$conflict_chart/templates/release-conflict.yaml"
 	"$real_helm" package "$conflict_chart" --destination "$temp_dir/conflicting-chart/package" >/dev/null
-	"$real_helm" push "$temp_dir/conflicting-chart/package/kubeseer-0.1.3.tgz" "oci://$(python3 -c 'from urllib.parse import urlparse;import os;print(urlparse(os.environ["RELEASE_DISTRIBUTION_REGISTRY_BASE"]).netloc)')/steeltanuki/charts" --registry-config "$candidate/helm-anonymous.json" >/dev/null 2>&1 || fail "could not create conflicting local chart fixture"
+	"$real_helm" push "$temp_dir/conflicting-chart/package/kubeseer-0.1.3.tgz" "oci://$(python3 -c 'from urllib.parse import urlparse;import os;print(urlparse(os.environ["RELEASE_DISTRIBUTION_REGISTRY_BASE"]).netloc)')/steeltanuki/charts" --registry-config "$candidate/helm-anonymous.json" "${fixture_helm_flags[@]}" >/dev/null 2>&1 || fail "could not create conflicting local chart fixture"
 	conflict_state="$(registry_digest chart steeltanuki/charts/kubeseer 0.1.3)"
 	[[ "$conflict_state" != "$original_chart_digest" ]] || fail "chart conflict fixture did not change the immutable artifact digest"
 	current_count="$(wc -l <"$write_log" | tr -d ' ')"
 	if publish_output="$(call_release publish-chart 2>&1)"; then fail "different Helm archive was accepted for an immutable version"; fi
 	[[ "$publish_output" == *"published Helm OCI chart bytes differ from the staged canonical chart"* ]] || fail "chart conflict failed for the wrong reason: $publish_output"
 	[[ "$(wc -l <"$write_log" | tr -d ' ')" == "$current_count" ]] || fail "conflicting Helm chart caused a public replacement write"
-	"$real_helm" push "$candidate/kubeseer-0.1.3.tgz" "oci://$(python3 -c 'from urllib.parse import urlparse;import os;print(urlparse(os.environ["RELEASE_DISTRIBUTION_REGISTRY_BASE"]).netloc)')/steeltanuki/charts" --registry-config "$candidate/helm-anonymous.json" >/dev/null 2>&1 || fail "could not restore the exact verified chart fixture"
+	"$real_helm" push "$candidate/kubeseer-0.1.3.tgz" "oci://$(python3 -c 'from urllib.parse import urlparse;import os;print(urlparse(os.environ["RELEASE_DISTRIBUTION_REGISTRY_BASE"]).netloc)')/steeltanuki/charts" --registry-config "$candidate/helm-anonymous.json" "${fixture_helm_flags[@]}" >/dev/null 2>&1 || fail "could not restore the exact verified chart fixture"
 	[[ "$(registry_digest chart steeltanuki/charts/kubeseer 0.1.3)" == "$original_chart_digest" ]] || fail "chart fixture recovery changed the recorded immutable digest"
 	pass_case conflicting-chart-content-is-rejected-without-replacement
 	local original_image_digest image_conflict_ref
@@ -871,15 +908,16 @@ PY
 
 run_docs() {
 	expected_cases=3
-	python3 - "$ROOT_DIR/README.md" "$ROOT_DIR/docs/installation.md" "$ROOT_DIR/CONTRIBUTING.md" <<'PY'
-import pathlib, sys
+	python3 - "$ROOT_DIR/README.md" "$ROOT_DIR/docs/installation.md" "$ROOT_DIR/CONTRIBUTING.md" "$ROOT_DIR/charts/kubeseer/Chart.yaml" <<'PY'
+import pathlib, re, sys
 readme = " ".join(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").split())
 install = " ".join(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8").split())
 contributing = " ".join(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8").split())
 chart = "oci://ghcr.io/steeltanuki/charts/kubeseer"
 image = "ghcr.io/steeltanuki/kubeseer"
+version = re.search(r"^version: (\S+)$", pathlib.Path(sys.argv[4]).read_text(), re.M).group(1)
 required_readme = [
-    "## Install an official release", chart, "--version 0.1.4",
+    "## Install an official release", chart, f"--version {version}",
     "## Install or build from source", "## Local development quick start",
     "without publishing them", "docs/local-development.md", "GitHub Releases page",
     "Kubernetes 1.35.6 and 1.36.2", "Helm 3.12 or newer",
@@ -888,7 +926,7 @@ missing = [item for item in required_readme if item not in readme]
 assert not missing, "README release/source/local paths omit: " + repr(missing)
 assert readme.index("## Install an official release") < readme.index("## Install or build from source") < readme.index("## Local development quick start"), "README install paths are not ordered release, source, local"
 required_install = [
-    "## Installing an official release", chart, "--version 0.1.4",
+    "## Installing an official release", chart, f"--version {version}",
     "helm show chart", "helm template kubeseer", "Chart.yaml` `version` and `appVersion`",
     image, "## Working from a source checkout", "helm package charts/kubeseer",
     "local development guide", "not publish an image or chart",
@@ -899,7 +937,7 @@ required_install = [
     "exact reviewed promotion commit from `origin/main`", "git tag -a", "git push origin",
     "reachable from fetched `origin/main`", "floating `stable` or `latest` Git tags or image/chart aliases do not publish artifacts",
     "linux/amd64", "Kubernetes `1.35.6` and `1.36.2`", "Helm 3.12 or newer",
-    "--version 0.1.4", "## Policy, RBAC, and upgrades", "CRD-bearing upgrade",
+    f"--version {version}", "## Policy, RBAC, and upgrades", "CRD-bearing upgrade",
     "inventory --tag", "audit --tag", "same protected tag", "do not move the",
     "not attached to the GitHub Release", "not attached as a second download format",
     "GitHub Releases page",
@@ -1023,7 +1061,8 @@ run_workflows() {
 }
 
 if [[ "$SCENARIO_NAME" == all ]]; then
-	for scenario in policy candidate transaction workflows docs; do
+	# Reject source policy, workflow and documentation errors before OCI builds.
+	for scenario in policy workflows docs candidate transaction; do
 		SCENARIO="$scenario" "$0"
 	done
 	exit 0

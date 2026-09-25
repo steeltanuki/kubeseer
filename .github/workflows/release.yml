@@ -26,6 +26,23 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Validate stable tag identity and protected source lineage
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_PROTECTED:-false}" != true ]]; then
+            echo 'Release tag must be protected by an active GitHub ruleset' >&2
+            exit 1
+          fi
+          source_sha="$(git rev-parse --verify "${GITHUB_REF}^{commit}")"
+          [[ "$source_sha" == "$GITHUB_SHA" ]]
+          ./hack/release-distribution.sh validate --tag "$GITHUB_REF_NAME" --source-sha "$source_sha"
+          printf 'sha=%s\n' "$source_sha" >>"$GITHUB_OUTPUT"
+
+      - name: Check release command compatibility before installing dependencies
+        run: ./hack/release-distribution.sh check-tools
+
       - name: Set up the Go version declared by go.mod
         uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
@@ -40,16 +57,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ripgrep
           rg --version
-
-      - name: Validate stable tag identity and protected source lineage
-        id: source
-        shell: bash
-        run: |
-          set -euo pipefail
-          source_sha="$(git rev-parse --verify "${GITHUB_REF}^{commit}")"
-          [[ "$source_sha" == "$GITHUB_SHA" ]]
-          ./hack/release-distribution.sh validate --tag "$GITHUB_REF_NAME" --source-sha "$source_sha"
-          printf 'sha=%s\n' "$source_sha" >>"$GITHUB_OUTPUT"
 
       - name: Fail if the certified local test toolchain is unavailable
         run: ./hack/local-environment.sh check
@@ -91,6 +98,9 @@ jobs:
           ref: ${{ needs.gates.outputs.source_sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Check publication commands on this runner
+        run: ./hack/release-distribution.sh check-tools
 
       - name: Install ripgrep for release source checks
         run: |

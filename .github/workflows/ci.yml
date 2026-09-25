@@ -21,6 +21,9 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
 
+      - name: Check release command compatibility before installing dependencies
+        run: ./hack/release-distribution.sh check-tools
+
       - name: Set up the Go version declared by go.mod
         uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
@@ -36,11 +39,11 @@ jobs:
           sudo apt-get install -y --no-install-recommends ripgrep
           rg --version
 
+      - name: Exercise release publication and recovery against a disposable registry
+        run: make test-release-distribution SCENARIO=all
+
       - name: Verify generated files, package rules, and repository boundaries
         run: make verify
 
       - name: Run the default integration test layer
         run: make test
-
-      - name: Prove development events cannot publish release artifacts
-        run: make test-release-distribution SCENARIO=policy
