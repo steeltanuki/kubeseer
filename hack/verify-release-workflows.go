@@ -91,6 +91,21 @@ func exactRunLineCount(job object, command string) int {
 	return count
 }
 
+func requireRunBeforeGoSetup(job object, command string) {
+	commandIndex, setupIndex := -1, -1
+	for index, step := range steps(job) {
+		for _, line := range strings.Split(str(step["run"]), "\n") {
+			if strings.TrimSpace(line) == command {
+				commandIndex = index
+			}
+		}
+		if strings.HasPrefix(str(step["uses"]), "actions/setup-go@") {
+			setupIndex = index
+		}
+	}
+	check(commandIndex >= 0 && setupIndex > commandIndex, "cheap preflight must precede Go setup: "+command)
+}
+
 const ripgrepSetup = "sudo apt-get update\nsudo apt-get install -y --no-install-recommends ripgrep\nrg --version"
 
 func requireRipgrepSetup(job object, installName, beforeName string) {
@@ -254,8 +269,9 @@ func main() {
 	requireRipgrepSetup(ciJob, "Install ripgrep for repository verification", "Verify generated files, package rules, and repository boundaries")
 	requireModuleSetup(ciJob, "Verify generated files, package rules, and repository boundaries")
 	ciRuns := runs(ciJob)
-	check(runCount(ciJob) == 5, "CI must set up Go modules and ripgrep before its three validation commands")
-	for _, command := range []string{"make verify", "make test", "make test-release-distribution SCENARIO=policy"} {
+	check(runCount(ciJob) == 6, "CI must check release tools, set up dependencies, and run three validation commands")
+	requireRunBeforeGoSetup(ciJob, "./hack/release-distribution.sh check-tools")
+	for _, command := range []string{"make verify", "make test", "make test-release-distribution SCENARIO=all"} {
 		check(exactRunLineCount(ciJob, command) == 1, "CI must invoke exactly once: "+command)
 	}
 	for _, forbidden := range []string{"podman push", "helm push", "gh release create", "publish-image", "release-distribution.sh publish "} {
@@ -281,10 +297,13 @@ func main() {
 	fmt.Println("PASS release-distribution/permissions-are-job-scoped")
 
 	gateRuns := runs(gates)
+	requireRunBeforeGoSetup(gates, "./hack/release-distribution.sh validate --tag \"$GITHUB_REF_NAME\" --source-sha \"$source_sha\"")
+	requireRunBeforeGoSetup(gates, "./hack/release-distribution.sh check-tools")
 	requireRipgrepSetup(gates, "Install ripgrep for repository verification", "Verify generated files and package contracts")
 	requireModuleSetup(gates, "Verify generated files and package contracts")
 	for _, command := range []string{
 		"./hack/release-distribution.sh validate --tag \"$GITHUB_REF_NAME\" --source-sha \"$source_sha\"",
+		"./hack/release-distribution.sh check-tools",
 		"./hack/local-environment.sh check",
 		"make verify",
 		"make test",
@@ -295,17 +314,19 @@ func main() {
 	} {
 		check(exactRunLineCount(gates, command) == 1, "release gates must run exactly once: "+command)
 	}
-	check(runCount(gates) == 10, "release gate job must set up Go modules and ripgrep before the approved eight commands")
+	check(runCount(gates) == 11, "release gate job must run source/tool preflight, dependencies, and the mandatory product gates")
 	for _, duplicate := range []string{"make build", "make verify-package", "make test-integration"} {
 		check(!strings.Contains(gateRuns, duplicate), "release workflow duplicates an existing verification contract: "+duplicate)
 	}
 	check(strings.Contains(str(obj(gates["outputs"])["source_sha"]), "steps.source.outputs.sha"), "gates must export their verified full source SHA")
 	check(strings.Contains(gateRuns, "git rev-parse --verify") && strings.Contains(gateRuns, "GITHUB_REF") && strings.Contains(gateRuns, "GITHUB_SHA"), "gates must peel and confirm the exact tag commit")
+	check(strings.Contains(gateRuns, "${GITHUB_REF_PROTECTED:-false}"), "gates must reject an unprotected tag before expensive validation")
 	fmt.Println("PASS release-distribution/mandatory-release-gates")
 
 	publishRuns := runs(publish)
 	requireRipgrepSetup(publish, "Install ripgrep for release source checks", "Publish and verify the immutable release artifacts")
-	check(runCount(publish) == 3, "release publisher must contain ripgrep setup and the two approved source and publish commands")
+	check(runCount(publish) == 4, "release publisher must check tools, set up ripgrep, confirm source, and publish")
+	check(exactRunLineCount(publish, "./hack/release-distribution.sh check-tools") == 1, "publish runner must independently check publication tools")
 	check(strings.Contains(publishRuns, "release-distribution.sh publish "), "publisher must invoke the canonical release orchestrator")
 	check(strings.Contains(publishRuns, "RELEASE_GATE_SOURCE_SHA") && strings.Contains(publishRuns, "GITHUB_SHA"), "publisher must compare the gated SHA with the event SHA")
 	check(strings.Contains(publishRuns, "git rev-parse HEAD"), "publisher must independently confirm its checked-out source revision")

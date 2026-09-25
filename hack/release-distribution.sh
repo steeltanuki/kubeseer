@@ -36,6 +36,7 @@ fail() {
 usage() {
 	cat >&2 <<'EOF'
 usage: hack/release-distribution.sh validate --tag vMAJOR.MINOR.PATCH --source-sha FULL_SHA
+       hack/release-distribution.sh check-tools
        hack/release-distribution.sh stage --tag vMAJOR.MINOR.PATCH --source-sha FULL_SHA [--output-dir RUN_TEMP_DIR]
        hack/release-distribution.sh inventory|audit --tag vMAJOR.MINOR.PATCH --source-sha FULL_SHA
        hack/release-distribution.sh publish --tag vMAJOR.MINOR.PATCH --source-sha FULL_SHA [--output-dir RUN_TEMP_DIR]
@@ -76,6 +77,17 @@ github_api_base() {
 
 is_plain_http_registry() {
 	[[ "$(registry_base)" == http://* ]]
+}
+
+helm_transport_flags() {
+	local operation="$1" help
+	transport_flags=()
+	if is_plain_http_registry; then
+		# Newer Helm requires explicit HTTP for the disposable fixture registry.
+		# Helm 3.12 uses localhost fallback and predates --plain-http.
+		help="$(helm "$operation" --help)" || fail "cannot inspect Helm $operation capabilities"
+		if [[ "$help" == *--plain-http* ]]; then transport_flags+=(--plain-http); fi
+	fi
 }
 
 registry_host() {
@@ -284,6 +296,7 @@ stage_candidate() {
 	helm package "$chart_stage" --destination "$stage_output_dir" >/dev/null || fail "canonical Helm chart packaging failed"
 	local archive="$stage_output_dir/kubeseer-$version.tgz"
 	[[ -f "$archive" ]] || fail "canonical Helm package did not produce kubeseer-$version.tgz"
+	python3 "$http_helper" normalize-chart --archive "$archive" --epoch "$commit_epoch" || fail "cannot normalize canonical Helm archive metadata"
 	[[ "$(find "$stage_output_dir" -maxdepth 1 -type f -name 'kubeseer-*.tgz' | wc -l | tr -d ' ')" == 1 ]] || fail "candidate directory must contain exactly one Kubeseer chart archive"
 	tar -tzf "$archive" >"$stage_output_dir/archive-files.txt" || fail "cannot list packaged Helm chart"
 python3 - "$stage_output_dir/archive-files.txt" <<'PY'
@@ -398,11 +411,11 @@ validate_source() {
 		rm -f "$note_file"
 		fail "cannot read tagged maintainer release notes: $notes_path"
 	fi
-	if ! rg -Fqx "# Kubeseer $tag" "$note_file"; then
+	if ! grep -Fqx "# Kubeseer $tag" "$note_file"; then
 		rm -f "$note_file"
 		fail "release notes must identify $tag in the title"
 	fi
-	if rg -qi '(^|[^[:alpha:]])(TODO|TBD|PLACEHOLDER|FILL[[:space:]]+IN)([^[:alpha:]]|$)' "$note_file"; then
+	if grep -Eqi '(^|[^[:alpha:]])(TODO|TBD|PLACEHOLDER|FILL[[:space:]]+IN)([^[:alpha:]]|$)' "$note_file"; then
 		rm -f "$note_file"
 		fail "release notes contain unfinished placeholder text"
 	fi
@@ -517,8 +530,10 @@ PY
 verify_public_chart() {
 	local version="$1" candidate_dir="$2" scratch="$3" expected_digest="$4"
 	local pull_dir="$scratch/chart-pull" archive="$scratch/chart-pull/kubeseer-$version.tgz" chart_ref="oci://$(registry_host)/steeltanuki/charts/kubeseer"
-	local -a flags=()
+	local -a flags=() transport_flags=()
 	mkdir -p "$pull_dir"
+	helm_transport_flags pull
+	flags=("${transport_flags[@]}")
 	helm pull "$chart_ref" --version "$version" --destination "$pull_dir" --registry-config "$candidate_dir/helm-anonymous.json" "${flags[@]}" >/dev/null || fail "published Helm OCI chart is not publicly retrievable"
 	[[ -f "$archive" ]] || fail "Helm OCI pull did not produce the expected versioned chart archive"
 	cmp -s "$candidate_dir/kubeseer-$version.tgz" "$archive" || fail "published Helm OCI chart bytes differ from the staged canonical chart"
@@ -529,6 +544,8 @@ verify_public_chart() {
 	archive_digest="$(sha256sum "$archive" | awk '{print $1}')"
 	[[ "$archive_digest" == "$(candidate_value "$candidate_dir" chart_archive_sha256)" ]] || fail "pulled Helm chart archive digest differs from the candidate"
 	local rendered="$scratch/published-chart.yaml"
+	helm_transport_flags template
+	flags=("${transport_flags[@]}")
 	helm template kubeseer "$chart_ref" --version "$version" --namespace kubeseer-system --kube-version 1.35.6 --include-crds --registry-config "$candidate_dir/helm-anonymous.json" "${flags[@]}" >"$rendered" || fail "published Helm OCI chart cannot be rendered"
 	python3 - "$rendered" "ghcr.io/steeltanuki/kubeseer:$version" <<'PY'
 import pathlib
@@ -660,20 +677,46 @@ prepare_registry_credentials() {
 	chmod 600 "$directory/podman-auth.json" "$directory/helm-publish.json"
 }
 
+image_push_flags() {
+	local directory="$1"
+	push_flags=(--format oci --authfile "$directory/podman-auth.json" --digestfile "$directory/pushed-image-digest.txt")
+	if is_plain_http_registry; then push_flags+=(--tls-verify=false); fi
+}
+
+check_tools() {
+	local tool
+	for tool in podman helm gh python3 tar sha256sum flock; do
+		command -v "$tool" >/dev/null 2>&1 || fail "$tool is required by release publication"
+	done
+	# Parse the actual publication options without contacting or writing a registry.
+	local -a push_flags=()
+	image_push_flags /tmp/kubeseer-release-toolcheck
+	podman push "${push_flags[@]}" --help >/dev/null || fail "installed Podman cannot parse the image publication options"
+	podman build --platform linux/amd64 --format oci --timestamp 0 --help >/dev/null || fail "installed Podman cannot parse the image build options"
+	helm push --registry-config /dev/null --help >/dev/null || fail "installed Helm does not support OCI publication"
+	gh release create --verify-tag --latest=false --help >/dev/null || fail "installed GitHub CLI cannot parse the release publication options"
+	podman --version
+	helm version --short
+	gh --version
+	printf 'RELEASE_DISTRIBUTION=tools STATUS=passed\n'
+}
+
 push_candidate_image() {
 	local directory="$1" destination="$2"
-	local -a flags=(--format oci --authfile "$directory/podman-auth.json" --digestfile "$directory/pushed-image-digest.txt")
-	if is_plain_http_registry; then flags+=(--tls-verify=false); fi
+	local -a push_flags=()
+	image_push_flags "$directory"
 	staged_image_ref="$(candidate_value "$directory" image_candidate)"
 	podman load --input "$directory/kubeseer-controller.oci.tar" >/dev/null || fail "cannot restore the staged production OCI image into Podman storage"
 	podman image exists "$staged_image_ref" || fail "staged OCI image archive did not preserve its unique candidate reference"
-	podman push "${flags[@]}" "$staged_image_ref" "docker://$destination" >/dev/null || fail "controller image publication failed"
+	podman push "${push_flags[@]}" "$staged_image_ref" "docker://$destination" >/dev/null || fail "controller image publication failed"
 }
 
 publish_chart_archive() {
 	local version="$1" directory="$2" destination
 	destination="oci://$(registry_host)/steeltanuki/charts"
-	local -a flags=(--registry-config "$directory/helm-publish.json")
+	local -a flags=(--registry-config "$directory/helm-publish.json") transport_flags=()
+	helm_transport_flags push
+	flags+=("${transport_flags[@]}")
 	helm push "$directory/kubeseer-$version.tgz" "$destination" "${flags[@]}" >/dev/null || fail "Helm OCI chart publication failed"
 }
 
@@ -828,7 +871,9 @@ run_audit() {
 	check_latest_unchanged "$latest_image" "$latest_chart" "$scratch"
 	local chart_pull="$scratch/chart-audit"
 	mkdir -p "$chart_pull"
-	local -a helm_flags=()
+	local -a helm_flags=() transport_flags=()
+	helm_transport_flags pull
+	helm_flags=("${transport_flags[@]}")
 	helm pull "oci://$(registry_host)/steeltanuki/charts/kubeseer" --version "$version" --destination "$chart_pull" --registry-config "$scratch/helm-anonymous.json" "${helm_flags[@]}" >/dev/null || fail "audited public chart cannot be pulled"
 	local chart_archive="$chart_pull/kubeseer-$version.tgz" chart_metadata="$scratch/Chart.yaml"
 	[[ -f "$chart_archive" ]] || fail "audited Helm pull produced no versioned archive"
@@ -853,6 +898,11 @@ main() {
 	local mode="${1:-}"
 	[[ -n "$mode" ]] || usage
 	shift
+	if [[ "$mode" == check-tools ]]; then
+		(($# == 0)) || usage
+		check_tools
+		return
+	fi
 	local tag="" source_sha="" output_dir="" candidate_dir=""
 	while (($#)); do
 		case "$1" in
