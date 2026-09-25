@@ -25,6 +25,7 @@ func assertPackagingUpgradeRollbackScenarios(t *testing.T) {
 	t.Helper()
 	chartDir := packagingChartDir(t)
 	defaultRender := renderPackagingChart(t, chartDir)
+	appVersion := packagingAppVersion(t, chartDir)
 
 	for _, fragment := range []string{
 		"progressDeadlineSeconds: 600",
@@ -37,8 +38,8 @@ func assertPackagingUpgradeRollbackScenarios(t *testing.T) {
 		"helm.sh/hook: post-install,post-upgrade,post-rollback",
 		"helm.sh/hook-weight: \"5\"",
 		"helm.sh/hook-weight: \"10\"",
-		"--expected-version=0.1.4",
-		"--expected-image=ghcr.io/steeltanuki/kubeseer:0.1.4",
+		"--expected-version=" + appVersion,
+		"--expected-image=ghcr.io/steeltanuki/kubeseer:" + appVersion,
 		"--expected-kubeseer-crd-storage-version=v1alpha1",
 		"--expected-access-policy-crd-storage-version=v1alpha1",
 		"--timeout=180s",
