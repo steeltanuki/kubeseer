@@ -284,3 +284,8 @@ Review this file before non-trivial work when the current request matches past m
 - Lesson: Podman inspect template fields are case-sensitive Go struct fields; Docker-style HostIp is not interchangeable with Podman's HostIP
 - Guardrail: Before using Podman inspect fields in ownership proofs, compare the template with real formatted output from the supported Podman provider and cover that proof with the genuine harness
 
+### 2026-09-25T07:35:49Z | release-distribution | release
+- Trigger: Hosted publication failed on a Podman option accepted locally; repeated Helm packaging changed archive hashes while recovery fixtures reused one candidate.
+- Lesson: Release proofs must exercise runner-compatible publication commands and independently rebuilt candidates, not only event policy and retries of the same staged files.
+- Guardrail: Run CLI capability checks before builds, exercise real registry transactions in CI, and assert image/chart digest equality after rebuilding the same tagged source.
+

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import gzip
 import hashlib
 import json
 import os
@@ -248,6 +249,39 @@ def archive_manifest(args: argparse.Namespace) -> None:
     print(json.dumps({"manifest_digest": digest}, sort_keys=True))
 
 
+def normalize_chart(args: argparse.Namespace) -> None:
+    """Keep Helm's files, but bind tar/gzip metadata to the source commit.
+
+    Helm 3 stamps archive members with packaging time, ignoring source mtimes.
+    A fresh runner must produce the same chart bytes for same-tag recovery.
+    """
+    path = pathlib.Path(args.archive)
+    normalized = path.with_suffix(path.suffix + ".normalized")
+    try:
+        with tarfile.open(path, "r:gz") as source, normalized.open("wb") as output:
+            with gzip.GzipFile(filename="", mode="wb", fileobj=output, mtime=0) as compressed:
+                with tarfile.open(fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT) as target:
+                    seen = set()
+                    for member in sorted(source.getmembers(), key=lambda item: item.name):
+                        name = pathlib.PurePosixPath(member.name)
+                        if (name.is_absolute() or ".." in name.parts or
+                                not member.name.startswith("kubeseer/") or
+                                not member.isfile() or member.name in seen):
+                            fail(f"unsafe or duplicate Helm archive member: {member.name}")
+                        seen.add(member.name)
+                        header = tarfile.TarInfo(member.name)
+                        header.size = member.size
+                        header.mode = 0o644
+                        header.mtime = args.epoch
+                        target.addfile(header, source.extractfile(member))
+        normalized.replace(path)
+        # Helm's OCI pusher derives its created annotation from the archive's
+        # filesystem mtime. Stabilize that as well as the bytes inside it.
+        os.utime(path, (args.epoch, args.epoch))
+    finally:
+        normalized.unlink(missing_ok=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
@@ -271,6 +305,10 @@ def main() -> None:
     archive = commands.add_parser("archive-manifest")
     archive.add_argument("--archive", required=True)
     archive.set_defaults(run=archive_manifest)
+    normalize = commands.add_parser("normalize-chart")
+    normalize.add_argument("--archive", required=True)
+    normalize.add_argument("--epoch", type=int, required=True)
+    normalize.set_defaults(run=normalize_chart)
     args = parser.parse_args()
     args.run(args)
 
