@@ -20,10 +20,11 @@ import (
 
 type object = map[string]interface{}
 
+type policyFailure string
+
 func check(ok bool, message string) {
 	if !ok {
-		fmt.Fprintln(os.Stderr, "RELEASE_WORKFLOW_POLICY=failed:", message)
-		os.Exit(1)
+		panic(policyFailure(message))
 	}
 }
 
@@ -174,6 +175,67 @@ func actionSteps(workflow object, prefix string) []object {
 	return result
 }
 
+func prepareWorkflowFixture(root, fixture string) (string, func()) {
+	check(fixture == "harmless-conditional-step" || fixture == "missing-required-command" || fixture == "public-write", "unknown workflow fixture: "+fixture)
+
+	fixtureRoot, err := os.MkdirTemp("", "kubeseer-release-workflow-fixture-")
+	check(err == nil, "cannot create temporary workflow fixture")
+	cleanup := func() {
+		if err := os.RemoveAll(fixtureRoot); err != nil {
+			fmt.Fprintln(os.Stderr, "workflow fixture cleanup failed:", err)
+		}
+	}
+	keep := false
+	defer func() {
+		if !keep {
+			cleanup()
+		}
+	}()
+
+	workflowDir := filepath.Join(fixtureRoot, ".github", "workflows")
+	check(os.MkdirAll(workflowDir, 0o700) == nil, "cannot create temporary workflow fixture directory")
+	for _, name := range []string{"ci.yml", "release.yml"} {
+		data, err := os.ReadFile(filepath.Join(root, ".github", "workflows", name))
+		check(err == nil, "cannot read workflow fixture source: "+name)
+		if name == "ci.yml" {
+			var ci object
+			check(yaml.Unmarshal(data, &ci) == nil && ci != nil, "cannot parse CI workflow fixture source")
+			validate := obj(obj(ci["jobs"])["validate"])
+			jobSteps := list(validate["steps"])
+			switch fixture {
+			case "harmless-conditional-step":
+				jobSteps = append(jobSteps, map[string]interface{}{
+					"name": "Harmless conditional fixture",
+					"if":   "github.event_name == 'pull_request'",
+					"run":  "echo harmless fixture",
+				})
+			case "missing-required-command":
+				removed := false
+				for _, rawStep := range jobSteps {
+					step := obj(rawStep)
+					if strings.TrimSpace(str(step["run"])) == "make verify" {
+						step["run"] = "echo required validation command omitted"
+						removed = true
+					}
+				}
+				check(removed, "missing-command fixture could not find make verify")
+			case "public-write":
+				jobSteps = append(jobSteps, map[string]interface{}{
+					"name": "Forbidden public write fixture",
+					"run":  "gh release create v0.1.0",
+				})
+			}
+			validate["steps"] = jobSteps
+			data, err = yaml.Marshal(ci)
+			check(err == nil, "cannot serialize temporary CI workflow fixture")
+		}
+		destination := filepath.Join(workflowDir, name)
+		check(os.WriteFile(destination, data, 0o600) == nil, "cannot write temporary workflow fixture: "+name)
+	}
+	keep = true
+	return fixtureRoot, cleanup
+}
+
 func verifyActionPins(workflow object) {
 	pinned := regexp.MustCompile("^[^@]+@[0-9a-f]{40}$")
 	count := 0
@@ -242,10 +304,43 @@ func mayPublish(on object, event, ref string, gatesPassed, nonVacuous, sameSHA b
 }
 
 func main() {
-	root := "."
+	if err := execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func execute() (err error) {
+	defer func() {
+		if failure := recover(); failure != nil {
+			if policy, ok := failure.(policyFailure); ok {
+				err = fmt.Errorf("RELEASE_WORKFLOW_POLICY=failed: %s", string(policy))
+				return
+			}
+			panic(failure)
+		}
+	}()
+
+	root, fixture := ".", ""
 	if len(os.Args) > 1 {
 		root = os.Args[1]
 	}
+	if len(os.Args) > 2 {
+		fixture = os.Args[2]
+	}
+	if fixture != "" {
+		var cleanup func()
+		root, cleanup = prepareWorkflowFixture(root, fixture)
+		defer cleanup()
+	}
+	verifyWorkflows(root)
+	if fixture != "" {
+		fmt.Println("SEMANTIC_CI_POLICY_FIXTURE=passed CASES=1")
+	}
+	return nil
+}
+
+func verifyWorkflows(root string) {
 	ci := workflow(filepath.Join(root, ".github", "workflows", "ci.yml"))
 	release := workflow(filepath.Join(root, ".github", "workflows", "release.yml"))
 	check(str(ci["name"]) == "Continuous integration" && str(release["name"]) == "Official release distribution", "unexpected workflow names")
@@ -269,7 +364,6 @@ func main() {
 	requireRipgrepSetup(ciJob, "Install ripgrep for repository verification", "Verify generated files, package rules, and repository boundaries")
 	requireModuleSetup(ciJob, "Verify generated files, package rules, and repository boundaries")
 	ciRuns := runs(ciJob)
-	check(runCount(ciJob) == 6, "CI must check release tools, set up dependencies, and run three validation commands")
 	requireRunBeforeGoSetup(ciJob, "./hack/release-distribution.sh check-tools")
 	for _, command := range []string{"make verify", "make test", "make test-release-distribution SCENARIO=all"} {
 		check(exactRunLineCount(ciJob, command) == 1, "CI must invoke exactly once: "+command)

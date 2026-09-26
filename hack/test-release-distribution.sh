@@ -1048,14 +1048,28 @@ PY
 }
 
 run_workflows() {
-	expected_cases=1
-	local output fixture_count
+	expected_cases=2
+	local output fixture_count fixture_output missing_output publication_output
 	output="$(cd "$ROOT_DIR" && go run ./hack/verify-release-workflows.go "$ROOT_DIR" 2>&1)" || fail "workflow policy fixture failed: $output"
 	fixture_count="$(printf '%s\n' "$output" | awk '/^PASS release-distribution\// { count++ } END { print count + 0 }')"
 	[[ "$fixture_count" == 17 ]] || fail "workflow fixtures ran $fixture_count cases instead of 17: $output"
 	[[ "$output" == *"RELEASE_WORKFLOW_POLICY=passed CASES=17"* ]] || fail "workflow verifier omitted its complete fixture marker: $output"
 	printf '%s\n' "$output"
 	pass_case parsed-workflows-and-event-policy-fixtures
+
+	fixture_output="$(cd "$ROOT_DIR" && go run ./hack/verify-release-workflows.go "$ROOT_DIR" harmless-conditional-step 2>&1)" || fail "harmless conditional CI step was rejected: $fixture_output"
+	[[ "$fixture_output" == *"SEMANTIC_CI_POLICY_FIXTURE=passed CASES=1"* ]] || fail "workflow verifier omitted the harmless-step fixture marker: $fixture_output"
+
+	if missing_output="$(cd "$ROOT_DIR" && go run ./hack/verify-release-workflows.go "$ROOT_DIR" missing-required-command 2>&1)"; then
+		fail "workflow verifier accepted a missing required validation command"
+	fi
+	[[ "$missing_output" == *"CI must invoke exactly once: make verify"* ]] || fail "missing-command fixture failed for an unexpected reason: $missing_output"
+
+	if publication_output="$(cd "$ROOT_DIR" && go run ./hack/verify-release-workflows.go "$ROOT_DIR" public-write 2>&1)"; then
+		fail "workflow verifier accepted a public release operation in ordinary CI"
+	fi
+	[[ "$publication_output" == *"CI includes a public release write: gh release create"* ]] || fail "public-write fixture failed for an unexpected reason: $publication_output"
+	pass_case semantic-ci-workflow-policy
 	[[ "$passed_cases" == "$expected_cases" ]] || fail "only $passed_cases of $expected_cases workflow harness cases ran"
 	printf 'RELEASE_DISTRIBUTION=workflows STATUS=passed CASES=%s\n' "$passed_cases"
 }
