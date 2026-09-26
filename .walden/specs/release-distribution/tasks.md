@@ -1,11 +1,11 @@
 ---
 walden_schema_version: v1alpha1
 status: approved
-approved_at: 2026-09-24T17:01:10Z
-last_modified: 2026-09-24T17:17:42Z
-approved_fingerprint: sha256:b8d115e3b3fdab528a72cd5ef01a63b121480d94552ab5a085388c3632627ef3
-source_design_approved_at: 2026-09-24T16:55:25Z
-source_design_fingerprint: sha256:7ad6e28084b632df0352236871bea6dbd26d6d5f75334700c21f6001ff80a37f
+approved_at: 2026-09-26T10:02:20Z
+last_modified: 2026-09-26T10:07:25Z
+approved_fingerprint: sha256:4675bb3f0e7273982936000861a8c5ecc61463fe73441311490bd3188491f4f4
+source_design_approved_at: 2026-09-26T09:59:29Z
+source_design_fingerprint: sha256:bd76f11a1a74a13ec633c3cdd3532d370b9705890b6254dc914a5e03632ecd90
 ---
 
 # Implementation Plan
@@ -187,3 +187,23 @@ tag rulesets, promotion, and the actual release tag remain maintainer actions.
         expect_output: "PASS release-distribution/docs-main-promotion-contract"
         timeout: 15m
         covers: ["R1.AC2","R1.AC5","R6.AC9","C6"]
+
+- [x] 7. Keep ordinary CI policy checks semantic
+  - [x] 7.1 Verify required CI properties without structural step counts
+    - Apply the changed-file-aware ordinary CI workflow and update
+      `hack/verify-release-workflows.go` to retain checks for required
+      validation commands, trigger coverage, approved pinned actions,
+      read-only permissions, and forbidden publication operations without
+      requiring an exact total number of shell steps.
+    - Extend the workflow harness with temporary workflow fixtures. Prove that
+      an additional non-publishing conditional shell step passes, while a
+      missing required validation command and an injected publication command
+      fail. Emit a dedicated semantic-policy marker only after all outcomes
+      are observed.
+    - Requirements: `R1.AC1`, `R1.AC2`, `R1.AC3`, `R1.AC8`, `R9.AC1`
+    - Design: Architecture; Options Considered; Failure Modes And Tradeoffs; Verification Plan
+    - Verification:
+      - command: ["make", "test-release-distribution", "SCENARIO=workflows"]
+        expect_output: "PASS release-distribution/semantic-ci-workflow-policy"
+        timeout: 25m
+        covers: ["R1.AC1","R1.AC2","R1.AC3","R1.AC8","R9.AC1"]

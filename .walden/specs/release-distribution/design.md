@@ -1,11 +1,11 @@
 ---
 walden_schema_version: v1alpha1
 status: approved
-approved_at: 2026-09-24T16:55:25Z
-last_modified: 2026-09-24T16:55:25Z
-approved_fingerprint: sha256:7ad6e28084b632df0352236871bea6dbd26d6d5f75334700c21f6001ff80a37f
-source_requirements_approved_at: 2026-09-24T16:52:24Z
-source_requirements_fingerprint: sha256:2c2ce54e55bb8387bf09071baf112aae52fb8699841e5884715a0c1b5e93b191
+approved_at: 2026-09-26T09:59:29Z
+last_modified: 2026-09-26T09:59:29Z
+approved_fingerprint: sha256:bd76f11a1a74a13ec633c3cdd3532d370b9705890b6254dc914a5e03632ecd90
+source_requirements_approved_at: 2026-09-26T09:57:35Z
+source_requirements_fingerprint: sha256:5d89ea48ec60f52a531da280d4bfd9bbae3e3d0b4d56dfe76be796f70145d861
 ---
 
 # Feature Design
@@ -88,6 +88,16 @@ decision table with local fake registry/GitHub endpoints and proves the
 no-public-write paths. The script remains callable locally with suitable
 GitHub identity; the workflow is an orchestrator, not a second package
 implementation.
+
+`hack/verify-release-workflows.go` parses both workflow files and judges the
+ordinary CI workflow by its required commands, trigger coverage, approved and
+pinned action dependencies, read-only permissions, and absence of publication
+commands. It does not constrain the total number of shell steps because
+classification, diagnostics, and other conditional read-only steps do not
+change those guarantees. The workflow harness copies the workflow fixtures to
+a temporary directory and proves that an added non-publishing conditional step
+is accepted, while a missing required validation command and an injected
+publication command are rejected.
 
 ### Release identity and staged candidates
 
@@ -272,6 +282,8 @@ Any failure produces an incomplete audit, never a success marker.
 | A separate chart repository, ChartMuseum, or second chart tree | Rejected: duplicate package ownership and external infrastructure without a release need. |
 | Attach an additional `.tgz` to GitHub Releases | Deferred: Helm OCI is sufficient; an extra asset adds another consistency and recovery state. |
 | Multi-platform build from the current Dockerfile | Rejected for the initial release: the production build hardcodes `GOARCH=amd64`; arm64 needs a separately approved production-image correction. |
+| Semantic CI policy checks over required commands, permissions, action dependencies, and forbidden publication operations | Selected: preserves the release boundary while allowing additional conditional read-only workflow steps. |
+| Exact total count of CI shell steps | Rejected: unrelated classification or diagnostic steps change the count without weakening any release guarantee. |
 
 ## Simplicity And Elegance Review
 
@@ -285,6 +297,9 @@ version-generation or promotion services would add state without satisfying
 an initial requirement. Promotion is an ordinary reviewed pull request from
 `develop` to `main`; the release script changes one ancestry reference and
 keeps the existing tagged-source and artifact checks.
+The CI policy verifier reuses the existing YAML parser and command inspection;
+it removes one structural count assertion instead of introducing another
+workflow parser or maintaining a second command allowlist.
 
 ## Failure Modes And Tradeoffs
 
@@ -295,6 +310,8 @@ keeps the existing tagged-source and artifact checks.
 | `main` advances after an earlier release tag | Keep the earlier tag eligible by ancestry so an exact same-tag audit or missing-only rerun remains possible. |
 | Required `main` or `v*` ruleset is not active | Treat repository protection as an unmet administration prerequisite; do not create the release tag. |
 | Verification gate fails or skips | Stop before candidate publication; no partial public state. |
+| A harmless conditional CI step changes workflow structure | Continue to judge the workflow from required validations and security properties; do not reject it because a shell-step count changed. |
+| A required CI command is removed or a publication operation is added | Reject the workflow fixture before reporting the release-policy success marker. |
 | Runner cannot execute Podman/kind gate | Stop as an environment failure; use a compatible GitHub-hosted runner setup rather than weakening certification. |
 | Existing registry version conflicts | Preserve remote bytes; report digest and revision conflict for maintainer investigation. |
 | Image succeeds, chart fails | Record image digest and absent chart; same-tag rerun reuses image and publishes only matching missing chart. |
@@ -314,6 +331,11 @@ keeps the existing tagged-source and artifact checks.
   candidate metadata, remote `404`/auth distinctions, conflict/no-op/partial
   reruns, existing Release handling, and `latest` preservation. Every case
   asserts the exact write log and prints a stable, non-vacuous result marker.
+- Its workflow scenario verifies the repository workflows, then runs temporary
+  mutated copies: one adds a harmless conditional shell step and must pass; one
+  removes a required validation command and must fail; one injects a public
+  release operation and must fail. A dedicated semantic-policy marker is
+  printed only after all three outcomes are observed.
 - `make verify-release-source TAG=vX.Y.Z` is a read-only tagged-checkout
   command that validates tag/source/chart/note identity and staged candidate
   image/chart without GHCR or Release writes. It checks no tracked file was
@@ -339,7 +361,7 @@ keeps the existing tagged-source and artifact checks.
 
 | Requirement | Covered By |
 | --- | --- |
-| `R1` | CI event/permission isolation for `develop` and `main`; exact tag trigger; no-public-write and no-floating-tag fixtures |
+| `R1` | CI event/permission isolation for `develop` and `main`; semantic required-command and security-property fixtures; exact tag trigger; no-public-write and no-floating-tag fixtures |
 | `R2` | Tag parser, peeled commit, source preflight, candidate identity and archive inspection |
 | `R3` | Read-only gates job and approved command matrix with non-vacuous markers |
 | `R4` | Existing Dockerfile build, amd64/platform inspection, GHCR image digest and pull audit |
