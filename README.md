@@ -1,34 +1,115 @@
 # Kubeseer
 
-Kubeseer is a Kubernetes operator that builds deterministic, typed views of
-Kubernetes resources. A namespaced `Kubeseer` custom resource declares what to
-observe, how to select objects, which values to extract, which predicates to
-apply, and how to aggregate the result. The controller publishes that view in
-the resource's `status`.
+**Declarative, typed views and aggregations over Kubernetes resources.**
 
-Kubeseer can observe built-in objects and structural Custom Resources, combine
-data from multiple namespaces, preserve Kubernetes-aware types, and continue
-publishing useful sibling results when one source degrades. Every read is
-bounded by both Kubernetes RBAC and the administrator-owned
-`installation-access-ceiling` policy.
+Kubeseer is a Kubernetes operator that lets you query, filter, transform, and aggregate Kubernetes resources declaratively — without writing a purpose-built controller.
 
-## What it provides
+Define a `Kubeseer` custom resource describing what to observe and which values you need. Kubeseer continuously evaluates the selected resources and publishes a deterministic, typed view in the custom resource's `status`.
 
-- discovery of built-in and custom Kubernetes resource types;
-- selection by namespace, exact name, labels, label expressions, and field
-  selector;
-- a deliberately restricted, non-executable JSONPath subset;
-- typed values: string, integer, number, boolean, timestamp, duration,
-  quantity, object, and list;
-- predicates and transforms such as `gte`, `contains`, `matches`, `in`,
-  `default`, and `coalesce`;
-- deterministic `collect`, `count`, `sum`, `min`, `max`, `average`, `first`,
-  `last`, and `distinct` aggregations;
-- cross-namespace results with optional resource provenance;
-- explicit conditions, summaries, sanitized errors, Kubernetes Events,
-  Prometheus metrics, structured logs, and optional tracing;
-- validating admission, runtime revalidation, bounded execution, and
-  fail-closed authorization.
+```mermaid
+flowchart LR
+    R["Kubernetes Resources<br/>Deployments · Pods · CRDs"]
+    K["Kubeseer"]
+    S["Select"]
+    E["Extract"]
+    F["Filter / Transform"]
+    A["Aggregate"]
+    O["Kubeseer.status"]
+
+    R --> K --> S --> E --> F --> A --> O
+```
+
+## Why Kubeseer?
+
+Kubernetes already gives you powerful ways to inspect resources using `kubectl`, JSONPath, field selectors, and external tools such as `jq`.
+
+Those approaches work well for ad-hoc queries.
+
+Kubeseer addresses a different use case: **turning a resource query or aggregation into declarative Kubernetes state that is continuously reconciled.**
+
+For example, instead of writing and operating a custom controller just to calculate a value from several Kubernetes objects, you can declare the view you want and let Kubeseer maintain it.
+
+### Example: aggregate Deployments across namespaces
+
+Suppose you want the total number of declared replicas across Deployments in two namespaces.
+
+Declare it as a Kubernetes resource:
+
+```yaml
+apiVersion: kubeseer.io/v1alpha1
+kind: Kubeseer
+metadata:
+  name: aggregation
+  namespace: application-a
+spec:
+  sources:
+    - id: deployments
+      resource:
+        apiVersion: apps/v1
+        kind: Deployment
+      namespaces:
+        names:
+          - application-a
+          - application-b
+      fields:
+        - name: replicas
+          path: "{.spec.replicas}"
+          type: integer
+      aggregations:
+        - name: total
+          function: sum
+          field: replicas
+```
+
+Kubeseer discovers the matching resources, extracts `spec.replicas` as typed integers, calculates the aggregate, and keeps the result updated in the `Kubeseer` resource status as the cluster changes.
+
+No application-specific controller is required.
+
+## What Kubeseer can do
+
+Kubeseer can build views over both built-in Kubernetes objects and structural Custom Resources.
+
+It supports:
+
+- resource discovery for built-in APIs and CRDs;
+- selection by namespace, exact name, labels, label expressions, and field selectors;
+- queries spanning multiple namespaces;
+- field extraction through a deliberately restricted, non-executable JSONPath subset;
+- Kubernetes-aware typed values including strings, integers, numbers, booleans, timestamps, durations, quantities, objects, and lists;
+- predicates and transformations such as `gte`, `contains`, `matches`, `in`, `default`, and `coalesce`;
+- deterministic `collect`, `count`, `sum`, `min`, `max`, `average`, `first`, `last`, and `distinct` aggregations;
+- optional provenance linking results back to their source resources;
+- partial results when an isolated source becomes unavailable;
+- explicit conditions, summaries, sanitized errors, Kubernetes Events, Prometheus metrics, structured logs, and optional tracing.
+
+## Kubernetes-native security model
+
+Kubeseer does not bypass Kubernetes authorization.
+
+Every read is constrained by both:
+
+1. the Kubernetes RBAC permissions granted to the Kubeseer controller; and
+2. the administrator-controlled `installation-access-ceiling` policy.
+
+Admission validation and runtime revalidation ensure that a `Kubeseer` resource cannot expand its effective access beyond the scope authorized by the cluster administrator.
+
+Kubeseer fails closed when authorization cannot be established.
+
+## Typical use cases
+
+Kubeseer is useful when you need a Kubernetes-native, continuously maintained view derived from existing cluster resources.
+
+Examples include:
+
+- summing requested or declared values across workloads;
+- collecting selected fields from resources spread across multiple namespaces;
+- filtering Custom Resources by typed status values;
+- exposing a concise derived status from a larger set of Kubernetes objects;
+- building inputs for another controller without coupling it directly to many different resource types;
+- replacing small, application-specific aggregation controllers with declarative resources;
+- maintaining deterministic inventories or summaries directly inside the Kubernetes API.
+
+For one-off interactive inspection, `kubectl`, JSONPath, or `jq` may be simpler. Kubeseer is designed for cases where the query itself should become **declarative, persistent, and continuously reconciled Kubernetes state**.
 
 ## Install an official release
 
