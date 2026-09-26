@@ -1,9 +1,9 @@
 ---
 walden_schema_version: v1alpha1
 status: approved
-approved_at: 2026-09-24T16:52:24Z
-last_modified: 2026-09-24T16:52:24Z
-approved_fingerprint: sha256:2c2ce54e55bb8387bf09071baf112aae52fb8699841e5884715a0c1b5e93b191
+approved_at: 2026-09-26T09:57:35Z
+last_modified: 2026-09-26T09:57:35Z
+approved_fingerprint: sha256:5d89ea48ec60f52a531da280d4bfd9bbae3e3d0b4d56dfe76be796f70145d861
 ---
 
 # Requirements Document
@@ -56,6 +56,8 @@ artifact.
    - Acceptance check: tag creation remains an explicit maintainer action.
 7. `R1.AC7` IF the requested release action is not a qualifying `vMAJOR.MINOR.PATCH` tag, THEN the system SHALL stop before publishing any artifact.
    - Acceptance check: a branch event, malformed tag, or unsupported prerelease leaves all official endpoints unchanged.
+8. `R1.AC8` WHEN repository policy checks an ordinary CI workflow, the system SHALL determine conformance from its required validation commands, approved action dependencies, read-only permissions, and absence of publication operations without requiring an exact total number of shell steps.
+   - Acceptance check: a workflow fixture with an additional non-publishing conditional shell step passes, while removing a required command or introducing a publication operation still fails.
 
 ### R2 Canonical Version And Source Revision
 
